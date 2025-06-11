@@ -47,7 +47,7 @@ fn run_forth(config: &Config) {
     println!("{WELCOME_MESSAGE} Version {VERSION}");
 
     // Enter the interactive loop to read and process input
-    // call QUERY to start the r2 engine.
+    // call QUERY to start the f3 engine.
     forth.f_quit();
     // Exit when query gets a bye or EOF.
     println!("{EXIT_MESSAGE}");

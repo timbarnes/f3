@@ -23,7 +23,7 @@ pub enum FType {
 
 #[derive(Debug)]
 pub struct FileHandle {
-    pub source: FType, // Stdin, File, or BufReader
+    pub source: FType,               // Stdin, File, or BufReader
     pub file_mode: FileMode,
     pub file_size: usize,
     pub file_position: usize,
@@ -68,7 +68,7 @@ impl FileHandle {
                     Err(_) => {
                         msg_handler.error(
                             "Reader::new",
-                            "File not able to be opened",
+                            "Unable to open file",
                             Some(file_path),
                         );
                         return None;
