@@ -2,7 +2,7 @@
 ///
 /// Core functions to execute specific types of objects
 ///
-use crate::engine::{
+use crate::kernel::{
     ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BUILTIN, BUILTIN_MASK, CONSTANT, DEFINITION, EXIT,
     DATA_SIZE, EXEC, LITERAL, BREAK, RET_START, STRLIT, TF, VARIABLE,
 };

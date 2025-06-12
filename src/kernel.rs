@@ -1,3 +1,13 @@
+//////////////////////////////////////////////////////////////
+/// Forth Interpreter Kernel
+/// 
+/// This module contains the core data structures and functions for the Forth interpreter.
+/// The intention is that this module handles lower level functions directly related to the data structures.
+/// 
+/// Specifically it manages the main data area (heap)
+/// 
+
+
 use crate::internals::builtin::BuiltInFn;
 use crate::messages::Msg;
 use crate::files::{FileHandle, FileMode};
@@ -40,20 +50,6 @@ pub const EXIT: i64       = 100009; // returns from a word
 pub const BREAK: i64      = 100010; // breaks out of a word
 pub const EXEC: i64       = 100011; // calls the word with address on the stack
 
-pub struct Variable {
-    addr: usize, // address of the variable in the data area   
-}
-
-impl Variable {
-    pub fn get(&self, heap: &[usize]) -> usize {
-        heap[self.addr]
-    }
-
-    pub fn set(&self, heap: &mut [usize], value: usize) {
-        heap[self.addr] = value;
-    }
-}
-
 /// The primary data structure for the Forth engine
 ///
 ///     Forth's main data structure is a fixed array of integers (overloaded with characters and unsigned values).
@@ -68,7 +64,7 @@ impl Variable {
 ///
 //#[derive(Debug)]
 pub struct TF {
-    pub data: [i64; DATA_SIZE],
+    pub heap: [i64; DATA_SIZE],
     pub strings: [char; STRING_SIZE], // storage for strings
     pub builtins: Vec<BuiltInFn>,     // the dictionary of builtins
     //pub return_stack: Vec<i64>,     // for do loops etc.
@@ -104,7 +100,7 @@ impl TF {
     // ForthInterpreter struct implementations
     pub fn new() -> TF {
         let mut interpreter = TF {
-            data: [0; DATA_SIZE],
+            heap: [0; DATA_SIZE],
             strings: [' '; STRING_SIZE],
             builtins: Vec::new(),
             here_ptr: WORD_START,
@@ -138,30 +134,129 @@ impl TF {
         interpreter
     }
 
-////////////////////////////////////////////
-/// Kernel functions
-/// Accessors and checks
-/// 
-///////////////////////////////////////////////////////
-/// store(address, value) stores a value in the data area at the specified address.
-/// 
-    pub fn store(&mut self, addr: usize, value: i64) {
-        if addr < DATA_SIZE {
-            self.data[addr] = value;
+    /// cold_start is where the interpreter begins, installing some variables and the builtin functions.
+    pub fn cold_start(&mut self) {
+        self.u_insert_variables();
+        self.add_builtins();
+        self.set(self.state_ptr, FALSE);
+        self.u_insert_code(); // allows forth code to be run prior to presenting a prompt.
+    }
+
+    /// get_var returns the value of a cell on the heap using its address
+    ///      This is used to access variables, constants, and other data stored in the heap.
+    ///
+    pub fn get(&mut self, addr: usize) -> i64 {
+        self.heap[addr]
+    }
+
+    /// set_var stores a new value to a cell on the heap using its address
+    ///     This is used to set variables, constants, and other data stored in the heap.
+    /// 
+    pub fn set(&mut self, addr: usize, val: i64) {
+        self.heap[addr] = val;
+    }
+
+    /// get_compile_mode determines whether or not compile mode is active
+    ///     Traditionally, a variable called 'EVAL stores the compile or the interpret functions
+    ///     In this version, the STATE variable is used directly.
+    ///
+    pub fn get_compile_mode(&mut self) -> bool {
+        if self.get(self.state_ptr) == FALSE {
+            false
         } else {
-            self.msg.error("Store out of bounds");
+            true
         }
     }
 
-///////////////////////////////////////////////
-/// fetch(address) retrieves a value from the data area at the specified address.
-/// 
-    pub fn fetch(&self, addr: usize) -> i64 {
-        if addr < DATA_SIZE {
-            self.data[addr]
+    /// set_compile_mode turns on compilation mode
+    ///
+    pub fn set_compile_mode(&mut self, value: bool) {
+        self.set(self.state_ptr, if value { -1 } else { 0 });
+    }
+
+    /// abort empties the stack, resets any pending operations, and returns to the prompt
+    ///     There is a version called abort" implemented in Forth, which prints an error message
+    ///
+    pub fn f_abort(&mut self) {
+        // empty the stack, reset any pending operations, and return to the prompt
+        self.msg
+            .warning("ABORT", "Terminating execution", None::<bool>);
+        self.f_clear();
+        self.set_abort_flag(true);
+    }
+
+
+
+    /// f_clear resets the stack and return stack pointers to their initial values
+    ///
+     pub fn f_clear(&mut self) {
+        println!("Clearing interpreter state");
+        self.stack_ptr = STACK_START;
+        self.return_ptr = RET_START;  // Reset return stack pointer
+        /*
+        self.heap[self.pad_ptr] = PAD_START as i64;     // Reset pad pointer
+        self.heap[self.tmp_ptr] = TMP_START as i64;     // Reset temporary string pointer
+        self.heap[self.base_ptr] = 10;                  // Reset base pointer to decimal
+        self.heap[self.tib_ptr] = TIB_START as i64;     // Reset TIB pointer
+        self.heap[self.tib_in_ptr] = TIB_START as i64 + 1;  // Reset TIB input pointer
+        self.heap[self.tib_size_ptr] = 0;               // Reset TIB size pointer
+        */
+   }
+
+    /// set_abort_flag allows the abort condition to be made globally visible
+    ///
+    pub fn set_abort_flag(&mut self, v: bool) {
+        self.set(self.abort_ptr, if v { -1 } else { 0 });
+    }
+
+    /// get_abort_flag returns the current value of the flag
+    ///
+    pub fn get_abort_flag(&mut self) -> bool {
+        let val = self.get(self.abort_ptr);
+        if val == FALSE {
+            false
         } else {
-            self.msg.error("Fetch out of bounds");
-            0 // Return a default value
+            true
         }
     }
+
+    /// should_exit determines whether or not the user has executed BYE
+    ///
+    pub fn should_exit(&self) -> bool {
+        // Method to determine if we should exit
+        self.exit_flag
+    }
+
+
+    pub fn f_bye(&mut self) {
+        self.exit_flag = true;
+    }
+
+    // pack_string compresses strings to fit into 64 bit words
+    //     Not used by the current implementation because strings are in their own data structure
+    /* pub fn pack_string(&self, input: &str) -> Vec<usize> {
+        // tries to pack a string
+        let mut output = Vec::new();
+        let mut tmp = input.len();
+        println!("{:#x}", tmp);
+
+        let words: usize = input.len() / 7 + 1;
+        //println!("Words:{words}");
+        let mut i = 0;
+        for c in input.chars() {
+            i += 1;
+            if i % 8 == 0 {
+                output.push(tmp);
+                tmp = 0;
+            }
+            let shift = i % 8;
+            let new = (c as u8 as usize) << 8 * shift;
+            println!("{shift} {:#x}", new);
+            tmp |= (c as u8 as usize) << 8 * shift;
+            //println!("tmp{:#x}", tmp);
+        }
+        output.push(tmp);
+        //println!("Finished packing");
+        output
+    } */
 }

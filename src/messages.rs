@@ -1,4 +1,4 @@
-// Message handler
+/// A simple Message handler that respects the debug level set by the user.
 
 use std::fmt::Debug;
 

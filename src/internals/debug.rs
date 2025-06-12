@@ -1,6 +1,6 @@
 // Debugging help
 
-use crate::engine::{ADDRESS_MASK, BUILTIN_MASK, STACK_START, TF, EXEC,
+use crate::kernel::{ADDRESS_MASK, BUILTIN_MASK, STACK_START, TF, EXEC,
     VARIABLE, CONSTANT, LITERAL, STRLIT, DEFINITION, BRANCH, BRANCH0, ABORT, EXIT, BREAK};
 use crate::messages::DebugLevel;
 

@@ -1,6 +1,6 @@
 // Compiler and Interpreter
 
-use crate::engine::{
+use crate::kernel::{
     ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BUILTIN, BUILTIN_MASK, CONSTANT, DEFINITION, EXIT, FALSE,
     EXEC, IMMEDIATE_MASK, LITERAL, BREAK, STACK_START, STRLIT, TF, TRUE, VARIABLE,
 };

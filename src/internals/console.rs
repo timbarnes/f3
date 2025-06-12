@@ -1,5 +1,5 @@
 /// Input-output words
-use crate::engine::{BUF_SIZE, FALSE, FILE_MODE_R_O, STACK_START, TF, TRUE};
+use crate::kernel::{BUF_SIZE, FALSE, FILE_MODE_R_O, STACK_START, TF, TRUE};
 use crate::messages::Msg;
 use crate::files::{FileHandle, FType, FileMode};
 use std::cmp::min;

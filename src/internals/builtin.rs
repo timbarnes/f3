@@ -3,8 +3,8 @@
 /// Set up a table of builtin functions, with names and code
 
 #[allow(dead_code)]
-use crate::engine::{BUILTIN_MASK, FALSE, STR_START, TF, TIB_START, VARIABLE};
-use crate::engine::{PAD_START, TMP_START};
+use crate::kernel::{BUILTIN_MASK, FALSE, STR_START, TF, TIB_START, VARIABLE};
+use crate::kernel::{PAD_START, TMP_START};
 
 // The mechanism for storing and calling function pointers
 pub trait BuiltinCall {

@@ -1,14 +1,20 @@
-// f2 main program
+// f3 main program
 // Version 0.1
+// 
+// Boots the interpreter, loads the core and any specified files, and runs the Forth interpreter loop.
+// The boot process is separated from the run process to allow for better error handling and recovery.
+// Errors during boot will not start the interpreter loop, while errors during execution will 
+// reset the interpreter to the prompt, clearing the data stack and return stack.
+
 
 mod config;
-mod engine;
+mod kernel;
 mod messages;
 mod files;
 mod internals;
 
 use config::{Config, DEFAULT_CORE, VERSION};
-use engine::TF;
+use kernel::TF;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const WELCOME_MESSAGE: &str = "Welcome to f3.";

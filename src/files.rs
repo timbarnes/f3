@@ -1,6 +1,10 @@
-// Read tokens from a file or stdin, one line at a time.
-// Return one space-delimited token at a time.
-// Cache the remainder of the line.
+////////////////////////////
+/// File: src/files.rs
+/// 
+/// This module provides functionality for reading and writing files,
+///      Read tokens from a file or stdin, one line at a time.
+///      Return one space-delimited token at a time.
+///      Cache the remainder of the line.
 
 use std::fs::File;
 use std::io::{self, BufReader, BufRead, Read, Write};
