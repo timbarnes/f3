@@ -7,20 +7,6 @@ use crate::kernel::{
     DATA_SIZE, EXEC, LITERAL, BREAK, RET_START, STRLIT, TF, VARIABLE,
 };
 
-macro_rules! pop {
-    ($self:ident) => {{
-        let r = $self.heap[$self.stack_ptr];
-        //$self.data[$self.stack_ptr] = 999999;
-        $self.stack_ptr += 1;
-        r
-    }};
-}
-macro_rules! push {
-    ($self:ident, $val:expr) => {
-        $self.stack_ptr -= 1;
-        $self.heap[$self.stack_ptr] = $val;
-    };
-}
 
 impl TF {
     /// Executes the builtin at the next address in DATA
@@ -28,7 +14,7 @@ impl TF {
     ///    [ index of i_builtin ] [ index of builtin ] in a compiled word
     ///
     pub fn i_builtin(&mut self) {
-        let code = pop!(self);
+        let code = self.pop();
         let op = &self.builtins[code as usize];
         let func = op.code;
         func(self);
@@ -39,8 +25,8 @@ impl TF {
     ///    [ index of i_variable ] [ index of builtin ] in a compiled word
     ///
     pub fn i_variable(&mut self) {
-        let val = pop!(self);
-        push!(self, val); // address of the value
+        let val = self.pop();
+        self.push(val); // address of the value
     }
 
     /// Places the value of the adjacent constant on the stack
@@ -48,8 +34,8 @@ impl TF {
     ///    [ index of i_constant ] [ constant value ] in a compiled word
     ///
     pub fn i_constant(&mut self) {
-        let val = pop!(self);
-        push!(self, self.heap[val as usize]);
+        let val = self.pop();
+        self.push(self.heap[val as usize]);
     }
 
     /// Places the number in data[d] on the stack
@@ -83,9 +69,9 @@ impl TF {
     ///    xt  means the execution token - a value that tells the engine what to do
     ///
     pub fn i_definition(&mut self) {
-        let mut pc = pop!(self) as usize; // This is the start of the definition: first word after the inner interpreter opcode
+        let mut pc = self.pop() as usize; // This is the start of the definition: first word after the inner interpreter opcode
         let mut call_depth: usize = 1;
-        push!(self, 0); // this is how we know when we're done
+        self.push(0); // this is how we know when we're done
         self.f_to_r();
         loop {
             // each time round the loop should be one word
@@ -100,29 +86,29 @@ impl TF {
                     self.msg
                         .error("i_definition", "Found BUILTIN???", Some(code));
                     self.f_r_from();
-                    pc = pop!(self) as usize;
+                    pc = self.pop() as usize;
                 }
                 VARIABLE => {
                     // this means we've pushed into a variable and are seeing the inner interpreter
                     pc += 1;
-                    push!(self, pc as i64); // the address of the variable's data
+                    self.push(pc as i64); // the address of the variable's data
                     self.f_r_from();
-                    pc = pop!(self) as usize;
+                    pc = self.pop() as usize;
                 }
                 CONSTANT => {
                     pc += 1;
-                    push!(self, self.heap[pc]); // the value of the constant
+                    self.push(self.heap[pc]); // the value of the constant
                     self.f_r_from();
-                    pc = pop!(self) as usize;
+                    pc = self.pop() as usize;
                 }
                 LITERAL => {
                     pc += 1;
-                    push!(self, self.heap[pc]); // the data stored in the current definition
+                    self.push(self.heap[pc]); // the data stored in the current definition
                     pc += 1;
                 }
                 STRLIT => {
                     pc += 1;
-                    push!(self, self.heap[pc] as i64); // the string address of the data
+                    self.push(self.heap[pc] as i64); // the string address of the data
                     pc += 1;
                 }
                 DEFINITION => {
@@ -142,7 +128,7 @@ impl TF {
                 }
                 BRANCH0 => {
                     pc += 1;
-                    if pop!(self) == 0 {
+                    if self.pop() == 0 {
                         let offset = self.heap[pc];
                         if offset < 0 {
                             pc -= offset.abs() as usize;
@@ -160,14 +146,14 @@ impl TF {
                 EXIT => {
                     // Current definition is finished, so pop the PC from the return stack
                     self.f_r_from();
-                    pc = pop!(self) as usize;
+                    pc = self.pop() as usize;
                     call_depth -= 1;
 
                 }
                 BREAK => {
                     // Breaks out of a word by popping the PC from the return stack
                     self.f_r_from();
-                    pc = pop!(self) as usize;
+                    pc = self.pop() as usize;
                 }
                 EXEC => {
                     self.f_execute();
@@ -179,12 +165,12 @@ impl TF {
                     let builtin_flag = code as usize & BUILTIN_MASK;
                     let address = code as usize & ADDRESS_MASK;
                     if builtin_flag != 0 {
-                         push!(self, address as i64);
+                         self.push(address as i64);
                         self.i_builtin();
                         pc += 1;
                     } else {
                         call_depth += 1;
-                        push!(self, pc as i64 + 1); // the return address is the next object in the list
+                        self.push(pc as i64 + 1); // the return address is the next object in the list
                         self.f_to_r(); // save it on the return stack
                         pc = code as usize;
                     }
@@ -210,7 +196,7 @@ impl TF {
     ///
     pub fn i_exit(&mut self) {
         self.f_r_from();
-        // pc = pop!(self) as usize;
+        // pc = self.pop() as usize;
     }
 
 }

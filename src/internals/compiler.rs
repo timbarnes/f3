@@ -2,41 +2,9 @@
 
 use crate::kernel::{
     ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BUILTIN, BUILTIN_MASK, CONSTANT, DEFINITION, EXIT, FALSE,
-    EXEC, IMMEDIATE_MASK, LITERAL, BREAK, STACK_START, STRLIT, TF, TRUE, VARIABLE,
+    EXEC, IMMEDIATE_MASK, LITERAL, BREAK, STRLIT, TF, TRUE, VARIABLE,
 };
 use crate::internals::general::u_is_integer;
-
-macro_rules! stack_ok {
-    ($self:ident, $n: expr, $caller: expr) => {
-        if $self.stack_ptr <= STACK_START - $n {
-            // $self.f_dot_s();
-            true
-        } else {
-            $self.msg.error($caller, "Stack underflow", None::<bool>);
-            $self.f_abort();
-            false
-        }
-    };
-}
-macro_rules! pop {
-    ($self:ident) => {{
-        let r = $self.heap[$self.stack_ptr];
-        //$self.data[$self.stack_ptr] = 999999;
-        $self.stack_ptr += 1;
-        r
-    }};
-}
-macro_rules! top {
-    ($self:ident) => {{
-        $self.heap[$self.stack_ptr]
-    }};
-}
-macro_rules! push {
-    ($self:ident, $val:expr) => {
-        $self.stack_ptr -= 1;
-        $self.heap[$self.stack_ptr] = $val;
-    };
-}
 
 impl TF {
     /// immediate ( -- ) sets the immediate flag on the most recently defined word
@@ -51,12 +19,12 @@ impl TF {
     /// immediate? ( cfa -- T | F ) Determines if a word is immediate or not
     ///
     pub fn f_immediate_q(&mut self) {
-        if stack_ok!(self, 1, "immediate?") {
-            let cfa = pop!(self) as usize;
+        if self.stack_check(1, "immediate?") {
+            let cfa = self.pop() as usize;
             let name_ptr = self.heap[cfa - 1] as usize;
             let immed = name_ptr & IMMEDIATE_MASK;
             let result = if immed == 0 { FALSE } else { TRUE };
-            push!(self, result);
+            self.push(result);
         }
     }
 
@@ -85,10 +53,10 @@ impl TF {
     /// EXECUTE ( cfa -- ) interpret a word with addr on the stack
     /// stack value is the address of an inner interpreter
     pub fn f_execute(&mut self) {
-        if stack_ok!(self, 1, "execute") {
+        if self.stack_check(1, "execute") {
             // call the appropriate inner interpreter
-            let xt = pop!(self);
-            push!(self, xt + 1);
+            let xt = self.pop();
+            self.push(xt + 1);
             match self.heap[xt as usize] {
                 BUILTIN    => self.msg.error("f_execute", "BUILTIN found", Some(xt)), //self.i_builtin(),
                 VARIABLE   => self.i_variable(),
@@ -102,9 +70,9 @@ impl TF {
                 EXIT       => self.i_exit(),
                 BREAK      => self.i_exit(),
                 _ => {
-                    pop!(self);
+                    self.pop();
                     let cfa = self.heap[xt as usize] as usize & ADDRESS_MASK;
-                    push!(self, cfa as i64);
+                    self.push(cfa as i64);
                     self.i_builtin();
                 }
             }
@@ -114,13 +82,13 @@ impl TF {
     /// EVAL ( -- ) Interprets a line of tokens from the Text Input Buffer (TIB
     pub fn f_eval(&mut self) {
         loop {
-            push!(self, self.heap[self.pad_ptr]);
-            push!(self, ' ' as i64);
+            self.push(self.heap[self.pad_ptr]);
+            self.push(' ' as i64);
             self.f_parse_to(); //  ( -- b u ) get a token
-            let len = pop!(self);
+            let len = self.pop();
             if len == FALSE {
                 // Forth FALSE is zero, which here indicates end of line
-                pop!(self); // lose the text pointer from parse-to
+                self.pop(); // lose the text pointer from parse-to
                 break;
             } else {
                 // we have a token
@@ -137,33 +105,33 @@ impl TF {
     ///            If not a word, try to convert to a number
     ///            If not a number, ABORT.
     pub fn f_d_compile(&mut self) {
-        if stack_ok!(self, 1, "$compile") {
+        if self.stack_check(1, "$compile") {
             self.f_find();
-            if pop!(self) == TRUE {
-                let cfa = top!(self);
+            if self.pop() == TRUE {
+                let cfa = self.top();
                 // we found a word
                 // if it's immediate, we need to execute it; otherwise continue compiling
                 self.f_immediate_q();
-                if pop!(self) == TRUE {
+                if self.pop() == TRUE {
                     // call the interpreter for this word
-                    push!(self, self.heap[self.pad_ptr] as i64);
+                    self.push(self.heap[self.pad_ptr] as i64);
                     self.f_d_interpret();
                 } else {
                     // check if it's a builtin, and compile appropriately
                     let indirect = self.heap[cfa as usize] as usize;
                     if indirect & BUILTIN_MASK != 0 {
-                        push!(self, indirect as i64);
+                        self.push(indirect as i64);
                     } else {
-                        push!(self, cfa);
+                        self.push(cfa);
                     }
                     self.f_comma(); // uses the cfa on the stack
                 }
             } else {
                 self.f_number_q();
-                if pop!(self) == TRUE {
+                if self.pop() == TRUE {
                     self.f_literal(); // compile the literal
                 } else {
-                    pop!(self); // lose the failed number
+                    self.pop(); // lose the failed number
                     let word = &self.u_get_string(self.heap[self.pad_ptr] as usize);
                     self.msg
                         .warning("$interpret", "token not recognized", Some(word));
@@ -178,19 +146,19 @@ impl TF {
     ///            If not a number, ABORT.
     ///
     pub fn f_d_interpret(&mut self) {
-        if stack_ok!(self, 1, "$interpret") {
-            let token_addr = top!(self);
+        if self.stack_check(1, "$interpret") {
+            let token_addr = self.top();
             self.f_find(); // (s -- nfa, cfa, T | s F )
-            if pop!(self) == TRUE {
+            if self.pop() == TRUE {
                 // we have a definition
                 self.f_execute();
             } else {
                 // try number?
                 self.f_number_q(); // ( s -- n T | a F )
-                if pop!(self) == TRUE {
+                if self.pop() == TRUE {
                     // leave the converted number on the stack
                 } else {
-                    pop!(self); // lose the failed number
+                    self.pop(); // lose the failed number
                     let word = &self.u_get_string(token_addr as usize);
                     self.msg
                         .warning("$interpret", "token not recognized", Some(word));
@@ -203,9 +171,9 @@ impl TF {
     ///     If not found, return the string address so NUMBER? can look at it
     ///
     pub fn f_find(&mut self) {
-        if stack_ok!(self, 1, "find") {
+        if self.stack_check(1, "find") {
             let mut result = false;
-            let source_addr = pop!(self) as usize;
+            let source_addr = self.pop() as usize;
             let mut link = self.heap[self.context_ptr] as usize - 1;
             // link = self.data[link] as usize; // go back to the beginning of the top word
             while link > 0 {
@@ -221,11 +189,11 @@ impl TF {
                 link = self.heap[link] as usize;
             }
             if result {
-                push!(self, link as i64 + 2);
-                push!(self, TRUE);
+                self.push(link as i64 + 2);
+                self.push(TRUE);
             } else {
-                push!(self, source_addr as i64);
-                push!(self, FALSE);
+                self.push(source_addr as i64);
+                self.push(FALSE);
             }
         } else {
             // stack error
@@ -236,22 +204,22 @@ impl TF {
     /// leaves n and flag on the stack: true if number is ok.
     ///
     pub fn f_number_q(&mut self) {
-        let buf_addr = pop!(self);
+        let buf_addr = self.pop();
         let numtext = self.u_get_string(buf_addr as usize);
         if u_is_integer(&numtext.as_str()) {
             let result = numtext.parse().unwrap();
-            push!(self, result);
-            push!(self, TRUE);
+            self.push(result);
+            self.push(TRUE);
         } else {
-            push!(self, buf_addr);
-            push!(self, FALSE);
+            self.push(buf_addr);
+            self.push(FALSE);
         }
     }
 
     /// f_comma ( n -- ) compile a value into a definition
     ///     Takes the top of the stack and writes it to the next free location in data space
     pub fn f_comma(&mut self) {
-        self.heap[self.heap[self.here_ptr] as usize] = pop!(self);
+        self.heap[self.heap[self.here_ptr] as usize] = self.pop();
         self.heap[self.here_ptr] += 1;
     }
 
@@ -260,7 +228,7 @@ impl TF {
     ///     The value comes from the stack.
     ///
     pub fn f_literal(&mut self) {
-        push!(self, LITERAL);
+        self.push(LITERAL);
         self.f_comma();
         self.f_comma();
     }
@@ -271,8 +239,8 @@ impl TF {
     pub fn f_q_unique(&mut self) {
         self.f_dup();
         self.f_find();
-        let result = pop!(self);
-        pop!(self);
+        let result = self.pop();
+        self.pop();
         if result == TRUE {
             self.msg
                 .warning("unique?", "Overwriting existing definition", None::<bool>);
@@ -285,20 +253,20 @@ impl TF {
     ///     Pushes 0 if not found
     ///
     pub fn f_tick_p(&mut self) {
-        push!(self, self.heap[self.pad_ptr]);
-        push!(self, ' ' as i64);
+        self.push(self.heap[self.pad_ptr]);
+        self.push(' ' as i64);
         self.f_parse_to(); // ( -- b u )
-        pop!(self); // don't need the delim
+        self.pop(); // don't need the delim
         self.f_find(); // look for the token
-        if pop!(self) == FALSE {
+        if self.pop() == FALSE {
             // write an error message
             let mut msg = self.u_get_string(self.heap[self.pad_ptr] as usize);
             msg = format!("Word not found: {} ", msg);
             self.u_set_string(self.heap[self.pad_ptr] as usize, &msg);
-            pop!(self);
-            push!(self, FALSE);
+            self.pop();
+            self.push(FALSE);
         }
-        // pop!(self);
+        // self.pop();
     }
 
     /// (parse) - ( b u c -- b u delta )
@@ -308,10 +276,10 @@ impl TF {
     ///     and the offset from the start of the buffer to the start of the token.
     ///
     pub fn f_parse_p(&mut self) {
-        if stack_ok!(self, 3, "(parse)") {
-            let delim = pop!(self) as u8 as char;
-            let buf_len = pop!(self);
-            let in_p = pop!(self);
+        if self.stack_check(3, "(parse)") {
+            let delim = self.pop() as u8 as char;
+            let buf_len = self.pop();
+            let in_p = self.pop();
             // traverse the string, dropping leading delim characters
             // in_p points *into* a string, so no count field
             if buf_len > 0 {
@@ -326,14 +294,14 @@ impl TF {
                 while j < end && self.strings[j] != delim {
                     j += 1;
                 }
-                push!(self, in_p);
-                push!(self, (j - i) as i64);
-                push!(self, i as i64 - in_p);
+                self.push(in_p);
+                self.push((j - i) as i64);
+                self.push(i as i64 - in_p);
             } else {
                 // nothing left to read
-                push!(self, in_p);
-                push!(self, 0);
-                push!(self, 0);
+                self.push(in_p);
+                self.push(0);
+                self.push(0);
             }
         }
     }
@@ -345,32 +313,30 @@ impl TF {
     /// The main text parser that reads tokens from the TIB for interactive operations
     ///
     pub fn f_parse_to(&mut self) {
-        if stack_ok!(self, 2, "parse") {
-            let delim: i64 = pop!(self);
-            let dest = pop!(self);
+        if self.stack_check(2, "parse") {
+            let delim: i64 = self.pop();
+            let dest = self.pop();
             if delim == 1 {
                 self.heap[self.tib_in_ptr] = 1;
                 self.heap[self.tib_size_ptr] = 0;
-                push!(self, self.heap[self.tib_in_ptr]);
-                push!(self, 0); // indicates nothing found, TIB is empty
+                self.push(self.heap[self.tib_in_ptr]);
+                self.push(0); // indicates nothing found, TIB is empty
                 return;
             } else {
-                push!(
+                self.push(
                     // starting address in the string
-                    self,
                     self.heap[self.tib_ptr] + self.heap[self.tib_in_ptr]
                 );
-                push!(
+                self.push(
                     // bytes available (length of input string)
-                    self,
                     self.heap[self.tib_size_ptr] - self.heap[self.tib_in_ptr] + 1
                 );
-                push!(self, delim);
+                self.push(delim);
                 self.f_parse_p();
                 // check length, and copy to PAD if a token was found
-                let delta = pop!(self);
-                let length = pop!(self);
-                let addr = pop!(self);
+                let delta = self.pop();
+                let length = self.pop();
+                let addr = self.pop();
                 if length > 0 {
                     // copy to pad
                     self.u_str_copy(
@@ -381,9 +347,9 @@ impl TF {
                     );
                 }
                 self.heap[self.tib_in_ptr] += delta + length + 1;
-                //pop!(self);
-                push!(self, dest);
-                push!(self, length);
+                //self.pop();
+                self.push(dest);
+                self.push(length);
             }
         }
     }
@@ -395,7 +361,7 @@ impl TF {
     pub fn f_colon(&mut self) {
         self.set_compile_mode(true);
         self.f_create(); // gets the name and makes a new dictionary entry
-        push!(self, DEFINITION);
+        self.push(DEFINITION);
         self.f_comma();
     }
 
@@ -405,7 +371,7 @@ impl TF {
     ///     Finally it switches out of compile mode
     ///
     pub fn f_semicolon(&mut self) {
-        push!(self, EXIT);
+        self.push(EXIT);
         self.f_comma();
         self.heap[self.heap[self.here_ptr] as usize] = self.heap[self.last_ptr] - 1; // write the back pointer
         self.heap[self.here_ptr] += 1; // over EXIT and back pointer
@@ -417,16 +383,16 @@ impl TF {
     ///     References HERE, and assumes back pointer is in place already
     ///     create updates the three definition-related pointers: HERE, CONTEXT and LAST
     pub fn f_create(&mut self) {
-        push!(self, self.heap[self.pad_ptr]);
-        push!(self, ' ' as i64);
+        self.push(self.heap[self.pad_ptr]);
+        self.push(' ' as i64);
         self.f_parse_to(); // get the word's name
-        pop!(self); // throw away the length, keep the text pointer
+        self.pop(); // throw away the length, keep the text pointer
         self.f_q_unique(); // issue a warning if it's already defined
         let length = self.strings[self.heap[self.pad_ptr] as usize] as u8 as i64;
-        push!(self, length);
-        push!(self, self.heap[self.string_ptr]);
+        self.push(length);
+        self.push(self.heap[self.string_ptr]);
         self.f_smove(); // make a new string with the name from PAD
-        self.heap[self.heap[self.here_ptr] as usize] = pop!(self); // the string header
+        self.heap[self.heap[self.here_ptr] as usize] = self.pop(); // the string header
         self.heap[self.string_ptr] += length + 1; // update the free string pointer
         self.heap[self.last_ptr] = self.heap[self.here_ptr];
         self.heap[self.here_ptr] += 1;
@@ -438,9 +404,9 @@ impl TF {
        ///
        pub fn f_variable(&mut self) {
            self.f_create(); // gets a name and makes a name field in the dictionary
-           push!(self, VARIABLE);
+           self.push(VARIABLE);
            self.f_comma(); // ( n -- )
-           push!(self, 0); // default initial value
+           self.push(0); // default initial value
            self.f_comma();
            self.data[self.data[self.here_ptr] as usize] = self.data[self.last_ptr] - 1; // write the back pointer
            self.data[self.here_ptr] += 1; // over EXIT and back pointer
@@ -451,9 +417,9 @@ impl TF {
        ///     Very similar to variables, except that their value is not intended to be changed
        ///
        pub fn f_constant(&mut self) {
-           if stack_ok!(self, 1, "constant") {
+           if self.stack_check(1, "constant") {
                self.f_create();
-               push!(self, CONSTANT);
+               self.push(CONSTANT);
                self.f_comma();
                self.f_comma(); // write the value from the stack
                self.data[self.data[self.here_ptr] as usize] = self.data[self.last_ptr] - 1; // write the back pointer
@@ -466,14 +432,14 @@ impl TF {
     ///     Used by CREATE
     ///
     pub fn f_smove(&mut self) {
-        let dest = pop!(self) as usize;
-        let length = pop!(self) as usize;
-        let source = pop!(self) as usize;
+        let dest = self.pop() as usize;
+        let length = self.pop() as usize;
+        let source = self.pop() as usize;
         // assuming both are counted, we begin with the count byte. Length should match the source count byte
         for i in 0..=length {
             self.strings[dest + i] = self.strings[source + i];
         }
-        push!(self, dest as i64);
+        self.push(dest as i64);
     }
 
     /// see <name> ( -- ) prints the definition of a word
@@ -481,7 +447,7 @@ impl TF {
     ///
     pub fn f_see(&mut self) {
         self.f_tick_p(); // finds the address of the word
-        let cfa = pop!(self);
+        let cfa = self.pop();
         if cfa == FALSE {
             self.msg.warning("see", "Word not found", None::<bool>);
         } else {

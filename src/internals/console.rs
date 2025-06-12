@@ -6,36 +6,6 @@ use std::cmp::min;
 use std::io::{self, Write, BufRead};
 use std::process::Command;
 
-macro_rules! stack_ok {
-    ($self:ident, $n: expr, $caller: expr) => {
-        if $self.stack_ptr <= STACK_START - $n {
-            true
-        } else {
-            $self.msg.error($caller, "Stack underflow", None::<bool>);
-            $self.f_abort();
-            false
-        }
-    };
-}
-macro_rules! pop {
-    ($self:ident) => {{
-        let r = $self.heap[$self.stack_ptr];
-        //$self.data[$self.stack_ptr] = 999999;
-        $self.stack_ptr += 1;
-        r
-    }};
-}
-macro_rules! top {
-    ($self:ident) => {{
-        $self.heap[$self.stack_ptr]
-    }};
-}
-macro_rules! push {
-    ($self:ident, $val:expr) => {
-        $self.stack_ptr -= 1;
-        $self.heap[$self.stack_ptr] = $val;
-    };
-}
 
     /// file I/O and system call
     /// 
@@ -54,8 +24,8 @@ impl TF {
     /// (system) ( s -- ) Execute a shell command from the string on the stack (Unix-like operating systems)
     /// 
 pub fn f_system_p(&mut self) {
-    if stack_ok!(self, 1, "(system)") {
-        let addr = pop!(self) as usize;
+    if self.stack_check(1, "(system)") {
+        let addr = self.pop() as usize;
         let cmd_string = self.u_get_string(addr);
         let mut args = cmd_string.split_ascii_whitespace();
         //println!("args: {:?}", args);
@@ -83,10 +53,10 @@ pub fn f_system_p(&mut self) {
                 let c = reader.read_char();
                 match c {
                     Some(c) => {
-                        push!(self, c as u8 as i64);
+                        self.push(c as u8 as i64);
                     }
                     None => {
-                        push!(self, 0);
+                        self.push(0);
                     }
                 }
             }
@@ -102,9 +72,9 @@ pub fn f_system_p(&mut self) {
     ///     it needs TIB_START and BUF_SIZE - 1 on the stack.
     ///
     pub fn f_accept(&mut self) {
-        if stack_ok!(self, 2, "accept") {
-            let max_len = pop!(self);
-            let dest = top!(self) as usize;
+        if self.stack_check(2, "accept") {
+            let max_len = self.pop();
+            let dest = self.top() as usize;
             match self.reader.last_mut() {
                 Some(reader) => {
                     let l = reader.get_line();
@@ -113,14 +83,14 @@ pub fn f_system_p(&mut self) {
                             let length = min(line.len() - 1, max_len as usize) as usize;
                             let line_str = &line[..length];
                             self.u_save_string(line_str, dest); // write a counted string
-                            push!(self, length as i64);
+                            self.push(length as i64);
                         }
                         None => {
                             // EOF - there are no more lines to read
                             if self.reader.len() > 1 {
                                 // Reader 0 is stdin
                                 self.reader.pop(); // file goes out of scope and should be closed automatically
-                                push!(self, 0);
+                                self.push(0);
                             } else {
                                 panic!("Reader error - EOF in stdin");
                             }
@@ -137,12 +107,12 @@ pub fn f_system_p(&mut self) {
     /// QUERY ( -- ) Load a new line of text into the TIB
     ///     
     pub fn f_query(&mut self) {
-        push!(self, self.heap[self.tib_ptr]);
-        push!(self, BUF_SIZE as i64 - 1);
+        self.push(self.heap[self.tib_ptr]);
+        self.push(BUF_SIZE as i64 - 1);
         self.f_accept();
-        self.heap[self.tib_size_ptr] = pop!(self); // update the TIB size pointer
+        self.heap[self.tib_size_ptr] = self.pop(); // update the TIB size pointer
         self.heap[self.tib_in_ptr] = 1; // set the starting point in the TIB
-        pop!(self); // we don't need the address
+        self.pop(); // we don't need the address
     }
 
     // output functions
@@ -151,8 +121,8 @@ pub fn f_system_p(&mut self) {
     ///     (emit) will output any ASCII value (mod 128).
     ///
     pub fn f_emit_p(&mut self) {
-        if stack_ok!(self, 1, "(emit)") {
-            let c = pop!(self) % 128;
+        if self.stack_check(1, "(emit)") {
+            let c = self.pop() % 128;
             print!("{}", c as u8 as char);
         }
     }
@@ -181,18 +151,18 @@ pub fn f_system_p(&mut self) {
     ///     This allows for nested file reads.
     ///
     pub fn f_include_file(&mut self) {
-        if stack_ok!(self, 1, "include-file") {
-            let addr = pop!(self) as usize;
+        if self.stack_check(1, "include-file") {
+            let addr = self.pop() as usize;
             let file_name = self.u_get_string(addr);
             let mode = FILE_MODE_R_O;
             let handle = self.u_open_file( &file_name, mode as i64);
             match handle {
                 Some(handle) => {
                     self.reader.push(handle);
-                    push!(self, TRUE);
+                    self.push(TRUE);
                 }
                 None => {
-                    push!(self, FALSE);
+                    self.push(FALSE);
                 }
             }
         }
@@ -200,20 +170,21 @@ pub fn f_system_p(&mut self) {
 
     /// open-file ( s fam -- file-id ior ) Open the file named at s, length u, with file access mode fam.
     pub fn f_open_file(&mut self) {
-        if stack_ok!(self, 2, "open-file") {
-            let mode = pop!(self);
-            let addr = pop!(self) as usize;
+        if self.stack_check(2, "open-file") {
+            let mode = self.pop();
+            let addr = self.pop() as usize;
             let name = self.u_get_string(addr);
+            println!("open-file: name={}, mode={}", name, mode);
             let handle = self.u_open_file(&name, mode);
             match handle {
                 Some(handle) => {
                     self.files.push(handle);
-                    push!(self, self.files.len() as i64 - 1); // Push the index as a file-id
-                    push!(self, 0);                    // 0 means success in this case
+                    self.push(self.files.len() as i64 - 1); // Push the index as a file-id
+                    self.push(0);                    // 0 means success in this case
                 }
                 None => {
-                    push!(self, 0);
-                    push!(self, -1);        // Signals an error condition
+                    self.push(0);
+                    self.push(-1);        // Signals an error condition
                 }
             }
         }
@@ -233,11 +204,11 @@ pub fn f_system_p(&mut self) {
                 let file_handle = FileHandle::new(Some(&full_path), Msg::new(), mode);
                 match file_handle {
                     Some(fh) => {
-                        // push!(self, TRUE);
+                        // self.push(TRUE);
                         return Some(fh);
                     }
                     None => {
-                        push!(self, FALSE);
+                        self.push(FALSE);
                         self.msg.error(
                             "open-file",
                             "Failed to create new reader",
@@ -247,7 +218,7 @@ pub fn f_system_p(&mut self) {
                 }
             }
             Err(error) => {
-                push!(self, FALSE);
+                self.push(FALSE);
                 self.msg
                     .warning("open-file", error.to_string().as_str(), None::<bool>);
             }
@@ -258,11 +229,11 @@ pub fn f_system_p(&mut self) {
     ///  close-file ( file-id -- ior ) Close a file, returning the I/O status code.
     ///     In rust, we just need it to go out of scope, so delete it from the vector
     pub fn f_close_file(&mut self) {
-        if stack_ok!(self, 1, "close-file") {
-            let file_id = pop!(self) as usize;
+        if self.stack_check(1, "close-file") {
+            let file_id = self.pop() as usize;
             if file_id < self.files.len() { 
                 self.files.remove(file_id);
-                push!(self, 0);
+                self.push(0);
             }
         }
     }
@@ -272,9 +243,9 @@ pub fn f_system_p(&mut self) {
     ///     Starts from FILE_POSITION, and updates FILE_POSITION on completion
     ///     Characters are read into TMP
     pub fn f_read_line(&mut self) {
-        if stack_ok!(self, 2, "read-line") {
-            let file_id = pop!(self) as usize;
-            let _chars = pop!(self) as usize;
+        if self.stack_check(2, "read-line") {
+            let file_id = self.pop() as usize;
+            let _chars = self.pop() as usize;
             if file_id < self.files.len() {
                 let mut result = String::new();
                 match self.files[file_id].source {
@@ -283,14 +254,14 @@ pub fn f_system_p(&mut self) {
                             Ok(r) => {
                                 if r == 0 {
                                     // EOF
-                                    push!(self, 0);
-                                    push!(self, FALSE);
-                                    push!(self, -1);
+                                    self.push(0);
+                                    self.push(FALSE);
+                                    self.push(-1);
                                 } else {
                                     self.u_save_string(&result, self.heap[self.tmp_ptr] as usize);
-                                    push!(self, r as i64);  // Number of chars read
-                                    push!(self, TRUE);
-                                    push!(self, 0);
+                                    self.push(r as i64);  // Number of chars read
+                                    self.push(TRUE);
+                                    self.push(0);
                                 }
                             }
                             Err(e) => self.msg.error("read-line", e.to_string().as_str(), None::<bool>),
@@ -305,10 +276,10 @@ pub fn f_system_p(&mut self) {
     ///  write-line ( s u file-id -- ior ) Write u characters from s to a file, returning an i/o result code.
     ///     Not intended to work with stdout
     pub fn f_write_line(&mut self) {
-        if stack_ok!(self, 3, "write-line") {
-            let file_id = pop!(self) as usize;
-            let chars = pop!(self) as usize;
-            let addr = pop!(self) as usize;
+        if self.stack_check(3, "write-line") {
+            let file_id = self.pop() as usize;
+            let chars = self.pop() as usize;
+            let addr = self.pop() as usize;
             if file_id < self.files.len() {
                 let string = self.u_get_string(addr)[0..chars - 1].to_owned();
                 // write the string to the file
@@ -324,10 +295,10 @@ pub fn f_system_p(&mut self) {
 
     ///  file-size ( file-id -- u ior ) Returns the size in characters of the file, plus an i/o result code
     pub fn f_file_size(&mut self) {
-        if stack_ok!(self, 1, "file-size") {
-            let file_id = pop!(self) as usize;
+        if self.stack_check(1, "file-size") {
+            let file_id = self.pop() as usize;
             if file_id < self.files.len() {
-                push!(self, self.files[file_id].file_size as i64);
+                self.push(self.files[file_id].file_size as i64);
             } else {
                 self.msg.error("file-size", "No such file-id", Some(file_id));
             }
@@ -336,10 +307,10 @@ pub fn f_system_p(&mut self) {
 
     /// file-position ( file-id -- u ior ) Returns the current file position and an i/o result
     pub fn f_file_position(&mut self) {
-        if stack_ok!(self, 1, "file-position") {
-            let file_id = pop!(self) as usize;
+        if self.stack_check(1, "file-position") {
+            let file_id = self.pop() as usize;
             if file_id < self.files.len() {
-                push!(self, self.files[file_id].file_position as i64);
+                self.push(self.files[file_id].file_position as i64);
             } else {
                 self.msg.error("file-position", "No such file-id", Some(file_id));
             }

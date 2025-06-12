@@ -20,22 +20,16 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 const WELCOME_MESSAGE: &str = "Welcome to f3.";
 const EXIT_MESSAGE: &str = "Finished";
 
-macro_rules! push {
-    ($self:ident, $val:expr) => {
-        $self.stack_ptr -= 1;
-        $self.heap[$self.stack_ptr] = $val;
-    };
-}
-
 fn boot_forth(config: &Config) -> TF {
 
     fn load_file(interpreter: &mut TF, file_name: &str) {
+        println!("Loading file: {}", file_name);
             TF::u_set_string(
                 interpreter,
                 interpreter.heap[interpreter.tmp_ptr] as usize,
                 file_name,
             );
-            push!(interpreter, interpreter.heap[interpreter.tmp_ptr]);
+            interpreter.push(interpreter.heap[interpreter.tmp_ptr]);
             interpreter.f_include_file();
     }   
 

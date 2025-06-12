@@ -156,6 +156,77 @@ impl TF {
         self.heap[addr] = val;
     }
 
+    #[inline(always)]
+    pub fn top(&mut self) -> i64 {
+        self.heap[self.stack_ptr]
+    }
+
+     #[inline(always)]
+    pub fn push(&mut self, val: i64) {
+        self.stack_ptr -= 1;
+        self.heap[self.stack_ptr] = val;
+    }
+
+    #[inline(always)]
+    pub fn pop(&mut self) -> i64 {
+        let r = self.heap[self.stack_ptr];
+        self.stack_ptr += 1;
+        r
+    }
+
+        #[inline(always)]
+    pub fn stack_check(&self, needed: usize, word: &str) -> bool{
+        if self.stack_ptr < needed {
+            panic!("{}: Stack underflow: need {}, have {}", word, needed, self.stack_ptr);
+        }
+        true
+    }
+
+    /* #[inline(always)]
+    pub fn push_r(&mut self, val: i64) {
+        self.heap[self.return_ptr] = val;
+        self.return_ptr += 1;
+    }
+
+    #[inline(always)]
+    pub fn pop_r(&mut self) -> i64 {
+        self.return_ptr -= 1;
+        self.heap[self.return_ptr]
+    }
+
+   #[inline(always)]
+    pub fn stack_check_r(&self, needed: usize, word: &str) -> bool{
+        if self.return_ptr < needed {
+            panic!("{}: Return stack underflow: need {}, have {}", word, needed, self.return_ptr);
+        }
+        true
+    } */
+
+    pub fn pop2_push1<F>(&mut self, word: &str, f: F)
+    where
+        F: Fn(i64, i64) -> i64,
+    {
+        if self.stack_check(2, "pop2_push1") {
+            let j = self.pop();
+            let k = self.pop();
+            self.push(f(k, j));
+        }
+        else {
+            panic!("{}: Stack underflow in pop2_push1", word);
+        }
+    }
+
+    pub fn pop1_push1<F>(&mut self, word: &str, f: F)
+    where
+        F: Fn(i64) -> i64,
+    {
+        if self.stack_check(1, word) {
+            let x = self.pop();
+            self.push(f(x) as i64);
+        }
+    }
+
+
     /// get_compile_mode determines whether or not compile mode is active
     ///     Traditionally, a variable called 'EVAL stores the compile or the interpret functions
     ///     In this version, the STATE variable is used directly.

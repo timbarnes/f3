@@ -4,32 +4,6 @@ use crate::kernel::{ADDRESS_MASK, BUILTIN_MASK, STACK_START, TF, EXEC,
     VARIABLE, CONSTANT, LITERAL, STRLIT, DEFINITION, BRANCH, BRANCH0, ABORT, EXIT, BREAK};
 use crate::messages::DebugLevel;
 
-macro_rules! stack_ok {
-    ($self:ident, $n: expr, $caller: expr) => {
-        if $self.stack_ptr <= STACK_START - $n {
-            true
-        } else {
-            $self.msg.error($caller, "Stack underflow", None::<bool>);
-            $self.f_abort();
-            false
-        }
-    };
-}
-macro_rules! pop {
-    ($self:ident) => {{
-        let r = $self.heap[$self.stack_ptr];
-        //$self.data[$self.stack_ptr] = 999999;
-        $self.stack_ptr += 1;
-        r
-    }};
-}
-
-macro_rules! push {
-    ($self:ident, $val:expr) => {
-        $self.stack_ptr -= 1;
-        $self.heap[$self.stack_ptr] = $val;
-    };
-}
 
 impl TF {
     /// show-stack ( -- ) turns on stack printing at the time the prompt is issued
@@ -48,14 +22,14 @@ impl TF {
     ///
     pub fn f_stack_depth(&mut self) {
         let depth = STACK_START - self.stack_ptr;
-        push!(self, depth as i64);
+        self.push(depth as i64);
     }
 
     /// dbg ( n -- ) sets the current debug level used by the message module
     ///
     pub fn f_dbg(&mut self) {
-        if stack_ok!(self, 1, "dbg") {
-            match pop!(self) {
+        if self.stack_check( 1, "dbg") {
+            match self.pop(){
                 0 => self.msg.set_level(DebugLevel::Error),
                 1 => self.msg.set_level(DebugLevel::Warning),
                 2 => self.msg.set_level(DebugLevel::Info),
@@ -117,7 +91,7 @@ impl TF {
                     self.f_flush();
                     loop {
                     self.f_key();
-                    c = pop!(self) as u8 as char;
+                    c = self.pop() as u8 as char;
                     if c != '\n' {
                         break;
                     }
