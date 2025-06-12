@@ -8,6 +8,8 @@ mod files;
 mod internals;
 
 use config::{Config, DEFAULT_CORE, VERSION};
+use engine::TF;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const WELCOME_MESSAGE: &str = "Welcome to f3.";
 const EXIT_MESSAGE: &str = "Finished";
@@ -15,42 +17,70 @@ const EXIT_MESSAGE: &str = "Finished";
 macro_rules! push {
     ($self:ident, $val:expr) => {
         $self.stack_ptr -= 1;
-        $self.data[$self.stack_ptr] = $val;
+        $self.heap[$self.stack_ptr] = $val;
     };
 }
 
-fn run_forth(config: &Config) {
-    use engine::TF;
+fn boot_forth(config: &Config) -> TF {
+
     fn load_file(interpreter: &mut TF, file_name: &str) {
-        TF::u_set_string(
-            interpreter,
-            interpreter.data[interpreter.tmp_ptr] as usize,
-            file_name,
-        );
-        push!(interpreter, interpreter.data[interpreter.tmp_ptr]);
-        interpreter.f_include_file();
-    }
+            TF::u_set_string(
+                interpreter,
+                interpreter.heap[interpreter.tmp_ptr] as usize,
+                file_name,
+            );
+            push!(interpreter, interpreter.heap[interpreter.tmp_ptr]);
+            interpreter.f_include_file();
+    }   
 
     let mut forth = TF::new();
-    forth.cold_start();
-    if !config.no_core {
-        for path in DEFAULT_CORE {
-            load_file(&mut forth, &path);
+
+    // --- Bootstrapping Phase ---
+    let boot_result = catch_unwind(AssertUnwindSafe(|| {
+        forth.cold_start();
+
+        if !config.no_core {
+            for path in DEFAULT_CORE {
+                load_file(&mut forth, &path);
+            }
         }
-    }
-    if config.loaded_file != "" {
-        load_file(&mut forth, &config.loaded_file);
-    }
 
-    forth.set_abort_flag(false); // abort flag may have been set by load_file, but is no longer needed.
+        if config.loaded_file != "" {
+            load_file(&mut forth, &config.loaded_file);
+        }
+    }));
 
+    if boot_result.is_err() {
+        eprintln!("❌ Fatal error during initialization. Aborting.");
+        std::process::exit(1);
+    }
+    forth // Return the initialized interpreter
+}
+
+fn run_forth(forth: &mut TF) {
     println!("{WELCOME_MESSAGE} Version {VERSION}");
 
-    // Enter the interactive loop to read and process input
-    // call QUERY to start the f3 engine.
-    forth.f_quit();
-    // Exit when query gets a bye or EOF.
-    println!("{EXIT_MESSAGE}");
+    // --- Interactive Loop Phase ---
+    loop {
+        let result = catch_unwind(AssertUnwindSafe(|| {   
+            forth.set_abort_flag(false);
+            println!("Entering f_quit");
+            forth.f_quit();  // main interpreter loop
+        }));
+
+        match result {
+            Ok(_) => {
+                println!("{EXIT_MESSAGE}");
+                break;
+            }
+            Err(_) => {
+                eprintln!("⚠️  Error during execution. Resetting interpreter to prompt.");
+                forth.f_abort(); // You implement this in TF
+                forth.set_abort_flag(false);
+                // Optionally: clear input buffer, set diagnostic flags, etc.
+            }
+        }
+    }
 }
 
 fn main() {
@@ -58,6 +88,7 @@ fn main() {
     config.process_args();
 
     if config.run {
-        run_forth(&config);
+        let mut interpreter = boot_forth(&config);
+        run_forth(&mut interpreter);
     }
 }

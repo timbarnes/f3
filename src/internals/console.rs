@@ -19,7 +19,7 @@ macro_rules! stack_ok {
 }
 macro_rules! pop {
     ($self:ident) => {{
-        let r = $self.data[$self.stack_ptr];
+        let r = $self.heap[$self.stack_ptr];
         //$self.data[$self.stack_ptr] = 999999;
         $self.stack_ptr += 1;
         r
@@ -27,13 +27,13 @@ macro_rules! pop {
 }
 macro_rules! top {
     ($self:ident) => {{
-        $self.data[$self.stack_ptr]
+        $self.heap[$self.stack_ptr]
     }};
 }
 macro_rules! push {
     ($self:ident, $val:expr) => {
         $self.stack_ptr -= 1;
-        $self.data[$self.stack_ptr] = $val;
+        $self.heap[$self.stack_ptr] = $val;
     };
 }
 
@@ -137,11 +137,11 @@ pub fn f_system_p(&mut self) {
     /// QUERY ( -- ) Load a new line of text into the TIB
     ///     
     pub fn f_query(&mut self) {
-        push!(self, self.data[self.tib_ptr]);
+        push!(self, self.heap[self.tib_ptr]);
         push!(self, BUF_SIZE as i64 - 1);
         self.f_accept();
-        self.data[self.tib_size_ptr] = pop!(self); // update the TIB size pointer
-        self.data[self.tib_in_ptr] = 1; // set the starting point in the TIB
+        self.heap[self.tib_size_ptr] = pop!(self); // update the TIB size pointer
+        self.heap[self.tib_in_ptr] = 1; // set the starting point in the TIB
         pop!(self); // we don't need the address
     }
 
@@ -170,7 +170,7 @@ pub fn f_system_p(&mut self) {
     pub fn f_dot_s(&mut self) {
         print!("[ ");
         for i in (self.stack_ptr..STACK_START).rev() {
-            print!("{} ", self.data[i]);
+            print!("{} ", self.heap[i]);
         }
         print!("] ");
     }
@@ -287,7 +287,7 @@ pub fn f_system_p(&mut self) {
                                     push!(self, FALSE);
                                     push!(self, -1);
                                 } else {
-                                    self.u_save_string(&result, self.data[self.tmp_ptr] as usize);
+                                    self.u_save_string(&result, self.heap[self.tmp_ptr] as usize);
                                     push!(self, r as i64);  // Number of chars read
                                     push!(self, TRUE);
                                     push!(self, 0);

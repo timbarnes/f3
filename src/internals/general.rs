@@ -17,7 +17,7 @@ macro_rules! stack_ok {
 }
 macro_rules! pop {
     ($self:ident) => {{
-        let r = $self.data[$self.stack_ptr];
+        let r = $self.heap[$self.stack_ptr];
         //$self.data[$self.stack_ptr] = 999999;
         $self.stack_ptr += 1;
         r
@@ -25,13 +25,13 @@ macro_rules! pop {
 }
 macro_rules! top {
     ($self:ident) => {{
-        $self.data[$self.stack_ptr]
+        $self.heap[$self.stack_ptr]
     }};
 }
 macro_rules! push {
     ($self:ident, $val:expr) => {
         $self.stack_ptr -= 1;
-        $self.data[$self.stack_ptr] = $val;
+        $self.heap[$self.stack_ptr] = $val;
     };
 }
 
@@ -112,14 +112,6 @@ impl TF {
         pop1_push1!(self, "0<", |a| if a < 0 { -1 } else { 0 });
     }
 
-    pub fn f_clear(&mut self) {
-        self.stack_ptr = STACK_START;
-    }
-
-    pub fn f_bye(&mut self) {
-        self.exit_flag = true;
-    }
-
     pub fn f_dup(&mut self) {
         if stack_ok!(self, 1, "dup") {
             let top = top!(self);
@@ -162,7 +154,7 @@ pub fn f_pick(&mut self) {
     if stack_ok!(self, 1, "pick") {
         let n = pop!(self) as usize;
         if stack_ok!(self, n, "pick") {
-            push!(self, self.data[self.stack_ptr + n + 1]);
+            push!(self, self.heap[self.stack_ptr + n + 1]);
         }
     }
 }
@@ -172,11 +164,11 @@ pub fn f_roll(&mut self) {
         if n == 0 { return }; // 0 roll is a no-op
         if stack_ok!(self, n + 1, "roll") {
             // save the nth value
-            let new_top = self.data[self.stack_ptr + n];
+            let new_top = self.heap[self.stack_ptr + n];
             // iterate, moving elements down
             let mut i = self.stack_ptr + n - 1;
             while i >= self.stack_ptr {
-                self.data[i + 1] = self.data[i];
+                self.heap[i + 1] = self.heap[i];
                 i -= 1;
             } 
             self.stack_ptr += 1; // because we removed an element
@@ -205,7 +197,7 @@ pub fn f_roll(&mut self) {
         if stack_ok!(self, 1, "@") {
             let addr = pop!(self) as usize;
             if addr < DATA_SIZE {
-                push!(self, self.data[addr]);
+                push!(self, self.heap[addr]);
             } else {
                 self.msg.error("@", "Address out of range", Some(addr));
                 self.f_abort();
@@ -220,7 +212,7 @@ pub fn f_roll(&mut self) {
             let addr = pop!(self) as usize;
             let value = pop!(self);
             if addr < DATA_SIZE {
-                self.data[addr] = value;
+                self.heap[addr] = value;
             } else {
                 self.msg.error("@", "Address out of range", Some(addr));
                 self.f_abort();
@@ -234,33 +226,33 @@ pub fn f_roll(&mut self) {
         if stack_ok!(self, 1, ">r") {
             let value = pop!(self);
             self.return_ptr -= 1;
-            self.data[self.return_ptr] = value;
+            self.heap[self.return_ptr] = value;
         }
     }
 
     /// r> ( -- n ) Pops the return stack, pushing the value to the calculation stack
     ///
     pub fn f_r_from(&mut self) {
-        push!(self, self.data[self.return_ptr]);
+        push!(self, self.heap[self.return_ptr]);
         self.return_ptr += 1;
     }
 
     /// r@ ( -- n ) Gets the top value from the return stack, pushing the value to the calculation stack
     ///
     pub fn f_r_get(&mut self) {
-        push!(self, self.data[self.return_ptr]);
+        push!(self, self.heap[self.return_ptr]);
     }
 
     /// i ( -- n ) Pushes the current loop index to the calculation stack
     ///
     pub fn f_i(&mut self) {
-        push!(self, self.data[self.return_ptr]);
+        push!(self, self.heap[self.return_ptr]);
     }
 
     /// j ( -- n ) Pushes the second level (outer) loop index to the calculation stack
     ///
     pub fn f_j(&mut self) {
-        push!(self, self.data[self.return_ptr + 1]);
+        push!(self, self.heap[self.return_ptr + 1]);
     }
 
     /// c@ - ( s -- c ) read a character from a string and place on the stack
@@ -292,7 +284,7 @@ pub fn f_roll(&mut self) {
                 self.strings[dest + i] = self.strings[source + i];
                 i += 1;
             }
-            self.data[self.string_ptr] += length as i64;
+            self.heap[self.string_ptr] += length as i64;
             push!(self, result_ptr);
         }
     }
@@ -301,10 +293,10 @@ pub fn f_roll(&mut self) {
         if stack_ok!(self, 1, "s-create") {
             let source = top!(self) as usize;
             let length = self.strings[source] as usize;
-            let dest = self.data[self.string_ptr];
+            let dest = self.heap[self.string_ptr];
             push!(self, dest); // destination
             self.f_s_copy();
-            self.data[self.string_ptr] += length as i64 + 1;
+            self.heap[self.string_ptr] += length as i64 + 1;
         }
     }
 

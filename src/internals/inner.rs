@@ -9,7 +9,7 @@ use crate::engine::{
 
 macro_rules! pop {
     ($self:ident) => {{
-        let r = $self.data[$self.stack_ptr];
+        let r = $self.heap[$self.stack_ptr];
         //$self.data[$self.stack_ptr] = 999999;
         $self.stack_ptr += 1;
         r
@@ -18,7 +18,7 @@ macro_rules! pop {
 macro_rules! push {
     ($self:ident, $val:expr) => {
         $self.stack_ptr -= 1;
-        $self.data[$self.stack_ptr] = $val;
+        $self.heap[$self.stack_ptr] = $val;
     };
 }
 
@@ -49,7 +49,7 @@ impl TF {
     ///
     pub fn i_constant(&mut self) {
         let val = pop!(self);
-        push!(self, self.data[val as usize]);
+        push!(self, self.heap[val as usize]);
     }
 
     /// Places the number in data[d] on the stack
@@ -93,7 +93,7 @@ impl TF {
                 self.return_ptr = RET_START; // clear the return stack
                 return; // we've completed the last exit or encountered an error
             }
-            let code = if pc < DATA_SIZE { self.data[pc] } else { pc as i64 };
+            let code = if pc < DATA_SIZE { self.heap[pc] } else { pc as i64 };
             self.u_step(pc, call_depth);
             match code {
                 BUILTIN => {
@@ -111,18 +111,18 @@ impl TF {
                 }
                 CONSTANT => {
                     pc += 1;
-                    push!(self, self.data[pc]); // the value of the constant
+                    push!(self, self.heap[pc]); // the value of the constant
                     self.f_r_from();
                     pc = pop!(self) as usize;
                 }
                 LITERAL => {
                     pc += 1;
-                    push!(self, self.data[pc]); // the data stored in the current definition
+                    push!(self, self.heap[pc]); // the data stored in the current definition
                     pc += 1;
                 }
                 STRLIT => {
                     pc += 1;
-                    push!(self, self.data[pc] as i64); // the string address of the data
+                    push!(self, self.heap[pc] as i64); // the string address of the data
                     pc += 1;
                 }
                 DEFINITION => {
@@ -133,7 +133,7 @@ impl TF {
                 BRANCH => {
                     // Unconditional jump based on self.data[pc + 1]
                     pc += 1;
-                    let offset = self.data[pc];
+                    let offset = self.heap[pc];
                     if offset < 0 {
                         pc -= offset.abs() as usize;
                     } else {
@@ -143,7 +143,7 @@ impl TF {
                 BRANCH0 => {
                     pc += 1;
                     if pop!(self) == 0 {
-                        let offset = self.data[pc];
+                        let offset = self.heap[pc];
                         if offset < 0 {
                             pc -= offset.abs() as usize;
                         } else {

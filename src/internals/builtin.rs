@@ -36,45 +36,45 @@ impl TF {
     pub fn u_insert_variables(&mut self) {
         // install system variables in data area
         // hand craft S-HERE (free string pointer) so write_string() can work
-        self.data[0] = 0;
-        self.data[1] = 0;
-        self.data[2] = STR_START as i64; //
+        self.heap[0] = 0;
+        self.heap[1] = 0;
+        self.heap[2] = STR_START as i64; //
         self.strings[STR_START] = 6 as char; // length of "s-here"
         for (i, c) in "s-here".chars().enumerate() {
             self.strings[i + STR_START + 1] = c;
         }
         self.string_ptr = 4;
-        self.data[3] = VARIABLE;
-        self.data[4] = (STR_START + 7) as i64; // update the value of S-HERE
-        self.data[5] = 1; // back pointer
+        self.heap[3] = VARIABLE;
+        self.heap[4] = (STR_START + 7) as i64; // update the value of S-HERE
+        self.heap[5] = 1; // back pointer
                           // hand craft HERE, because it's needed by make_word
         let name_pointer = self.u_new_string("here");
-        self.data[6] = name_pointer as i64;
-        self.data[7] = VARIABLE;
-        self.data[8] = 10; // the value of HERE
-        self.data[9] = 5; // back pointer
+        self.heap[6] = name_pointer as i64;
+        self.heap[7] = VARIABLE;
+        self.heap[8] = 10; // the value of HERE
+        self.heap[9] = 5; // back pointer
         self.here_ptr = 8; // the address of the HERE variable
 
         // hand craft CONTEXT, because it's needed by make_word
-        self.data[10] = self.u_new_string("context") as i64;
-        self.data[11] = VARIABLE;
-        self.data[12] = 10;
-        self.data[13] = 9; // back pointer
+        self.heap[10] = self.u_new_string("context") as i64;
+        self.heap[11] = VARIABLE;
+        self.heap[12] = 10;
+        self.heap[13] = 9; // back pointer
         self.context_ptr = 12;
-        self.data[self.here_ptr] = 14;
+        self.heap[self.here_ptr] = 14;
 
         self.pad_ptr = self.u_make_variable("pad");
-        self.data[self.pad_ptr] = PAD_START as i64;
+        self.heap[self.pad_ptr] = PAD_START as i64;
         self.base_ptr = self.u_make_variable("base");
-        self.data[self.base_ptr] = 10; // decimal
+        self.heap[self.base_ptr] = 10; // decimal
         self.tmp_ptr = self.u_make_variable("tmp");
-        self.data[self.tmp_ptr] = TMP_START as i64;
+        self.heap[self.tmp_ptr] = TMP_START as i64;
         self.tib_ptr = self.u_make_variable("'tib");
-        self.data[self.tib_ptr] = 0;
+        self.heap[self.tib_ptr] = TIB_START as i64;
         self.tib_size_ptr = self.u_make_variable("#tib");
-        self.data[self.tib_size_ptr] = 0;
+        self.heap[self.tib_size_ptr] = 0; // means there's nothing in the TIB yet
         self.tib_in_ptr = self.u_make_variable(">in");
-        self.data[self.tib_in_ptr] = TIB_START as i64 + 1;
+        self.heap[self.tib_in_ptr] = TIB_START as i64 + 1;
         self.hld_ptr = self.u_make_variable("hld");
         self.last_ptr = self.u_make_variable("last"); // points to nfa of new definition
         self.state_ptr = self.u_make_variable("'eval");
@@ -82,7 +82,7 @@ impl TF {
         self.state_ptr = self.u_make_variable("state");
         self.stepper_ptr = self.u_make_variable("stepper"); // turns the stepper on or off
         self.step_depth_ptr = self.u_make_variable("stepper-depth"); // turns the stepper on or off
-        self.data[self.abort_ptr] = FALSE;
+        self.heap[self.abort_ptr] = FALSE;
     }
 
     /// Insert Forth code into the dictionary by causing the reader to interpret a string
@@ -94,14 +94,14 @@ impl TF {
     /// u_write_string writes a new string into the next empty space, updating the free space pointer
     fn u_new_string(&mut self, string: &str) -> usize {
         // place a new str into string space and update the free pointer string_ptr
-        let mut ptr = self.data[self.string_ptr] as usize;
+        let mut ptr = self.heap[self.string_ptr] as usize;
         let result_ptr = ptr;
         self.strings[ptr] = string.len() as u8 as char;
         ptr += 1;
         for (i, c) in string.chars().enumerate() {
             self.strings[ptr + i] = c;
         }
-        self.data[self.string_ptr] = (ptr + string.len()) as i64;
+        self.heap[self.string_ptr] = (ptr + string.len()) as i64;
         result_ptr
     }
 
@@ -124,17 +124,17 @@ impl TF {
     ///     return pointer to first parameter field - the code field pointer or cfa
     ///
     fn u_make_word(&mut self, name: &str, args: &[i64]) -> usize {
-        let back = self.data[self.here_ptr] as usize - 1; // the top-of-stack back pointer's location
+        let back = self.heap[self.here_ptr] as usize - 1; // the top-of-stack back pointer's location
         let mut ptr = back + 1;
-        self.data[ptr] = self.u_new_string(name) as i64;
+        self.heap[ptr] = self.u_new_string(name) as i64;
         for val in args {
             ptr += 1;
-            self.data[ptr] = *val;
+            self.heap[ptr] = *val;
         }
         ptr += 1;
-        self.data[ptr] = back as i64; // the new back pointer
-        self.data[self.here_ptr] = ptr as i64 + 1; // start of free space = HERE
-        self.data[self.context_ptr] = back as i64 + 1; // context is the name_pointer field of this word
+        self.heap[ptr] = back as i64; // the new back pointer
+        self.heap[self.here_ptr] = ptr as i64 + 1; // start of free space = HERE
+        self.heap[self.context_ptr] = back as i64 + 1; // context is the name_pointer field of this word
         back + 2 // address of first parameter field
     }
 

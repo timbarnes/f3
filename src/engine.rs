@@ -56,7 +56,7 @@ pub const EXEC: i64       = 100011; // calls the word with address on the stack
 ///
 //#[derive(Debug)]
 pub struct TF {
-    pub data: [i64; DATA_SIZE],
+    pub heap: [i64; DATA_SIZE],
     pub strings: [char; STRING_SIZE], // storage for strings
     pub builtins: Vec<BuiltInFn>,     // the dictionary of builtins
     //pub return_stack: Vec<i64>,     // for do loops etc.
@@ -92,7 +92,7 @@ impl TF {
     // ForthInterpreter struct implementations
     pub fn new() -> TF {
         let mut interpreter = TF {
-            data: [0; DATA_SIZE],
+            heap: [0; DATA_SIZE],
             strings: [' '; STRING_SIZE],
             builtins: Vec::new(),
             here_ptr: WORD_START,
@@ -137,12 +137,12 @@ impl TF {
     /// get_var returns the value of a defined variable from its pointer address
     ///
     pub fn get_var(&mut self, addr: usize) -> i64 {
-        self.data[addr]
+        self.heap[addr]
     }
 
     /// set_var stores a new value to a variable using its pointer address
     pub fn set_var(&mut self, addr: usize, val: i64) {
-        self.data[addr] = val;
+        self.heap[addr] = val;
     }
 
     /// get_compile_mode determines whether or not compile mode is active
@@ -162,6 +162,35 @@ impl TF {
     pub fn set_compile_mode(&mut self, value: bool) {
         self.set_var(self.state_ptr, if value { -1 } else { 0 });
     }
+
+    /// abort empties the stack, resets any pending operations, and returns to the prompt
+    ///     There is a version called abort" implemented in Forth, which prints an error message
+    ///
+    pub fn f_abort(&mut self) {
+        // empty the stack, reset any pending operations, and return to the prompt
+        self.msg
+            .warning("ABORT", "Terminating execution", None::<bool>);
+        self.f_clear();
+        self.set_abort_flag(true);
+    }
+
+
+
+    /// f_clear resets the stack and return stack pointers to their initial values
+    ///
+     pub fn f_clear(&mut self) {
+        println!("Clearing interpreter state");
+        self.stack_ptr = STACK_START;
+        self.return_ptr = RET_START;  // Reset return stack pointer
+        /*
+        self.heap[self.pad_ptr] = PAD_START as i64;     // Reset pad pointer
+        self.heap[self.tmp_ptr] = TMP_START as i64;     // Reset temporary string pointer
+        self.heap[self.base_ptr] = 10;                  // Reset base pointer to decimal
+        self.heap[self.tib_ptr] = TIB_START as i64;     // Reset TIB pointer
+        self.heap[self.tib_in_ptr] = TIB_START as i64 + 1;  // Reset TIB input pointer
+        self.heap[self.tib_size_ptr] = 0;               // Reset TIB size pointer
+        */
+   }
 
     /// set_abort_flag allows the abort condition to be made globally visible
     ///
@@ -185,6 +214,11 @@ impl TF {
     pub fn should_exit(&self) -> bool {
         // Method to determine if we should exit
         self.exit_flag
+    }
+
+
+    pub fn f_bye(&mut self) {
+        self.exit_flag = true;
     }
 
     // pack_string compresses strings to fit into 64 bit words

@@ -40,6 +40,20 @@ pub const EXIT: i64       = 100009; // returns from a word
 pub const BREAK: i64      = 100010; // breaks out of a word
 pub const EXEC: i64       = 100011; // calls the word with address on the stack
 
+pub struct Variable {
+    addr: usize, // address of the variable in the data area   
+}
+
+impl Variable {
+    pub fn get(&self, heap: &[usize]) -> usize {
+        heap[self.addr]
+    }
+
+    pub fn set(&self, heap: &mut [usize], value: usize) {
+        heap[self.addr] = value;
+    }
+}
+
 /// The primary data structure for the Forth engine
 ///
 ///     Forth's main data structure is a fixed array of integers (overloaded with characters and unsigned values).
@@ -124,3 +138,30 @@ impl TF {
         interpreter
     }
 
+////////////////////////////////////////////
+/// Kernel functions
+/// Accessors and checks
+/// 
+///////////////////////////////////////////////////////
+/// store(address, value) stores a value in the data area at the specified address.
+/// 
+    pub fn store(&mut self, addr: usize, value: i64) {
+        if addr < DATA_SIZE {
+            self.data[addr] = value;
+        } else {
+            self.msg.error("Store out of bounds");
+        }
+    }
+
+///////////////////////////////////////////////
+/// fetch(address) retrieves a value from the data area at the specified address.
+/// 
+    pub fn fetch(&self, addr: usize) -> i64 {
+        if addr < DATA_SIZE {
+            self.data[addr]
+        } else {
+            self.msg.error("Fetch out of bounds");
+            0 // Return a default value
+        }
+    }
+}

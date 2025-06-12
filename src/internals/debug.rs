@@ -17,7 +17,7 @@ macro_rules! stack_ok {
 }
 macro_rules! pop {
     ($self:ident) => {{
-        let r = $self.data[$self.stack_ptr];
+        let r = $self.heap[$self.stack_ptr];
         //$self.data[$self.stack_ptr] = 999999;
         $self.stack_ptr += 1;
         r
@@ -27,7 +27,7 @@ macro_rules! pop {
 macro_rules! push {
     ($self:ident, $val:expr) => {
         $self.stack_ptr -= 1;
-        $self.data[$self.stack_ptr] = $val;
+        $self.heap[$self.stack_ptr] = $val;
     };
 }
 
@@ -80,10 +80,10 @@ impl TF {
     ///     pc is the program counter, which represents the address of the cell being executed.
     ///
     pub fn u_step(&mut self, pc: usize, call_depth: usize) {
-        let stepper_mode = self.data[self.stepper_ptr];
-        let stepper_depth = self.data[self.step_depth_ptr] as usize;
+        let stepper_mode = self.heap[self.stepper_ptr];
+        let stepper_depth = self.heap[self.step_depth_ptr] as usize;
         if stepper_mode == 0  || call_depth > stepper_depth { return };
-        let mut contents = self.data[pc] as usize;
+        let mut contents = self.heap[pc] as usize;
         let is_builtin = if contents & BUILTIN_MASK != 0 { true } else { false };
         contents &= ADDRESS_MASK;
         let mut c = 's';
@@ -92,11 +92,11 @@ impl TF {
         self.f_dot_s();
 
         match contents as i64 {
-            VARIABLE | CONSTANT | DEFINITION => println!(" {} ", self.u_get_string(self.data[pc - 1] as usize)),
-            LITERAL => println!(" {} ", self.data[pc + 1]),
-            STRLIT => println!(" {} ", self.u_get_string(self.data[pc + 1] as usize)),
-            BRANCH => println!(" BRANCH:{}", self.data[pc + 1]),
-            BRANCH0 => println!(" BRANCH0:{}", self.data[pc + 1]),
+            VARIABLE | CONSTANT | DEFINITION => println!(" {} ", self.u_get_string(self.heap[pc - 1] as usize)),
+            LITERAL => println!(" {} ", self.heap[pc + 1]),
+            STRLIT => println!(" {} ", self.u_get_string(self.heap[pc + 1] as usize)),
+            BRANCH => println!(" BRANCH:{}", self.heap[pc + 1]),
+            BRANCH0 => println!(" BRANCH0:{}", self.heap[pc + 1]),
             ABORT => println!(" ABORT "),
             EXIT => println!(" EXIT "),
             BREAK => println!(" BREAK "),
@@ -106,7 +106,7 @@ impl TF {
                     println!(" {} ", &self.builtins[contents].name);
                 } else { 
                     // it's a word address: step-in about to occur
-                    println!(" ->{}", self.u_get_string(self.data[contents - 1] as usize));
+                    println!(" ->{}", self.u_get_string(self.heap[contents - 1] as usize));
                 }
             }
         } 
@@ -126,10 +126,10 @@ impl TF {
             _ => {}
         }
         match c {
-            't' => self.data[self.stepper_ptr] = 1,
-            'i' => self.data[self.step_depth_ptr] += 1,
-            'o' => self.data[self.step_depth_ptr] -= 1,
-            'c' => self.data[self.stepper_ptr] = 0,
+            't' => self.heap[self.stepper_ptr] = 1,
+            'i' => self.heap[self.step_depth_ptr] += 1,
+            'o' => self.heap[self.step_depth_ptr] -= 1,
+            'c' => self.heap[self.stepper_ptr] = 0,
             'h' | '?' => println!("Stepper: 's' for show, 't' for trace, 'c' for continue, 'o' for step-out."),
             _ =>{}, 
         }
