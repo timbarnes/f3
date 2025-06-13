@@ -273,32 +273,36 @@ variable word-counter
                     until 
                         drop ;   
 
+: print-word ( xt -- ) 
+                    1- @ 13 ltype ;                 \ print a word name, given the xt as produced by '
+
 \ Dictionary traversal functions
 \   Takes an execution address on the stack, and execs it on every word, via its preceding back pointer
 \   The word being executed must consume the address: it's signature is ( bp xt -- ).
 
-: print-word bp>nfa @ type ;
 
-: traverse-exec ( xt bp -- xt bp bp xt )    \ Provide the nfa from the bp in preparation for traverse-exec
-                    2dup swap               \ Setup for the execute
-                    exec ;
-: traverse-next ( xt bp -- xt bp' ) 
-                    ." Traverse next... "
-                    dup if @ then ;         \ Checks for zero, and gets the next pointer if non-zero
-: (traverse-words) ( xt bp -- xt bp )       \ 
+
+: print-name ( bp -- )
+                    dup 1+ @ 13 ltype ;
+
+: traverse-exec ( xt bp -- xt )
+                    over swap exec ;            \ pass bp to xt, keep xt
+
+: traverse-next ( bp -- bp' )
+                    @ ;                         \ follow the link
+
+: (traverse-words) ( xt bp -- xt )
                     begin
-                        dup 
-                        \ stop" before while> "
+                        dup                    \ check bp != 0
                     while
-                        \ stop" after while> "
-                        traverse-exec       \ Run the word
-                        traverse-next
-                    repeat ;
-: traverse-words ( xt -- )                  \ Traverses the word list, placing each nfa on the stack and calling xt 
-                    last @ 1-               \ Move to the top word's preceding back pointer 
-                    (traverse-words)        \ Loop through the words
-                    drop drop
-                    ;
+                        traverse-exec          \ call xt with bp
+                        traverse-next          \ follow link
+                    repeat
+                    drop ;                     \ drop final null bp
+
+: traverse-words ( xt -- )
+                    here @ 1- @                 \ get initial bp (as in words)
+                    (traverse-words) ;
 
 : forget-last ( -- )                            \ delete the most recent definition
                     here @ 1- @ dup 1+ here !                   \ resets HERE to the previous back pointer

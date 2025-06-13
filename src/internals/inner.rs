@@ -14,10 +14,9 @@ impl ForthRuntime {
     ///
     ///    [ index of i_builtin ] [ index of builtin ] in a compiled word
     ///
- pub fn i_builtin(&mut self) {
-    let code = self.kernel.pop();
-    let builtin = &self.kernel.get_builtin(code as usize);
-    (builtin.code)(self); // call the function pointer directly
+ pub fn builtin(&mut self, code: usize) {
+    let func = &self.kernel.get_builtin(code);
+    (func.code)(self); // call the function pointer directly
  }
 
     /// Places the address of the adjacent variable on the stack
@@ -169,8 +168,7 @@ impl ForthRuntime {
                     let builtin_flag = code as usize & BUILTIN_MASK;
                     let address = code as usize & ADDRESS_MASK;
                     if builtin_flag != 0 {
-                         self.kernel.push(address as i64);
-                        self.i_builtin();
+                        self.builtin(address);
                         pc += 1;
                     } else {
                         call_depth += 1;

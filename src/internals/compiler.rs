@@ -53,12 +53,16 @@ impl ForthRuntime {
 
     /// EXECUTE ( cfa -- ) interpret a word with addr on the stack
     /// stack value is the address of an inner interpreter
-    pub fn f_execute(&mut self) {
+    /// 
+
+     pub fn f_execute(&mut self) {
         if self.kernel.stack_check(1, "execute") {
             // call the appropriate inner interpreter
             let xt = self.kernel.pop();
             self.kernel.push(xt + 1);
-            match self.kernel.get(xt as usize) {
+            let opcode = self.kernel.get(xt as usize & ADDRESS_MASK) as i64;
+            // println!("f_execute: opcode = {opcode} xt = {xt}");
+            match opcode {
                 BUILTIN    => self.msg.error("f_execute", "BUILTIN found", Some(xt)), //self.i_builtin(),
                 VARIABLE   => self.i_variable(),
                 CONSTANT   => self.i_constant(),
@@ -73,11 +77,10 @@ impl ForthRuntime {
                 _ => {
                     self.kernel.pop();
                     let cfa = self.kernel.get(xt as usize) as usize & ADDRESS_MASK;
-                    self.kernel.push(cfa as i64);
-                    self.i_builtin();
+                    self.builtin(cfa);
                 }
             }
-        }
+        } 
     }
 
     /// EVAL ( -- ) Interprets a line of tokens from the Text Input Buffer (TIB
