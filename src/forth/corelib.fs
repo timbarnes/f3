@@ -327,7 +327,7 @@ variable word-counter
                                                 
 ( Application functions )
 
-: fac ( r n -- r )   \ Helper function that does most of the work.
+: _fac ( r n -- r )   \ Helper function that does most of the work.
                     dup 
                     if 
                         tuck * swap 1 - recurse 
@@ -338,7 +338,7 @@ dbg-quiet \ Suppress the redefinition warning
 : fac ( n -- n! )   \ Calculates factorial of a non-negative integer. No checks for stack or calculation overflow.
                     dup 
                     if 
-                        1 swap fac  \ Calls the previous definition - this is not recursion
+                        1 swap _fac  \ Calls the previous definition - this is not recursion
                     else 
                         drop 1 
                     then ;

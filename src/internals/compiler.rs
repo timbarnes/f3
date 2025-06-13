@@ -475,7 +475,7 @@ impl ForthRuntime {
             if is_builtin != 0 {
                 println!(
                     "Builtin: {}",
-                    self.kernel.builtins[xt as usize & !BUILTIN_MASK].doc
+                    self.kernel.get_builtin(xt as usize & !BUILTIN_MASK).doc
                 );
             } else {
                 // It's a definition of some kind
@@ -530,7 +530,7 @@ impl ForthRuntime {
                                     } else {
                                         mask = !BUILTIN_MASK;
                                         cfa &= mask;
-                                        let name = &self.kernel.builtins[cfa].name;
+                                        let name = &self.kernel.get_builtin(cfa).name;
                                         print!("{name} ");
                                     }
                                 }

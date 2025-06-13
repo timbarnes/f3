@@ -79,7 +79,7 @@ impl ForthRuntime {
             EXEC => println!(" -> EXEC"),
             _ => {
                 if is_builtin {
-                    println!(" {} ", &self.kernel.builtins[contents].name);
+                    println!(" {} ", &self.kernel.get_builtin(contents).name);
                 } else { 
                     // it's a word address: step-in about to occur
                     let val = self.kernel.get(contents - 1);
