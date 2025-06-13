@@ -7,33 +7,32 @@
 // reset the interpreter to the prompt, clearing the data stack and return stack.
 
 
+mod internals;
 mod config;
-mod kernel;
+mod runtime;
 mod messages;
 mod files;
-mod internals;
+mod kernel;
 
 use config::{Config, DEFAULT_CORE, VERSION};
-use kernel::TF;
+use runtime::ForthRuntime;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const WELCOME_MESSAGE: &str = "Welcome to f3.";
 const EXIT_MESSAGE: &str = "Finished";
 
-fn boot_forth(config: &Config) -> TF {
+fn boot_forth(config: &Config) -> ForthRuntime {
 
-    fn load_file(interpreter: &mut TF, file_name: &str) {
+    fn load_file(interpreter: &mut ForthRuntime, file_name: &str) {
+        let addr = interpreter.kernel.get(interpreter.tmp_ptr) as usize;
         println!("Loading file: {}", file_name);
-            TF::u_set_string(
-                interpreter,
-                interpreter.heap[interpreter.tmp_ptr] as usize,
-                file_name,
-            );
-            interpreter.push(interpreter.heap[interpreter.tmp_ptr]);
+            interpreter.kernel.set_string(addr, file_name);
+            let tmp = interpreter.kernel.get(interpreter.tmp_ptr);
+            interpreter.kernel.push(tmp);
             interpreter.f_include_file();
     }   
 
-    let mut forth = TF::new();
+    let mut forth = ForthRuntime::new();
 
     // --- Bootstrapping Phase ---
     let boot_result = catch_unwind(AssertUnwindSafe(|| {
@@ -57,7 +56,7 @@ fn boot_forth(config: &Config) -> TF {
     forth // Return the initialized interpreter
 }
 
-fn run_forth(forth: &mut TF) {
+fn run_forth(forth: &mut ForthRuntime) {
     println!("{WELCOME_MESSAGE} Version {VERSION}");
 
     // --- Interactive Loop Phase ---
@@ -73,12 +72,21 @@ fn run_forth(forth: &mut TF) {
                 println!("{EXIT_MESSAGE}");
                 break;
             }
-            Err(_) => {
-                eprintln!("⚠️  Error during execution. Resetting interpreter to prompt.");
-                forth.f_abort(); // You implement this in TF
-                forth.set_abort_flag(false);
-                // Optionally: clear input buffer, set diagnostic flags, etc.
-            }
+            Err(err) => {
+            eprintln!("⚠️  Error during execution. Resetting interpreter to prompt.");
+
+                if let Some(msg) = err.downcast_ref::<&str>() {
+                    eprintln!("panic message: {}", msg);
+                } else if let Some(msg) = err.downcast_ref::<String>() {
+                    eprintln!("panic message: {}", msg);
+                } else {
+                    eprintln!("panic payload is not a string.");
+                }
+
+                // Print the backtrace if RUST_BACKTRACE is set
+                // Optionally re-raise to get Rust’s full backtrace output
+                std::panic::resume_unwind(err);
+            }       
         }
     }
 }
