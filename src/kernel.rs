@@ -34,7 +34,7 @@ pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
 ///
 //#[derive(Debug)]
 pub struct Kernel {
-    pub heap: [i64; DATA_SIZE],
+    heap: [i64; DATA_SIZE],
     pub strings: [char; STRING_SIZE], // storage for strings
     pub builtins: Vec<BuiltInFn>,     // the dictionary of builtins
     pub stack_ptr: usize,             // top of the linear space stack

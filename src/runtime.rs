@@ -47,14 +47,14 @@ pub struct ForthRuntime {
     pub kernel: Kernel,               // the kernel that contains the Forth runtime
     pub here_ptr: usize,              // first free cell at top of dictionary
     pub context_ptr: usize,           // nfa of most recent word
-    pub eval_ptr: usize,              // used to turn compile mode on and off
+    // pub eval_ptr: usize,              // used to turn compile mode on and off
     pub base_ptr: usize,              // for numeric I/O
     pub pad_ptr: usize,               // string buffer for parser
     pub tmp_ptr: usize,               // temporary string buffer
     pub last_ptr: usize,              // points to name of top word
     pub hld_ptr: usize,               // for numeric string work
     pub state_ptr: usize,             // true if compiling a word
-    pub pc_ptr: usize,                // program counter
+    // pub pc_ptr: usize,                // program counter
     pub abort_ptr: usize,             // true if abort has been called
     pub tib_ptr: usize,               // TIB
     pub tib_size_ptr: usize,
@@ -76,14 +76,14 @@ impl ForthRuntime {
             kernel: Kernel::new(),
             here_ptr: WORD_START,
             context_ptr: 0,
-            eval_ptr: 0,
+            // eval_ptr: 0,
             base_ptr: 0,
             pad_ptr: 0,
             tmp_ptr: 0,
             last_ptr: 0,
             hld_ptr: 0,
             state_ptr: 0,
-            pc_ptr: 0,
+            // pc_ptr: 0,
             abort_ptr: 0,
             tib_ptr: 0,
             tib_size_ptr: 0,
@@ -200,17 +200,18 @@ impl ForthRuntime {
         self.kernel.set(5, 1); // back pointer
                           // hand craft HERE, because it's needed by make_word
         let name_pointer = self.kernel.new_string("here");
-        self.kernel.heap[6] = name_pointer as i64;
-        self.kernel.heap[7] = VARIABLE;
-        self.kernel.heap[8] = 10; // the value of HERE
-        self.kernel.heap[9] = 5; // back pointer
+        self.kernel.set(6,name_pointer as i64);
+        self.kernel.set(7, VARIABLE);
+        self.kernel.set(8, 10); // the value of HERE
+        self.kernel.set(9, 5); // back pointer
         self.here_ptr = 8; // the address of the HERE variable
 
         // hand craft CONTEXT, because it's needed by make_word
-        self.kernel.heap[10] = self.kernel.new_string("context") as i64;
-        self.kernel.heap[11] = VARIABLE;
-        self.kernel.heap[12] = 10;
-        self.kernel.heap[13] = 9; // back pointer
+        let str_addr = self.kernel.new_string("context");
+        self.kernel.set(10,  str_addr as i64);
+        self.kernel.set(11, VARIABLE);
+        self.kernel.set(12, 10);
+        self.kernel.set(13, 9); // back pointer
         self.context_ptr = 12;
         self.kernel.set(self.here_ptr, 14);
 
@@ -219,13 +220,13 @@ impl ForthRuntime {
         self.base_ptr = self.make_variable("base");
         self.kernel.set(self.base_ptr, 10); // decimal
         self.tmp_ptr = self.make_variable("tmp");
-        self.kernel.heap[self.tmp_ptr] = TMP_START as i64;
+        self.kernel.set(self.tmp_ptr, TMP_START as i64);
         self.tib_ptr = self.make_variable("'tib");
-        self.kernel.heap[self.tib_ptr] = TIB_START as i64;
+        self.kernel.set(self.tib_ptr,TIB_START as i64);
         self.tib_size_ptr = self.make_variable("#tib");
-        self.kernel.heap[self.tib_size_ptr] = 0; // means there's nothing in the TIB yet
+        self.kernel.set(self.tib_size_ptr, 0); // means there's nothing in the TIB yet
         self.tib_in_ptr = self.make_variable(">in");
-        self.kernel.heap[self.tib_in_ptr] = TIB_START as i64 + 1;
+        self.kernel.set(self.tib_in_ptr, TIB_START as i64 + 1);
         self.hld_ptr = self.make_variable("hld");
         self.last_ptr = self.make_variable("last"); // points to nfa of new definition
         self.state_ptr = self.make_variable("'eval");
@@ -233,7 +234,7 @@ impl ForthRuntime {
         self.state_ptr = self.make_variable("state");
         self.stepper_ptr = self.make_variable("stepper"); // turns the stepper on or off
         self.step_depth_ptr = self.make_variable("stepper-depth"); // turns the stepper on or off
-        self.kernel.heap[self.abort_ptr] = FALSE;
+        self.kernel.set(self.abort_ptr, FALSE);
     }
 
     /// Insert Forth code into the dictionary by causing the reader to interpret a string

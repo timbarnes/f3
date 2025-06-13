@@ -538,11 +538,14 @@ impl ForthRuntime {
                             index += 1;
                         }
                     }
-                    CONSTANT => println!(
-                        "Constant: {} = {}",
-                        self.kernel.get_string(self.kernel.heap[cfa as usize - 1] as usize),
-                        self.kernel.heap[cfa as usize + 1]
-                    ),
+                    CONSTANT => {
+                        let addr = self.kernel.get(cfa as usize - 1) as usize;
+                        println!(
+                            "Constant: {} = {}",
+                            addr,
+                            self.kernel.get(cfa as usize + 1),
+                        );
+                    },
                     VARIABLE => {
                         let addr = self.kernel.get(cfa as usize - 1) as usize;
                         println!(

@@ -150,7 +150,8 @@ pub fn f_roll(&mut self) {
         if self.kernel.stack_check(1, "@") {
             let addr = self.kernel.pop() as usize;
             if addr < DATA_SIZE {
-                self.kernel.push(self.kernel.heap[addr]);
+                let val = self.kernel.get(addr);
+                self.kernel.push(val);
             } else {
                 self.msg.error("@", "Address out of range", Some(addr));
                 self.f_abort();
@@ -165,7 +166,7 @@ pub fn f_roll(&mut self) {
             let addr = self.kernel.pop() as usize;
             let value = self.kernel.pop();
             if addr < DATA_SIZE {
-                self.kernel.heap[addr] = value;
+                self.kernel.set(addr, value);
             } else {
                 self.msg.error("@", "Address out of range", Some(addr));
                 self.f_abort();
@@ -208,7 +209,8 @@ pub fn f_roll(&mut self) {
     /// j ( -- n ) Pushes the second level (outer) loop index to the calculation stack
     ///
     pub fn f_j(&mut self) {
-        self.kernel.push(self.kernel.heap[self.kernel.return_ptr + 1]);
+        let val = self.kernel.get(self.kernel.return_ptr + 1);
+        self.kernel.push(val);
     }
 
     /// c@ - ( s -- c ) read a character from a string and place on the stack
@@ -240,7 +242,7 @@ pub fn f_roll(&mut self) {
                 self.kernel.strings[dest + i] = self.kernel.strings[source + i];
                 i += 1;
             }
-            self.kernel.heap[self.kernel.string_ptr] += length as i64;
+            self.kernel.delta(self.kernel.string_ptr, length as i64);
             self.kernel.push(result_ptr);
         }
     }
@@ -249,10 +251,10 @@ pub fn f_roll(&mut self) {
         if self.kernel.stack_check(1, "s-create") {
             let source = self.kernel.top() as usize;
             let length = self.kernel.strings[source] as usize;
-            let dest = self.kernel.heap[self.kernel.string_ptr];
+            let dest = self.kernel.get(self.kernel.string_ptr);
             self.kernel.push(dest); // destination
             self.f_s_copy();
-            self.kernel.heap[self.kernel.string_ptr] += length as i64 + 1;
+            self.kernel.delta(self.kernel.string_ptr, length as i64 + 1);
         }
     }
 
