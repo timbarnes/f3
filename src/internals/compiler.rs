@@ -226,6 +226,7 @@ impl ForthRuntime {
         let addr = self.kernel.get(self.here_ptr) as usize;
         let val = self.kernel.pop();
         self.kernel.set(addr, val);
+        self.kernel.incr(self.here_ptr); // increment HERE pointer to first free cell
    }
 
     /// f_literal ( n -- ) compile a literal number with it's inner interpreter code pointer
@@ -235,7 +236,7 @@ impl ForthRuntime {
     pub fn f_literal(&mut self) {
         self.kernel.push(LITERAL);
         self.f_comma();
-        self.f_comma();
+        self.f_comma(); // write the value passed in from the stack
     }
 
     /// UNIQUE? (s -- s )
@@ -376,6 +377,7 @@ impl ForthRuntime {
     ///     Finally it switches out of compile mode
     ///
     pub fn f_semicolon(&mut self) {
+        // println!("; (semicolon) - end of definition");
         self.kernel.push(EXIT);
         self.f_comma();
         let back = self.kernel.get(self.last_ptr); // get the current LAST pointer

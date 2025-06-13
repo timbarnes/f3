@@ -125,7 +125,9 @@ impl ForthRuntime {
     /// set_compile_mode turns on compilation mode
     ///
     pub fn set_compile_mode(&mut self, value: bool) {
-        self.kernel.set(self.state_ptr, if value { -1 } else { 0 });
+        let val = if value { -1 } else { 0 };
+        // println!("Setting compile mode to {}", value);
+        self.kernel.set(self.state_ptr, val);
     }
 
     /// abort empties the stack, resets any pending operations, and returns to the prompt
@@ -142,7 +144,7 @@ impl ForthRuntime {
     /// f_clear resets the stack and return stack pointers to their initial values
     ///
      pub fn f_clear(&mut self) {
-        println!("Clearing interpreter state");
+        // println!("Clearing interpreter state");
         self.kernel.reset(); // Reset the kernel state
    }
 
@@ -166,17 +168,19 @@ impl ForthRuntime {
     ///
 
     fn make_word(&mut self, name: &str, args: &[i64]) -> usize {
-        let back = self.kernel.heap[self.here_ptr] as usize - 1; // the top-of-stack back pointer's location
+        // println!("Making word: {}", name);
+        let back = self.kernel.get(self.here_ptr) as usize - 1; // the top-of-stack back pointer's location
         let mut ptr = back + 1;
-        self.kernel.heap[ptr] = self.kernel.new_string(name) as i64;
+        let val = self.kernel.new_string(name) as i64;
+        self.kernel.set(ptr, val as i64);
         for val in args {
             ptr += 1;
-            self.kernel.heap[ptr] = *val;
+            self.kernel.set(ptr, *val);
         }
         ptr += 1;
-        self.kernel.heap[ptr] = back as i64; // the new back pointer
-        self.kernel.heap[self.here_ptr] = ptr as i64 + 1; // start of free space = HERE
-        self.kernel.heap[self.context_ptr] = back as i64 + 1; // context is the name_pointer field of this word
+        self.kernel.set(ptr, back as i64); // the new back pointer
+        self.kernel.set(self.here_ptr, ptr as i64 + 1); // start of free space = HERE
+        self.kernel.set(self.context_ptr, back as i64 + 1); // context is the name_pointer field of this word
         back + 2 // address of first parameter field
     }
 
@@ -494,6 +498,7 @@ impl ForthRuntime {
             ForthRuntime::f_semicolon,
             "; ( -- ) terminate a definition, resetting to interpret mode",
         );
+        self.f_immediate(); // set the immediate flag on the most recent word
         self.add_builtin(
             "immed?",
             ForthRuntime::f_immediate_q,

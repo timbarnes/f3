@@ -8,19 +8,20 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'f2'",
+            "name": "Debug executable 'f3'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=f2",
-                    "--package=f2"
+                    "--bin=f3",
+                    "--package=f3",
+                    "--",
                 ],
                 "filter": {
-                    "name": "f2",
+                    "name": "f3",
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": ["-n"],
             "cwd": "${workspaceFolder}/target/debug",
         },
     ]

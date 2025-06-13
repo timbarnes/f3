@@ -105,8 +105,8 @@ pub fn f_pick(&mut self) {
     if self.kernel.stack_check(1, "pick") {
         let n = self.kernel.pop() as usize;
         if self.kernel.stack_check(n, "pick") {
-            let addr = self.kernel.get(self.kernel.stack_ptr);
-            self.kernel.push(addr + n as i64 + 1);
+            let val = self.kernel.get(self.kernel.stack_ptr + n + 1);
+            self.kernel.push(val);
         }
     }
 }
