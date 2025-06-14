@@ -291,18 +291,6 @@ impl Kernel {
     pub fn get_builtin(&self, index: usize) -> &BuiltInFn {
         &self.builtins[index]
     }
-
-    // pub fn find_builtin(&self, name: &str) -> Option<usize> {
-    //     self.builtins.iter().position(|b| b.name == name)
-    // }
-
-    /// get_builtins returns a reference to the list of builtins
-    pub fn heap_size(&self) -> usize {
-        self.heap.len()
-    }
-    pub fn strings_size(&self) -> usize {
-        self.strings.len()
-    }
 }
 
 //////////////////////////////////////////////

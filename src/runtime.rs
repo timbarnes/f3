@@ -596,15 +596,7 @@ impl ForthRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::{Kernel, RET_START, STACK_START};
-
-    // Create a new ForthRuntime instance for testing
-    
-    fn new_runtime() -> ForthRuntime {
-        let mut rt = ForthRuntime::new();
-        rt.cold_start();
-        rt
-    }
+    use crate::kernel::{RET_START, STACK_START};
 
     // Access the kernel directly for testing purposes
     #[test]
@@ -614,8 +606,6 @@ mod tests {
         rt.kernel.push(42);
         assert_eq!(rt.kernel.pop(), 42);
     }
-
-    #[test]
 
     #[test]
     fn test_new_runtime() {
