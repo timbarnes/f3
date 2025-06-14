@@ -11,7 +11,7 @@ use std::io::{self, BufReader, BufRead, Read, Write};
 
 use crate::messages::{DebugLevel, Msg};
 
-#[derive(Debug,Clone, Copy)]
+#[derive(Debug, PartialEq)]
 pub enum FileMode {
     RW,     // -1 => Read-write
     RO,     //  0 => Read-only
@@ -43,7 +43,7 @@ impl FileHandle {
     pub fn new(file_path: Option<&std::path::PathBuf>, msg_handler: Msg, mode: FileMode) -> Option<FileHandle> {
         // Initialize a tokenizer.
         let mut message_handler = Msg::new();
-        message_handler.set_level(DebugLevel::Error);
+        message_handler.set_level(DebugLevel::Warning);
         match file_path {
             Some(file_path) => {
                 let file = File::open(file_path);
@@ -61,7 +61,7 @@ impl FileHandle {
                             FileMode::RW | FileMode::WO => {
                                 Some(FileHandle {
                                     source: FType::File(file),
-                                    file_mode: FileMode::RO,
+                                    file_mode: mode,
                                     file_size: 0,
                                     file_position: 0,
                                     msg: msg_handler,
@@ -102,7 +102,14 @@ impl FileHandle {
                 io::stdout().flush().unwrap();
                 result = io::stdin().read_line(&mut new_line);
             }
-            FType::BReader(ref mut br) => result = br.read_line(&mut new_line),
+            FType::BReader(ref mut br) => {
+                if self.file_mode == FileMode::WO {
+                    println!("Error: Cannot read from a write-only file");
+                    return None
+                } else {
+                    result = br.read_line(&mut new_line)
+                }
+            },
             _ => { return None }
         }
         match result {
@@ -145,9 +152,9 @@ impl FileHandle {
         self.file_size
     }
 
-    pub fn file_mode(&self) -> FileMode {
+    pub fn file_mode(&self) -> &FileMode {
         // Returns the file mode
-        self.file_mode
+        &self.file_mode
     }
 
     pub fn set_file_mode(&mut self, mode: FileMode) {

@@ -2,7 +2,7 @@
 use crate::kernel::{BUF_SIZE, STACK_START};
 use crate::messages::Msg;
 use crate::files::{FileHandle, FType, FileMode};
-use crate::runtime::{ForthRuntime, FALSE, TRUE, FILE_MODE_R_O};
+use crate::runtime::{ForthRuntime, FALSE, TRUE, FILEMODE_RO};
 use std::cmp::min;
 use std::io::{self, Write, BufRead};
 use std::process::Command;
@@ -158,7 +158,7 @@ pub fn f_system_p(&mut self) {
         if self.kernel.stack_check(1, "include-file") {
             let addr = self.kernel.pop() as usize;
             let file_name = self.kernel.string_get(addr);
-            let mode = FILE_MODE_R_O;
+            let mode = FILEMODE_RO; // Read-only mode for included files
             let handle = self.u_open_file( &file_name, mode as i64);
             match handle {
                 Some(handle) => {

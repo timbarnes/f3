@@ -40,7 +40,7 @@ pub const FALSE: i64 = 0;
 pub const IMMEDIATE_MASK: usize = 0x4000000000000000;  // the immediate flag bit
 pub const BUILTIN_MASK: usize   = 0x2000000000000000;  // the builtin flag bit
 pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
-pub const FILE_MODE_R_O: i64 = 0;
+pub const FILEMODE_RO: i64 = 0; // Read-only file mode
 
 
 pub struct ForthRuntime {
