@@ -290,15 +290,14 @@ impl ForthRuntime {
             let delim = self.kernel.pop() as u8;
             let buf_len = self.kernel.pop();
             let in_p = self.kernel.pop();
-            // get a read-only &slice from kernel.strings, starting at in_p
-            // and ending at in_p + buf_len
-            let buffer = self.kernel.string_slice(in_p as usize, buf_len as usize + 1);           
-            // traverse the string, dropping leading delim characters
-            // in_p points *into* a string, so no count field
+            // println!("f_parse_p: in_p = {in_p}, buf_len = {buf_len}");
             if buf_len > 0 {
-                // let start = in_p as usize;
-                //let end = start + buf_len as usize;
-                //let mut i = start as usize;
+                // get a read-only &slice from kernel.strings, starting at in_p
+                // and ending at in_p + buf_len
+                let buffer = self.kernel.string_slice(in_p as usize, buf_len as usize + 1); 
+                // println!("f_parse_p: buffer = {:?}", buffer); 
+                // traverse the string, dropping leading delim characters
+                // in_p points *into* a string, so no count field
                 let end = buf_len as usize;
                 let mut i = 0;
                 let mut j;
@@ -310,8 +309,8 @@ impl ForthRuntime {
                     j += 1;
                 }
                 self.kernel.push(in_p);
-                self.kernel.push((j - i) as i64);
-                self.kernel.push(i as i64 - in_p);
+                self.kernel.push((j - i) as i64); // length of the token
+                self.kernel.push(i as i64); 
             } else {
                 // nothing left to read
                 self.kernel.push(in_p);
@@ -331,6 +330,7 @@ impl ForthRuntime {
         if self.kernel.stack_check(2, "parse") {
             let delim: i64 = self.kernel.pop();
             let dest = self.kernel.pop();
+            // println!("f_parse_to: delim = {delim}, dest = {dest}");
             if delim == 1 {
                 self.kernel.set(self.tib_in_ptr,1);
                 self.kernel.set(self.tib_size_ptr, 0);
@@ -339,8 +339,8 @@ impl ForthRuntime {
                 self.kernel.push(0); // indicates nothing found, TIB is empty
                 return;
             } else {
-                let val = self.kernel.get(self.tib_ptr) + self.kernel.get(self.tib_in_ptr);
-                self.kernel.push(val);  // Starting address in the string
+                let addr = self.kernel.get(self.tib_ptr) + self.kernel.get(self.tib_in_ptr);
+                self.kernel.push(addr);  // Starting address in the string
                 let val = self.kernel.get(self.tib_size_ptr) - self.kernel.get(self.tib_in_ptr) + 1;
                 self.kernel.push(val); // bytes available
                 self.kernel.push(delim);

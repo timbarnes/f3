@@ -349,5 +349,7 @@ dbg-warning
                     1 - dup recurse 
                     swap 1 - recurse + ;
 
-clear
+\ : run-tests  s" src/forth/regression.fs" included ; \ Run the regression tests
+
+\ clear
 cr ." Library loaded." cr

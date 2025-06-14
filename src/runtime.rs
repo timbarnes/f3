@@ -459,7 +459,7 @@ impl ForthRuntime {
         self.add_builtin(
             "(')",
             ForthRuntime::f_tick_p,
-            "(') <name> ( -- a ) searches the dictionary for a (posForthRuntimeix) word, returning its address",
+            "(') <name> ( -- a ) searches the dictionary for a (postfix) word, returning its address",
         );
         self.add_builtin(
             "query",
