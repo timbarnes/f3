@@ -152,13 +152,72 @@ impl FileHandle {
         self.file_size
     }
 
+    #[allow(dead_code)]
     pub fn file_mode(&self) -> &FileMode {
         // Returns the file mode
         &self.file_mode
     }
 
+    #[allow(dead_code)]
     pub fn set_file_mode(&mut self, mode: FileMode) {
         // Sets the file mode
         self.file_mode = mode;
+    }
+}
+
+//////////////////////////////////////////
+/// TESTS
+/// 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_file_handle_new() {
+        let msg = Msg::new();
+        let buf = &PathBuf::from("src/test.fs");
+        let file_path = Some(buf);
+        let handle = FileHandle::new(file_path, msg, FileMode::RO);
+        assert!(handle.is_some());
+    }
+
+    #[test]
+    fn test_get_line() {
+        let buf = &PathBuf::from("src/test.fs");
+        let file_path = Some(buf);
+        let mut handle = FileHandle::new(file_path, Msg::new(), FileMode::RO).unwrap();
+        let line = handle.get_line();
+        assert!(line.is_some());
+        println!("Read line: {:?}", line.unwrap());
+    }
+
+    #[test]
+    fn test_read_char() { // This test requires interactive input
+        let handle = FileHandle::new(None, Msg::new(), FileMode::RO).unwrap();
+        println!("Please enter a character:");
+        let ch = handle.read_char();
+        assert!(ch.is_some());
+        println!("Read character: {:?}", ch.unwrap());
+    }
+
+    #[test]
+    fn test_file_position() {
+        let handle = FileHandle::new(None, Msg::new(), FileMode::RO).unwrap();
+        assert_eq!(handle.file_position(), 0);
+    }
+
+    #[test]
+    fn test_file_size() {
+        let handle = FileHandle::new(None, Msg::new(), FileMode::RO).unwrap();
+        assert_eq!(handle.file_size(), 0);
+    }
+
+    #[test] 
+    fn test_file_mode() {
+        let mut handle = FileHandle::new(None, Msg::new(), FileMode::RO).unwrap();
+        assert_eq!(handle.file_mode(), &FileMode::RO);
+        handle.set_file_mode(FileMode::RW);
+        assert_eq!(handle.file_mode(), &FileMode::RW);
     }
 }
