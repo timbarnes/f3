@@ -139,7 +139,7 @@ impl ForthRuntime {
                 } else {
                     self.kernel.pop(); // lose the failed number
                     let addr = self.kernel.get(self.pad_ptr) as usize;
-                    let word = &self.kernel.get_string(addr);
+                    let word = &self.kernel.string_get(addr);
                     self.msg
                         .warning("$interpret", "token not recognized", Some(word));
                     self.f_abort();
@@ -166,7 +166,7 @@ impl ForthRuntime {
                     // leave the converted number on the stack
                 } else {
                     self.kernel.pop(); // lose the failed number
-                    let word = &self.kernel.get_string(token_addr as usize);
+                    let word = &self.kernel.string_get(token_addr as usize);
                     self.msg
                         .warning("$interpret", "token not recognized", Some(word));
                 }
@@ -187,11 +187,9 @@ impl ForthRuntime {
                 // name field is immediately after the link
                 let nfa_val = self.kernel.get(link + 1);
                 let str_addr = nfa_val as usize & ADDRESS_MASK;
-                if self.kernel.strings[str_addr] as u8 == self.kernel.strings[source_addr] as u8 {
-                    if self.kernel.str_equal(source_addr, str_addr as usize) {
-                        result = true;
-                        break;
-                    }
+                if self.kernel.string_equal(source_addr, str_addr) {
+                    result = true;
+                    break;
                 }
                 link = self.kernel.get(link) as usize;
             }
@@ -212,7 +210,7 @@ impl ForthRuntime {
     ///
     pub fn f_number_q(&mut self) {
         let buf_addr = self.kernel.pop();
-        let numtext = self.kernel.get_string(buf_addr as usize);
+        let numtext = self.kernel.string_get(buf_addr as usize);
         if u_is_integer(&numtext.as_str()) {
             let result = numtext.parse().unwrap();
             self.kernel.push(result);
@@ -271,10 +269,10 @@ impl ForthRuntime {
         if self.kernel.pop() == FALSE {
             // write an error message
             let addr = self.kernel.get(self.pad_ptr) as usize;
-            let mut msg = self.kernel.get_string(addr);
+            let mut msg = self.kernel.string_get(addr);
             msg = format!("Word not found: {} ", msg);
             let addr = self.kernel.get(self.pad_ptr) as usize;
-            self.kernel.set_string(addr, &msg);
+            self.kernel.string_set(addr, &msg);
             self.kernel.pop();
             self.kernel.push(FALSE);
         }
@@ -289,21 +287,26 @@ impl ForthRuntime {
     ///
     pub fn f_parse_p(&mut self) {
         if self.kernel.stack_check(3, "(parse)") {
-            let delim = self.kernel.pop() as u8 as char;
+            let delim = self.kernel.pop() as u8;
             let buf_len = self.kernel.pop();
             let in_p = self.kernel.pop();
+            // get a read-only &slice from kernel.strings, starting at in_p
+            // and ending at in_p + buf_len
+            let buffer = self.kernel.string_slice(in_p as usize, buf_len as usize + 1);           
             // traverse the string, dropping leading delim characters
             // in_p points *into* a string, so no count field
             if buf_len > 0 {
-                let start = in_p as usize;
-                let end = start + buf_len as usize;
-                let mut i = start as usize;
+                // let start = in_p as usize;
+                //let end = start + buf_len as usize;
+                //let mut i = start as usize;
+                let end = buf_len as usize;
+                let mut i = 0;
                 let mut j;
-                while self.kernel.strings[i] == delim && i < end {
+                while buffer[i] == delim && i < end {
                     i += 1;
                 }
                 j = i;
-                while j < end && self.kernel.strings[j] != delim {
+                while j < end && buffer[j] != delim {
                     j += 1;
                 }
                 self.kernel.push(in_p);
@@ -348,7 +351,7 @@ impl ForthRuntime {
                 let addr = self.kernel.pop();
                 if length > 0 {
                     // copy to pad
-                    self.kernel.str_copy(
+                    self.kernel.string_copy(
                         (addr + delta) as usize,
                         dest as usize,
                         length as usize,
@@ -401,7 +404,8 @@ impl ForthRuntime {
         self.f_parse_to(); // get the word's name
         self.kernel.pop(); // throw away the length, keep the text pointer
         self.f_q_unique(); // issue a warning if it's already defined
-        let length = self.kernel.strings[self.kernel.get(self.pad_ptr) as usize] as u8 as i64;
+        let str_addr = self.kernel.get(self.pad_ptr) as usize; // get the string address
+        let length = self.kernel.string_length(str_addr) as u8 as i64;
         self.kernel.push(length);
         let val = self.kernel.get(self.kernel.string_ptr);
         self.kernel.push(val);
@@ -453,9 +457,10 @@ impl ForthRuntime {
         let length = self.kernel.pop() as usize;
         let source = self.kernel.pop() as usize;
         // assuming both are counted, we begin with the count byte. Length should match the source count byte
-        for i in 0..=length {
-            self.kernel.strings[dest + i] = self.kernel.strings[source + i];
-        }
+        self.kernel.string_copy(source, dest, length, true);
+        // for i in 0..=length {
+        //     self.kernel.strings[dest + i] = self.kernel.strings[source + i];
+        // }
         self.kernel.push(dest as i64);
     }
 
@@ -483,7 +488,7 @@ impl ForthRuntime {
                 match xt as i64 {
                     DEFINITION => {
                         print!(": ");
-                        let name = self.kernel.get_string(nfa);
+                        let name = self.kernel.string_get(nfa);
                         print!("{name} ");
                         let mut index = cfa as usize + 1; // skip the inner interpreter
                         loop {
@@ -495,7 +500,7 @@ impl ForthRuntime {
                                 }
                                 STRLIT => {
                                     let s_addr = self.kernel.get(index as usize + 1) as usize;
-                                    print!("\" {}\" ", self.kernel.get_string(s_addr));
+                                    print!("\" {}\" ", self.kernel.string_get(s_addr));
                                     index += 1;
                                 }
                                 BRANCH => {
@@ -525,7 +530,7 @@ impl ForthRuntime {
                                     if mask == 0 {
                                         let addr = self.kernel.get(index) as usize - 1;
                                         let word = ADDRESS_MASK & self.kernel.get(addr) as usize; // nfa address
-                                        let name = self.kernel.get_string(word);
+                                        let name = self.kernel.string_get(word);
                                         print!("{name} ");
                                     } else {
                                         mask = !BUILTIN_MASK;
@@ -550,7 +555,7 @@ impl ForthRuntime {
                         let addr = self.kernel.get(cfa as usize - 1) as usize;
                         println!(
                             "Variable: {} = {}",
-                            self.kernel.get_string(addr),
+                            self.kernel.string_get(addr),
                             self.kernel.get(cfa as usize + 1),
                         )
                     },

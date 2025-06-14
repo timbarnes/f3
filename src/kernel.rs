@@ -34,9 +34,9 @@ pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
 ///
 //#[derive(Debug)]
 pub struct Kernel {
-    heap: [i64; DATA_SIZE],
-    pub strings: [char; STRING_SIZE], // storage for strings
-    builtins: Vec<BuiltInFn>,     // the dictionary of builtins
+    pub (crate) heap: [i64; DATA_SIZE],
+    pub (crate) strings: [u8; STRING_SIZE], // storage for strings
+    pub (crate) builtins: Vec<BuiltInFn>,     // the dictionary of builtins
     pub stack_ptr: usize,             // top of the linear space stack
     pub return_ptr: usize,            // top of the return stack
     pub string_ptr: usize,            // pointer to the next free string space
@@ -49,7 +49,7 @@ impl Kernel {
     pub fn new() -> Kernel {
         let kernel = Kernel {
             heap: [0; DATA_SIZE],
-            strings: [' '; STRING_SIZE],
+            strings: [b' '; STRING_SIZE],
             builtins: Vec::new(),
             stack_ptr: STACK_START,
             return_ptr: RET_START,
@@ -66,7 +66,6 @@ impl Kernel {
         self.stack_ptr = STACK_START;
         self.return_ptr = RET_START;
     }
-
 
     /// get returns the value of a cell on the heap using its address
     ///      This is used to access variables, constants, and other data stored in the heap.
@@ -90,21 +89,25 @@ impl Kernel {
         self.heap[addr] -= 1;
     }
 
+    /// delta adds a delta value to a cell on the heap
     pub fn delta(&mut self, addr: usize, delta: i64) {
         self.heap[addr] += delta;
     }
 
+    /// top returns the value at the top of the stack without removing it
     #[inline(always)]
     pub fn top(&mut self) -> i64 {
         self.heap[self.stack_ptr]
     }
 
+    /// push adds a value to the top of the stack
      #[inline(always)]
     pub fn push(&mut self, val: i64) {
         self.stack_ptr -= 1;
         self.heap[self.stack_ptr] = val;
     }
 
+    /// pop removes the top value from the stack and returns it
     #[inline(always)]
     pub fn pop(&mut self) -> i64 {
         let r = self.heap[self.stack_ptr];
@@ -112,7 +115,8 @@ impl Kernel {
         r
     }
 
-        #[inline(always)]
+    /// stack_check checks if there are enough items on the stack for an operation
+    #[inline(always)]
     pub fn stack_check(&self, needed: usize, word: &str) -> bool{
         if self.stack_ptr < needed {
             panic!("{}: Stack underflow: need {}, have {}", word, needed, self.stack_ptr);
@@ -164,58 +168,61 @@ impl Kernel {
         }
     }
 
-    /// new_string writes a new string into the next empty space, updating the free space pointer
-    pub fn new_string(&mut self, string: &str) -> usize {
+    /// string_new writes a new string into the next empty space, updating the free space pointer
+    /// /// This function assumes that the string is counted, i.e. the first byte is the length of the string.
+    /// /// Returns the address of the new string in the string space.
+    /// 
+    pub fn string_new(&mut self, string: &str) -> usize {
         // place a new str into string space and update the free pointer string_ptr
         let mut ptr = self.heap[self.string_ptr] as usize;
         let result_ptr = ptr;
-        self.strings[ptr] = string.len() as u8 as char;
+        self.strings[ptr] = string.len() as u8;
         ptr += 1;
         for (i, c) in string.chars().enumerate() {
-            self.strings[ptr + i] = c;
+            self.strings[ptr + i] = c as u8;
         }
         self.heap[self.string_ptr] = (ptr + string.len()) as i64;
         result_ptr
     }
 
-    /// copy a string slice into string space
+    /// copy a string slice into string space adding a count byte
     ///    
-    pub fn save_string(&mut self, from: &str, to: usize) {
-        self.strings[to] = from.len() as u8 as char; // count byte
+    pub fn string_save(&mut self, from: &str, to: usize) {
+        self.strings[to] = from.len() as u8; // count byte
         for (i, c) in from.chars().enumerate() {
-            self.strings[to + i + 1] = c;
+            self.strings[to + i + 1] = c as u8;
         }
     }
 
-        /// u_get_string returns a string from a Forth string address
-    ///     Assumes the source string is counted (i.e. has its length in the first byte)
+    /// string_get returns a string from a Forth string address
+    /// Assumes the source string is counted (i.e. has its length in the first byte)
     ///
-    pub fn get_string(&mut self, addr: usize) -> String {
+    pub fn string_get(&mut self, addr: usize) -> String {
         let str_addr = (addr & ADDRESS_MASK) + 1; //
         let last = str_addr + self.strings[addr] as usize;
         let mut result = String::new();
         for i in str_addr..last {
-            result.push(self.strings[i]);
+            result.push(self.strings[i] as char);
         }
         result
     }
 
-    /// u_set_string saves a counted string to a Forth string address
+    /// string_set saves a counted string to a Forth string address
     ///
-    pub fn set_string(&mut self, addr: usize, string: &str) {
+    pub fn string_set(&mut self, addr: usize, string: &str) {
         let str_addr = addr & ADDRESS_MASK;
-        self.strings[str_addr] = string.len() as u8 as char; // count byte
+        self.strings[str_addr] = string.len() as u8; // count byte
         for (i, c) in string.chars().enumerate() {
-            self.strings[str_addr + i + 1] = c;
+            self.strings[str_addr + i + 1] = c as u8;
         }
     }
 
-    /// copy a string from a text buffer to a counted string
+    /// copy a string from a text buffer in string space to a counted string
     ///     Typically used to copy to PAD from TIB
     ///     Can work with source strings counted or uncounted
     ///
-    pub fn str_copy(&mut self, from: usize, to: usize, length: usize, counted: bool) {
-        self.strings[to] = length as u8 as char; // write count byte
+    pub fn string_copy(&mut self, from: usize, to: usize, length: usize, counted: bool) {
+        self.strings[to] = length as u8; // write count byte
         let offset = if counted { 1 } else { 0 };
         for i in 0..length {
             self.strings[to + i + 1] = self.strings[from + i + offset];
@@ -225,7 +232,7 @@ impl Kernel {
     /// Compare two Forth (counted) strings
     /// First byte is the length, so we'll bail quickly if they don't match
     ///
-    pub fn str_equal(&mut self, s_addr1: usize, s_addr2: usize) -> bool {
+    pub fn string_equal(&mut self, s_addr1: usize, s_addr2: usize) -> bool {
         if self.strings[s_addr1] != self.strings[s_addr2] {
             return false;
         }
@@ -236,13 +243,170 @@ impl Kernel {
         }
         true
     }
+    
+    /// Return the length of a counted string
+    /// This is the first byte of the string, so it is very fast
+    /// 
+    pub fn string_length(&self, addr: usize) -> usize {
+        self.strings[addr] as usize
+    }  
 
+    /// Get a read-only string slice. Assumes a non-counted string.
+    /// Used for detailed parsing of strings
+    /// 
+    pub fn string_slice(&self, addr: usize, len: usize) -> &[u8] {
+        &self.strings[addr..addr + len]
+    }
+
+    /// byte_get returns a byte from a string address
+    /// /// This is used to access individual characters in a string.
+    /// 
+    pub fn byte_get(&self, addr: usize) -> u8 {
+        if addr >= STRING_SIZE {
+            panic!("byte_get: index out of bounds");
+        }
+        self.strings[addr] 
+    }
+
+    /// byte_set sets a byte in a string address
+    /// /// This is used to modify individual characters in string space.
+    /// 
+    pub fn byte_set(&mut self, addr: usize, value: u8) {
+        if addr >= STRING_SIZE {
+            panic!("byte_set: index out of bounds");
+        }
+        self.strings[addr] = value;
+    }   
+
+    /// add_builtin adds a new builtin function to the kernel's list
+    /// /// Returns the index of the new builtin in the list
+    /// 
     pub fn add_builtin(&mut self, builtin: BuiltInFn) -> usize {
         self.builtins.push(builtin);
         self.builtins.len() - 1
     }
 
+    /// get_builtin returns a reference to a builtin function by its index
+    /// 
     pub fn get_builtin(&self, index: usize) -> &BuiltInFn {
         &self.builtins[index]
+    }
+
+    // pub fn find_builtin(&self, name: &str) -> Option<usize> {
+    //     self.builtins.iter().position(|b| b.name == name)
+    // }
+
+    /// get_builtins returns a reference to the list of builtins
+    pub fn heap_size(&self) -> usize {
+        self.heap.len()
+    }
+    pub fn strings_size(&self) -> usize {
+        self.strings.len()
+    }
+}
+
+//////////////////////////////////////////////
+/// TESTS
+/// 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn kernel_with_string_ptr(start: usize) -> Kernel {
+        let mut k = Kernel::new();
+        k.heap[k.string_ptr] = start as i64;
+        k
+    }
+
+    #[test]
+    fn test_string_new_and_get() {
+        let mut k = kernel_with_string_ptr(100);
+        let addr = k.string_new("hello");
+        assert_eq!(addr, 100);
+        assert_eq!(k.string_get(addr), "hello");
+    }
+
+    #[test]
+    fn test_string_save_and_get() {
+        let mut k = Kernel::new();
+        let addr = 200;
+        k.string_save("world", addr);
+        assert_eq!(k.string_get(addr), "world");
+    }
+
+    #[test]
+    fn test_string_set_and_get() {
+        let mut k = Kernel::new();
+        let addr = 300;
+        k.string_set(addr, "rust");
+        assert_eq!(k.string_get(addr), "rust");
+    }
+
+    #[test]
+    fn test_string_copy_counted() {
+        let mut k = Kernel::new();
+        k.string_save("forth", 50);              // counted string at 50
+        k.string_copy(50, 60, 5, true);          // copy to 60, counted
+        assert_eq!(k.string_get(60), "forth");
+    }
+
+    #[test]
+    fn test_string_copy_uncounted() {
+        let mut k = Kernel::new();
+        k.string_set(100, "abcde");
+        k.string_copy(101, 200, 5, false);       // copy raw content (skip count)
+        assert_eq!(k.string_get(200), "abcde");
+    }
+
+    #[test]
+    fn test_string_equal_matches() {
+        let mut k = Kernel::new();
+        k.string_save("match", 10);
+        k.string_save("match", 30);
+        assert!(k.string_equal(10, 30));
+    }
+
+    #[test]
+    fn test_string_equal_mismatch() {
+        let mut k = Kernel::new();
+        k.string_save("abc", 10);
+        k.string_save("xyz", 20);
+        assert!(!k.string_equal(10, 20));
+    }
+
+    #[test]
+    fn test_string_length() {
+        let mut k = Kernel::new();
+        k.string_save("short", 400);
+        assert_eq!(k.string_length(400), 5);
+    }
+
+    #[test]
+    fn test_byte_get_and_set() {
+        let mut k = Kernel::new();
+        k.byte_set(500, b'X');
+        assert_eq!(k.byte_get(500), b'X');
+    }
+
+    #[test]
+    #[should_panic(expected = "byte_get: index out of bounds")]
+    fn test_byte_get_oob_panics() {
+        let k = Kernel::new();
+        let _ = k.byte_get(STRING_SIZE);  // out of bounds
+    }
+
+    #[test]
+    #[should_panic(expected = "byte_set: index out of bounds")]
+    fn test_byte_set_oob_panics() {
+        let mut k = Kernel::new();
+        k.byte_set(STRING_SIZE + 1, b'!');
+    }
+
+    #[test]
+    fn test_string_slice() {
+        let mut k = Kernel::new();
+        k.string_save("abcdef", 600);
+        let slice = k.string_slice(601, 3); // skip count byte
+        assert_eq!(slice, b"abc");
     }
 }

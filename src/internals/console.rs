@@ -27,7 +27,7 @@ impl ForthRuntime {
 pub fn f_system_p(&mut self) {
     if self.kernel.stack_check(1, "(system)") {
         let addr = self.kernel.pop() as usize;
-        let cmd_string = self.kernel.get_string(addr);
+        let cmd_string = self.kernel.string_get(addr);
         let mut args = cmd_string.split_ascii_whitespace();
         //println!("args: {:?}", args);
         let mut cmd: Command;
@@ -83,7 +83,7 @@ pub fn f_system_p(&mut self) {
                         Some(line) => {
                             let length = min(line.len() - 1, max_len as usize) as usize;
                             let line_str = &line[..length];
-                            self.kernel.save_string(line_str, dest); // write a counted string
+                            self.kernel.string_save(line_str, dest); // write a counted string
                             self.kernel.push(length as i64);
                         }
                         None => {
@@ -157,7 +157,7 @@ pub fn f_system_p(&mut self) {
     pub fn f_include_file(&mut self) {
         if self.kernel.stack_check(1, "include-file") {
             let addr = self.kernel.pop() as usize;
-            let file_name = self.kernel.get_string(addr);
+            let file_name = self.kernel.string_get(addr);
             let mode = FILE_MODE_R_O;
             let handle = self.u_open_file( &file_name, mode as i64);
             match handle {
@@ -177,7 +177,7 @@ pub fn f_system_p(&mut self) {
         if self.kernel.stack_check(2, "open-file") {
             let mode = self.kernel.pop();
             let addr = self.kernel.pop() as usize;
-            let name = self.kernel.get_string(addr);
+            let name = self.kernel.string_get(addr);
             println!("open-file: name={}, mode={}", name, mode);
             let handle = self.u_open_file(&name, mode);
             match handle {
@@ -263,7 +263,7 @@ pub fn f_system_p(&mut self) {
                                     self.kernel.push(-1);
                                 } else {
                                     let addr = self.kernel.get(self.tmp_ptr) as usize;
-                                    self.kernel.save_string(&result, addr);
+                                    self.kernel.string_save(&result, addr);
                                     self.kernel.push(r as i64);  // Number of chars read
                                     self.kernel.push(TRUE);
                                     self.kernel.push(0);
@@ -286,7 +286,7 @@ pub fn f_system_p(&mut self) {
             let chars = self.kernel.pop() as usize;
             let addr = self.kernel.pop() as usize;
             if file_id < self.files.len() {
-                let string = self.kernel.get_string(addr)[0..chars - 1].to_owned();
+                let string = self.kernel.string_get(addr)[0..chars - 1].to_owned();
                 // write the string to the file
                 match self.files[file_id].source {
                     FType::File(ref mut f) => {

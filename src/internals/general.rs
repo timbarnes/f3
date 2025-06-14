@@ -213,48 +213,47 @@ pub fn f_roll(&mut self) {
         self.kernel.push(val);
     }
 
-    /// c@ - ( s -- c ) read a character from a string and place on the stack
+    /// c@ - ( s -- c ) read a character from a string address and place on the stack
     ///
     pub fn f_c_get(&mut self) {
         if self.kernel.stack_check(1, "c@") {
             let s_address = self.kernel.pop() as usize;
-            self.kernel.push(self.kernel.strings[s_address] as u8 as i64);
+            let c = self.kernel.byte_get(s_address);
+            self.kernel.push(c as i64);
         }
     }
 
-    /// c! - ( c s -- ) read a character from a string and place on the stack
+    /// c! - ( c s -- ) write a character to the string-space address on the stack
+    /// 
     pub fn f_c_store(&mut self) {
         if self.kernel.stack_check(2, "c!") {
             let s_address = self.kernel.pop() as usize;
-            self.kernel.strings[s_address] = self.kernel.pop() as u8 as char;
+            let c = self.kernel.pop() as u8;
+            self.kernel.byte_set(s_address, c);
         }
     }
 
-    /// s-copy (s-from s-to -- s-to )
+    /// s-copy (s-from s-to -- s-to ) copies a counted string from one address to another.
+    /// /// This does NOT update the free space pointer - it's intended for use in pre-allocated buffers.
+    /// /// The source string is expected to be a counted string, with the first byte being the length.
     pub fn f_s_copy(&mut self) {
         if self.kernel.stack_check(2, "s-copy") {
             let dest = self.kernel.pop() as usize;
-            let result_ptr = dest as i64;
             let source = self.kernel.pop() as usize;
-            let length = self.kernel.strings[source] as u8 as usize + 1;
-            let mut i = 0;
-            while i < length {
-                self.kernel.strings[dest + i] = self.kernel.strings[source + i];
-                i += 1;
-            }
-            self.kernel.delta(self.kernel.string_ptr, length as i64);
-            self.kernel.push(result_ptr);
+            let length = self.kernel.byte_get(source) + 1; // +1 for the length byte
+            self.kernel.string_copy(source, dest, length as usize, true);
         }
     }
+
     /// s-create ( s-from -- s-to ) copies a counted string into the next empty space, updating the free space pointer
     pub fn f_s_create(&mut self) {
         if self.kernel.stack_check(1, "s-create") {
-            let source = self.kernel.top() as usize;
-            let length = self.kernel.strings[source] as usize;
+            let source = self.kernel.pop() as usize;
+            let length = self.kernel.byte_get(source) as usize;
             let dest = self.kernel.get(self.kernel.string_ptr);
-            self.kernel.push(dest); // destination
-            self.f_s_copy();
+            self.kernel.string_copy(source, dest as usize, length, true);
             self.kernel.delta(self.kernel.string_ptr, length as i64 + 1);
+            self.kernel.push(dest); // pointer to the beginning of the new string
         }
     }
 

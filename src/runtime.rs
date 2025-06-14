@@ -156,22 +156,23 @@ impl ForthRuntime {
 
     /* fn u_make_constant(&mut self, name: &str, val: i64) -> usize {
            // Create a constant
-           let code_ptr = self.kernel.u_make_word(name, &[val]); // install the name
+           let code_ptr = self.kernel.make_word(name, &[val]); // install the name
            code_ptr + 1
        }
     */
-    /// u_make_word Install a new word with provided name and arguments
+    /// make_word installs a new word with provided name and arguments
     ///     back link is already in place
     ///     place it HERE
     ///     update HERE and LAST
     ///     return pointer to first parameter field - the code field pointer or cfa
+    ///     This is used for making headers for words, variables, and constants.
     ///
 
     fn make_word(&mut self, name: &str, args: &[i64]) -> usize {
         // println!("Making word: {}", name);
         let back = self.kernel.get(self.here_ptr) as usize - 1; // the top-of-stack back pointer's location
         let mut ptr = back + 1;
-        let val = self.kernel.new_string(name) as i64;
+        let val = self.kernel.string_new(name) as i64;
         self.kernel.set(ptr, val as i64);
         for val in args {
             ptr += 1;
@@ -190,16 +191,20 @@ impl ForthRuntime {
         self.kernel.set(0, 0);
         self.kernel.set(1, 0); // the first two cells are reserved for the stack pointer and return pointer
         self.kernel.set(2, STR_START as i64); //
-        self.kernel.strings[STR_START] = 6 as char; // length of "s-here"
-        for (i, c) in "s-here".chars().enumerate() {
-            self.kernel.strings[i + STR_START + 1] = c;
-        }
+
+        self.kernel.string_set(STR_START, "s-here");
+
+        // self.kernel.strings[STR_START] = 6 as u8; // length of "s-here"
+        // for (i, c) in "s-here".as_bytes().iter().enumerate() {
+        //     self.kernel.strings[i + STR_START + 1] = *c;
+        // }
+
         self.kernel.string_ptr = 4;
         self.kernel.set(3, VARIABLE);
         self.kernel.set(4, (STR_START + 7) as i64); // update the value of S-HERE
         self.kernel.set(5, 1); // back pointer
                           // hand craft HERE, because it's needed by make_word
-        let name_pointer = self.kernel.new_string("here");
+        let name_pointer = self.kernel.string_new("here");
         self.kernel.set(6,name_pointer as i64);
         self.kernel.set(7, VARIABLE);
         self.kernel.set(8, 10); // the value of HERE
@@ -207,7 +212,7 @@ impl ForthRuntime {
         self.here_ptr = 8; // the address of the HERE variable
 
         // hand craft CONTEXT, because it's needed by make_word
-        let str_addr = self.kernel.new_string("context");
+        let str_addr = self.kernel.string_new("context");
         self.kernel.set(10,  str_addr as i64);
         self.kernel.set(11, VARIABLE);
         self.kernel.set(12, 10);
@@ -248,11 +253,14 @@ impl ForthRuntime {
     ///     function pointer directly in user space, but it would require ugly casting (if it's even possible).
     ///     Also, calling a function via an address in data space is going to cause a crash if the data space
     ///     pointer is incorrect.
+    /// 
+    ///     The function returns a pointer to the cfa of the builtin, which is the index of the function 
+    ///     pointer for the code, combined with the BUILTIN_MASK to indicate that this is a builtin function.
     ///
-    fn add_builtin(&mut self, name: &str, code: fn(&mut ForthRuntime), doc: &str) {
+    fn add_builtin(&mut self, name: &str, code: fn(&mut ForthRuntime), doc: &str) -> usize{
         let index = self.kernel.add_builtin(BuiltInFn::new(name.to_string(), code, doc.to_string()));
         let cfa = index | BUILTIN_MASK;
-        self.make_word(name, &[cfa as i64]);
+        self.make_word(name, &[cfa as i64])
 }
     /// Set up all the words that are implemented in Rust
     ///     Each one gets a standard dictionary reference, and a slot in the builtins data structure.
@@ -579,4 +587,237 @@ impl ForthRuntime {
         self.exit_flag = true;
     }
 
+}
+
+/////////////////////////
+/// TESTS
+/// 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kernel::{Kernel, RET_START, STACK_START};
+
+    // Create a new ForthRuntime instance for testing
+    
+    fn new_runtime() -> ForthRuntime {
+        let mut rt = ForthRuntime::new();
+        rt.cold_start();
+        rt
+    }
+
+    // Access the kernel directly for testing purposes
+    #[test]
+    fn test_stack_push_and_pop() {
+        let mut rt = ForthRuntime::new();
+        rt.cold_start();
+        rt.kernel.push(42);
+        assert_eq!(rt.kernel.pop(), 42);
+    }
+
+    #[test]
+
+    #[test]
+    fn test_new_runtime() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        assert_eq!(runtime.kernel.get(0), 0); // stack pointer
+        assert_eq!(runtime.kernel.get(1), 0); // return pointer
+        // assert_eq!(runtime.here_ptr, WORD_START);
+        // assert_eq!(runtime.context_ptr, 0);
+        assert!(!runtime.exit_flag);
+    }
+
+    #[test]
+    fn test_cold_start() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+        assert_eq!(runtime.kernel.get(runtime.state_ptr), FALSE);
+    }
+
+
+    #[test]
+    fn test_make_word() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        let code_ptr = runtime.make_word("test", &[1, 2, 3]);
+        println!("Code pointer: {}", code_ptr);
+        let s1 = runtime.kernel.get(code_ptr - 1) as usize;
+        let s2 = runtime.kernel.string_new("test");
+        assert!(runtime.kernel.string_equal(s1, s2));
+        assert_eq!(runtime.kernel.get(code_ptr), 1);
+        assert_eq!(runtime.kernel.get(code_ptr + 1), 2);
+        assert_eq!(runtime.kernel.get(code_ptr + 2), 3);
+    }
+
+    #[test]
+    fn test_add_builtin() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        let addr = runtime.add_builtin("test", ForthRuntime::f_plus, "Test function");
+        let cfa = runtime.kernel.get(addr) as usize;
+        println!("ADDR: {}, CFA: {}", addr, cfa);
+        assert!(cfa > BUILTIN_MASK);
+    }
+
+    #[test]
+    fn test_add_and_call_builtin() {
+        let mut rt = ForthRuntime::new();
+        rt.cold_start();
+
+        fn sample_add(rt: &mut ForthRuntime) {
+            let b = rt.kernel.pop();
+            let a = rt.kernel.pop();
+            rt.kernel.push(a + b);
+        }
+
+        let addr = rt.add_builtin("add", sample_add, "Add two numbers");
+        rt.kernel.push(10);
+        rt.kernel.push(32);
+        let cfa = rt.kernel.get(addr as usize) as usize & ADDRESS_MASK;
+        rt.builtin(cfa);
+
+        assert_eq!(rt.kernel.pop(), 42);
+    }
+
+    #[test]
+    fn test_insert_variables() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.insert_variables();
+        assert!(runtime.kernel.get(0) == 0); // stack pointer
+        assert!(runtime.kernel.get(1) == 0); // return pointer
+        assert!(runtime.kernel.get(runtime.here_ptr) > WORD_START as i64);
+        assert!(runtime.kernel.get(runtime.pad_ptr) == PAD_START as i64);
+        assert!(runtime.kernel.get(runtime.base_ptr) == 10); // decimal base
+    }
+
+
+    #[test]
+    fn test_compile_builtins() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.compile_builtins();
+        assert_eq!(runtime.kernel.get_builtin(6).name, "true".to_string());
+        assert_eq!(runtime.kernel.get_builtin(5).name, "<".to_string());
+        assert_eq!(runtime.kernel.get_builtin(0).name, "+".to_string());
+    }
+
+
+    #[test]
+    fn test_get_compile_mode() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.set_compile_mode(true);
+        assert!(runtime.get_compile_mode());
+        runtime.set_compile_mode(false);
+        assert!(!runtime.get_compile_mode());
+    }
+
+    #[test]
+    fn test_set_compile_mode() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.set_compile_mode(true);
+        assert_eq!(runtime.kernel.get(runtime.state_ptr), -1);
+        runtime.set_compile_mode(false);
+        assert_eq!(runtime.kernel.get(runtime.state_ptr), 0);
+    }
+
+    #[test]
+    fn test_set_abort_flag() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.set_abort_flag(true);
+        assert!(runtime.get_abort_flag());
+        runtime.set_abort_flag(false);
+        assert!(!runtime.get_abort_flag());
+    }
+
+    #[test]
+    fn test_should_exit() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        assert!(!runtime.should_exit());
+    }
+
+    #[test]
+    fn test_f_bye() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.f_bye();
+        assert!(runtime.should_exit());
+    }
+
+    #[test]
+    fn test_f_clear() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.f_clear();
+        assert_eq!(runtime.kernel.stack_ptr, STACK_START); // stack pointer should be reset
+        assert_eq!(runtime.kernel.return_ptr, RET_START); // return pointer should be reset
+    }
+
+
+    #[test]
+    fn test_f_abort() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.f_abort();
+        assert!(runtime.get_abort_flag());
+        assert_eq!(runtime.kernel.stack_ptr, STACK_START); // stack should be cleared
+    }
+
+    #[test]
+    fn test_f_get_compile_mode() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.set_compile_mode(true);
+        assert!(runtime.get_compile_mode());
+        runtime.set_compile_mode(false);
+        assert!(!runtime.get_compile_mode());
+    }
+
+    #[test]
+    fn test_f_set_compile_mode() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.set_compile_mode(true);
+        assert_eq!(runtime.kernel.get(runtime.state_ptr), -1);
+        runtime.set_compile_mode(false);
+        assert_eq!(runtime.kernel.get(runtime.state_ptr), 0);
+    }
+
+    #[test]
+    fn test_f_set_abort_flag() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        runtime.set_abort_flag(true);
+        assert!(runtime.get_abort_flag());
+        runtime.set_abort_flag(false);
+        assert!(!runtime.get_abort_flag());
+    }
+
+    #[test]
+    fn test_f_should_exit() {
+        let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
+
+        assert!(!runtime.should_exit());
+    }
 }

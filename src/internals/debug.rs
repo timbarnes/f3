@@ -61,12 +61,12 @@ impl ForthRuntime {
         match contents as i64 {
             VARIABLE | CONSTANT | DEFINITION => {
                 let val = self.kernel.get(pc - 1) as usize;
-                println!(" {} ", self.kernel.get_string(val))
+                println!(" {} ", self.kernel.string_get(val))
             },
             LITERAL => println!(" {} ", self.kernel.get(pc + 1)),
             STRLIT => {
                 let val = self.kernel.get(pc + 1) as usize;
-                println!(" {} ", self.kernel.get_string(val))
+                println!(" {} ", self.kernel.string_get(val))
             },
             BRANCH => {
                 let val = self.kernel.get(pc + 1);
@@ -83,7 +83,7 @@ impl ForthRuntime {
                 } else { 
                     // it's a word address: step-in about to occur
                     let val = self.kernel.get(contents - 1);
-                    println!(" ->{}", self.kernel.get_string(val as usize));
+                    println!(" ->{}", self.kernel.string_get(val as usize));
                 }
             }
         } 

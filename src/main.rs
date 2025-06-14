@@ -26,7 +26,7 @@ fn boot_forth(config: &Config) -> ForthRuntime {
     fn load_file(interpreter: &mut ForthRuntime, file_name: &str) {
         let addr = interpreter.kernel.get(interpreter.tmp_ptr) as usize;
         println!("Loading file: {}", file_name);
-            interpreter.kernel.set_string(addr, file_name);
+            interpreter.kernel.string_set(addr, file_name);
             let tmp = interpreter.kernel.get(interpreter.tmp_ptr);
             interpreter.kernel.push(tmp);
             interpreter.f_include_file();
