@@ -303,7 +303,7 @@ pub fn f_system_p(&mut self) {
         if self.kernel.stack_check(1, "file-size") {
             let file_id = self.kernel.pop() as usize;
             if file_id < self.files.len() {
-                self.kernel.push(self.files[file_id].file_size as i64);
+                self.kernel.push(self.files[file_id].file_size() as i64);
             } else {
                 self.msg.error("file-size", "No such file-id", Some(file_id));
             }
@@ -315,7 +315,7 @@ pub fn f_system_p(&mut self) {
         if self.kernel.stack_check(1, "file-position") {
             let file_id = self.kernel.pop() as usize;
             if file_id < self.files.len() {
-                self.kernel.push(self.files[file_id].file_position as i64);
+                self.kernel.push(self.files[file_id].file_position() as i64);
             } else {
                 self.msg.error("file-position", "No such file-id", Some(file_id));
             }

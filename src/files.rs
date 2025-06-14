@@ -11,7 +11,7 @@ use std::io::{self, BufReader, BufRead, Read, Write};
 
 use crate::messages::{DebugLevel, Msg};
 
-#[derive(Debug)]
+#[derive(Debug,Clone, Copy)]
 pub enum FileMode {
     RW,     // -1 => Read-write
     RO,     //  0 => Read-only
@@ -25,12 +25,12 @@ pub enum FType {
     BReader(BufReader<File>),
 }
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct FileHandle {
     pub source: FType,               // Stdin, File, or BufReader
-    pub file_mode: FileMode,
-    pub file_size: usize,
-    pub file_position: usize,
+    file_mode: FileMode,
+    file_size: usize,
+    file_position: usize,
     msg: Msg,
 }
 
@@ -133,5 +133,25 @@ impl FileHandle {
             Ok(_size) => Some(buf[0] as char),
             Err(_) => None,
         }
+    }
+
+    pub fn file_position(&self) -> usize {
+        // Returns the current file position
+        self.file_position // Stdin has no position
+    }
+
+    pub fn file_size(&self) -> usize {
+        // Returns the size of the file, or 0 for stdin
+        self.file_size
+    }
+
+    pub fn file_mode(&self) -> FileMode {
+        // Returns the file mode
+        self.file_mode
+    }
+
+    pub fn set_file_mode(&mut self, mode: FileMode) {
+        // Sets the file mode
+        self.file_mode = mode;
     }
 }
