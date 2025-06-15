@@ -64,9 +64,10 @@
 : [compile]         (') , ; immediate       \ Cause the following word to be compiled in, even if immediate
 : exec EXEC , ; immediate
 
-: text              BL parse ;                                \ Parser shortcut for space-delimited tokens
-: s-parse           tmp @ swap parse-to ;                     \ Same as text, but loads to tmp instead of pad
-: s" ( -- s u ")    tmp @ '"' parse-to ;                      \ Places a double-quoted string in tmp
+: text              BL parse ;                      \ Parser shortcut for space-delimited tokens
+: s-parse           tmp @ swap parse-to ;           \ Same as text, but loads to tmp instead of pad
+\ : (s") ( -- s u )   tmp @ '"' parse-to ; immediate  \ Parses a double-quoted string into tmp, returning the address and length
+: s" ( -- s u ")    tmp @ '"' parse-to ;            \ Places a double-quoted string in tmp
 
 ( File reader functions )
 : included          tmp @ include-file ; \ include-file uses a string pointer on the stack to load a file

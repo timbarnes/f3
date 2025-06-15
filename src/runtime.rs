@@ -501,13 +501,14 @@ impl ForthRuntime {
             ",",
             ForthRuntime::f_comma,
             ", ( n -- ) copies the top of the stack to the top of the dictionary",
-        );
+        ); 
         self.add_builtin(
             ";",
             ForthRuntime::f_semicolon,
             "; ( -- ) terminate a definition, resetting to interpret mode",
         );
         self.f_immediate(); // set the immediate flag on the most recent word
+
         self.add_builtin(
             "immed?",
             ForthRuntime::f_immediate_q,
