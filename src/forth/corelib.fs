@@ -317,7 +317,8 @@ variable word-counter
                         1- dup dup here ! @ s-here !            \ move to nfa and set HERE and S-HERE
                         1- @ 1+ dup context ! last !            \ go back a link and set CONTEXT and LAST
                     else
-                        drop ;
+                        drop 
+                    then ;
 
 \ : ?stack depth 0= if abort" Stack underflow" then ;
 
