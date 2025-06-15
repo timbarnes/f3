@@ -9,6 +9,7 @@
 use std::fs::File;
 use std::io::{self, BufReader, BufRead, Read, Write};
 
+use crate::internals::tui::ForthTui; 
 use crate::messages::{DebugLevel, Msg};
 
 #[derive(Debug, PartialEq)]
@@ -17,17 +18,17 @@ pub enum FileMode {
     RO,     //  0 => Read-only
     WO,     //  1 => Write-only
 }
-
 #[derive(Debug)]
 pub enum FType {
-    Stdin,
+    Stdin,                          // Standard input (deprecated, use Tui)
     File(File),
-    BReader(BufReader<File>),
+    BReader(BufReader<File>),       // Buffered reader for file input
+    Tui(ForthTui),                  // ratatui terminal input
 }
 
 //#[derive(Debug)]
 pub struct FileHandle {
-    pub source: FType,               // Stdin, File, or BufReader
+    pub source: FType,               // Stdin, File, BufReader, or Tui
     file_mode: FileMode,
     file_size: usize,
     file_position: usize,
@@ -39,8 +40,7 @@ pub struct FileHandle {
 ///     A populated FileHandle is always for a specific file.
 ///     Stdin has None in the source field, and the other fields are not used in this case.
 impl FileHandle {
-
-    pub fn new(file_path: Option<&std::path::PathBuf>, msg_handler: Msg, mode: FileMode) -> Option<FileHandle> {
+    pub fn new_file(file_path: Option<&std::path::PathBuf>, msg_handler: Msg, mode: FileMode) -> Option<FileHandle> {
         // Initialize a tokenizer.
         let mut message_handler = Msg::new();
         message_handler.set_level(DebugLevel::Warning);
@@ -89,6 +89,17 @@ impl FileHandle {
         }
     }
 
+    pub fn new_tui(msg_handler: Msg) -> FileHandle {
+        let tui = ForthTui::new();
+        FileHandle {
+            source: FType::Tui(tui.unwrap()),
+            file_mode: FileMode::RO,
+            file_size: 0,
+            file_position: 0,
+            msg: msg_handler, // replace with your main message handler if needed
+        }
+    }
+
     /// get_line returns a line of text from the input stream, or an error if unable to do so
     ///
     pub fn get_line(&mut self) -> Option<String> {
@@ -97,7 +108,8 @@ impl FileHandle {
         // Returns Option(line text). None indicates the read failed.
         let mut new_line = String::new();
         let result;
-        match self.source {
+ 
+        match &mut self.source {
             FType::Stdin => {
                 io::stdout().flush().unwrap();
                 result = io::stdin().read_line(&mut new_line);
@@ -110,11 +122,16 @@ impl FileHandle {
                     result = br.read_line(&mut new_line)
                 }
             },
+             FType::Tui(tui) => {
+            // Delegate to your tui's get_line method
+            return tui.get_line();
+        }
             _ => { return None }
         }
         match result {
             Ok(chars) => {
                 if chars > 0 {
+                    let new_line = new_line.trim_end().to_string(); // Remove trailing newline
                     Some(new_line)
                 } else {
                     None
@@ -178,7 +195,7 @@ mod tests {
         let msg = Msg::new();
         let buf = &PathBuf::from("src/test.fs");
         let file_path = Some(buf);
-        let handle = FileHandle::new(file_path, msg, FileMode::RO);
+        let handle = FileHandle::new_file(file_path, msg, FileMode::RO);
         assert!(handle.is_some());
     }
 
@@ -186,7 +203,7 @@ mod tests {
     fn test_get_line() {
         let buf = &PathBuf::from("src/test.fs");
         let file_path = Some(buf);
-        let mut handle = FileHandle::new(file_path, Msg::new(), FileMode::RO).unwrap();
+        let mut handle = FileHandle::new_file(file_path, Msg::new(), FileMode::RO).unwrap();
         let line = handle.get_line();
         assert!(line.is_some());
         println!("Read line: {:?}", line.unwrap());
@@ -194,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_read_char() { // This test requires interactive input
-        let handle = FileHandle::new(None, Msg::new(), FileMode::RO).unwrap();
+        let handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
         println!("Please enter a character:");
         let ch = handle.read_char();
         assert!(ch.is_some());
@@ -203,19 +220,19 @@ mod tests {
 
     #[test]
     fn test_file_position() {
-        let handle = FileHandle::new(None, Msg::new(), FileMode::RO).unwrap();
+        let handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
         assert_eq!(handle.file_position(), 0);
     }
 
     #[test]
     fn test_file_size() {
-        let handle = FileHandle::new(None, Msg::new(), FileMode::RO).unwrap();
+        let handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
         assert_eq!(handle.file_size(), 0);
     }
 
     #[test] 
     fn test_file_mode() {
-        let mut handle = FileHandle::new(None, Msg::new(), FileMode::RO).unwrap();
+        let mut handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
         assert_eq!(handle.file_mode(), &FileMode::RO);
         handle.set_file_mode(FileMode::RW);
         assert_eq!(handle.file_mode(), &FileMode::RW);

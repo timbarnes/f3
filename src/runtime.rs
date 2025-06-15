@@ -97,8 +97,8 @@ impl ForthRuntime {
             step_depth_ptr: 1,
             timer: Instant::now(),
         };
-        let fh = FileHandle::new(None, Msg::new(), FileMode::RO).expect("Can't access stdout");
-        runtime.reader.push(fh); // Indicates stdin is active
+        let fh = FileHandle::new_tui(Msg::new());
+        runtime.reader.push(fh); // Set fh as the active reader
         runtime
     }
 

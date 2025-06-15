@@ -81,7 +81,7 @@ pub fn f_system_p(&mut self) {
                     let l = reader.get_line();
                     match l {
                         Some(line) => {
-                            let length = min(line.len() - 1, max_len as usize) as usize;
+                            let length = min(line.len(), max_len as usize) as usize;
                             let line_str = &line[..length];
                             self.kernel.string_save(line_str, dest); // write a counted string
                             self.kernel.push(length as i64);
@@ -205,7 +205,7 @@ pub fn f_system_p(&mut self) {
         };
         match full_path {
             Ok(full_path) => {
-                let file_handle = FileHandle::new(Some(&full_path), Msg::new(), mode);
+                let file_handle = FileHandle::new_file(Some(&full_path), Msg::new(), mode);
                 match file_handle {
                     Some(fh) => {
                         // self.kernel.push(TRUE);
@@ -264,7 +264,7 @@ pub fn f_system_p(&mut self) {
                                 } else {
                                     let addr = self.kernel.get(self.tmp_ptr) as usize;
                                     self.kernel.string_save(&result, addr);
-                                    self.kernel.push(r as i64);  // Number of chars read
+                                    self.kernel.push(r as i64);  // Chars read
                                     self.kernel.push(TRUE);
                                     self.kernel.push(0);
                                 }
