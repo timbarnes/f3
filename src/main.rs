@@ -51,8 +51,8 @@ fn boot_forth(config: &Config) -> ForthRuntime {
             }
         }
 
-        if config.loaded_file != "" {
-            load_file(&mut forth, &config.loaded_file);
+        if let Some(file) = &config.loaded_file {
+            load_file(&mut forth, file);
         }
     }));
 
@@ -102,8 +102,6 @@ fn main() {
     let mut config = Config::new();
     config.process_args();
 
-    if config.run {
-        let mut interpreter = boot_forth(&config);
-        run_forth(&mut interpreter);
-    }
+    let mut interpreter = boot_forth(&config);
+    run_forth(&mut interpreter);
 }
