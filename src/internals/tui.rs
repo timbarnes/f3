@@ -1,117 +1,142 @@
-use ratatui::{
-    prelude::*,
-    widgets::{Block, Borders, Paragraph},
-};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
-    execute, terminal,
+    event::{self, Event, KeyCode, KeyModifiers},
+    terminal::{enable_raw_mode, disable_raw_mode},
 };
 use std::{
-    io::{self, Write, Stdout, stdout},
-    time::Duration,
+    io::{self, Write, stdout},
 };
 
 #[derive(Debug)]
-pub struct ForthTui {
-    terminal: Terminal<CrosstermBackend<Stdout>>,
-    input_buffer: String,
-    output_log: Vec<String>,
+pub struct ForthLineEditor {
+    buffer: Vec<char>,
+    cursor: usize,
+    previous_line: Option<String>,
 }
 
-impl ForthTui {
-    pub fn new() -> Result<Self, io::Error> {
-        // terminal::enable_raw_mode()?;
-        let mut stdout = io::stdout();
-        execute!(stdout, terminal::EnterAlternateScreen, DisableMouseCapture)?;
-        let backend = CrosstermBackend::new(stdout);
-        let terminal = Terminal::new(backend)?;
-
-        Ok(Self {
-            terminal,
-            input_buffer: String::new(),
-            output_log: vec!["Welcome to Forth TUI".into()],
-        })
+impl ForthLineEditor {
+    pub fn new() -> Self {
+        Self {
+            buffer: Vec::new(),
+            cursor: 0,
+            previous_line: None,
+        }
     }
 
-    pub fn get_line(&mut self) -> Option<String> {
-        let mut buffer = String::new();
-        print!("→ ");
+    pub fn run(&mut self) -> Option<String> {
+        // Reset state
+        self.buffer.clear();
+        self.cursor = 0;
+        
+        enable_raw_mode().ok()?;
         stdout().flush().ok()?;
-        loop {
-            if let Ok(Event::Key(key_event)) = event::read() {
-                match key_event.code {
-                    KeyCode::Char(c) => {
-                        buffer.push(c);
-                        print!("{c}");
+        
+        // Print initial prompt
+        print!("ok> ");
+        stdout().flush().ok()?;
+        
+        let result = loop {
+            if let Ok(Event::Key(key)) = event::read() {
+                match key.code {
+                    KeyCode::Char(c) if key.modifiers.is_empty() => {
+                        self.buffer.insert(self.cursor, c);
+                        self.cursor += 1;
+                        print!("{}", c);
                         stdout().flush().ok()?;
                     }
-                    KeyCode::Enter => {
-                        println!();
-                        return Some(buffer);
-                    }
                     KeyCode::Backspace => {
-                        if buffer.pop().is_some() {
-                            print!("\u{8} \u{8}"); // move back, erase, move back
+                        if self.cursor > 0 {
+                            self.cursor -= 1;
+                            self.buffer.remove(self.cursor);
+                            print!("\x08 \x08"); // Backspace, space, backspace
                             stdout().flush().ok()?;
                         }
                     }
+                    KeyCode::Left => {
+                        if self.cursor > 0 {
+                            self.cursor -= 1;
+                            print!("\x1b[D"); // Move left
+                            stdout().flush().ok()?;
+                        }
+                    }
+                    KeyCode::Right => {
+                        if self.cursor < self.buffer.len() {
+                            self.cursor += 1;
+                            print!("\x1b[C"); // Move right
+                            stdout().flush().ok()?;
+                        }
+                    }
+                    KeyCode::Up => {
+                        if let Some(prev) = &self.previous_line {
+                            // Clear current line
+                            print!("\r\x1b[K"); // Carriage return and clear line
+                            self.buffer = prev.chars().collect();
+                            self.cursor = self.buffer.len();
+                            print!("ok> {}", prev);
+                            stdout().flush().ok()?;
+                        }
+                    },
+                    KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        while self.cursor > 0 {
+                            self.cursor -= 1;
+                            print!("\x1b[D"); // Move left
+                        }
+                        stdout().flush().ok()?;
+                    }
+                    KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        while self.cursor < self.buffer.len() {
+                            self.cursor += 1;
+                            print!("\x1b[C"); // Move right
+                        }
+                        stdout().flush().ok()?;
+                    }
+                    KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Clear from cursor to end of line
+                        print!("\x1b[K"); // Clear from cursor to end
+                        self.buffer.truncate(self.cursor);
+                        stdout().flush().ok()?;
+                    }
+                    KeyCode::Enter => {
+                        let line: String = self.buffer.iter().collect();
+                        self.previous_line = Some(line.clone());
+                        print!("\r\n"); // Move to next line
+                        stdout().flush().ok()?;
+                        break Some(line);
+                    }                    
                     KeyCode::Esc => {
-                        return None; // or handle differently
+                        print!("\r\n"); // Move to next line
+                        stdout().flush().ok()?;
+                        break None;
                     }
                     _ => {}
                 }
             }
-        }
+        };
+
+        // Clean up terminal state
+        disable_raw_mode().ok()?;
+        result
     }
-    pub fn run(&mut self) -> Result<(), io::Error> {
-        loop {
-            self.terminal.draw(|f| {
-                let chunks = Layout::default()
-                    .direction(Direction::Vertical)
-                    .margin(1)
-                    .constraints([Constraint::Min(5), Constraint::Length(3)].as_ref())
-                    .split(f.size());
+}
 
-                let log = Paragraph::new(self.output_log.join("\n"))
-                    .block(Block::default().title("Output").borders(Borders::ALL));
-                f.render_widget(log, chunks[0]);
+#[derive(Debug)]
+pub struct ForthTui {
+    editor: ForthLineEditor,
+}
 
-                let input = Paragraph::new(self.input_buffer.as_str())
-                    .block(Block::default().title("Input").borders(Borders::ALL));
-                f.render_widget(input, chunks[1]);
-            })?;
-
-            if event::poll(Duration::from_millis(50))? {
-                if let Event::Key(key) = event::read()? {
-                    match key.code {
-                        KeyCode::Char('q') => break,
-                        KeyCode::Char(c) => self.input_buffer.push(c),
-                        KeyCode::Backspace => {
-                            self.input_buffer.pop();
-                        }
-                        KeyCode::Enter => {
-                            let line = self.input_buffer.trim().to_string();
-                            self.output_log.push(format!("> {line}"));
-                            self.input_buffer.clear();
-
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        self.cleanup()
+impl ForthTui {
+    pub fn new() -> Result<Self, io::Error> {
+        Ok(Self {
+            editor: ForthLineEditor::new(),
+        })
     }
 
-    fn cleanup(&mut self) -> Result<(), io::Error> {
-        terminal::disable_raw_mode()?;
-        execute!(
-            self.terminal.backend_mut(),
-            terminal::LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
-        self.terminal.show_cursor()?;
+    pub fn get_line(&mut self) -> Option<String> {
+        self.editor.run()
+    }
+
+    pub fn cleanup(&mut self) -> Result<(), io::Error> {
+        // Ensure we're not in raw mode
+        disable_raw_mode()?;
         Ok(())
     }
 }
