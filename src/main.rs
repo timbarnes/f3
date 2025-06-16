@@ -6,12 +6,19 @@
 // Errors during boot will not start the interpreter loop, while errors during execution will 
 // reset the interpreter to the prompt, clearing the data stack and return stack.
 
-
-mod internals;
+mod internals {
+    pub mod builtin;
+    pub mod compiler;
+    pub mod console;
+    pub mod debug;
+    pub mod files;
+    pub mod general;
+    pub mod inner;
+    pub mod messages;
+    pub mod tui;
+}
 mod config;
 mod runtime;
-mod messages;
-mod files;
 mod kernel;
 
 use config::{Config, DEFAULT_CORE, VERSION};
@@ -84,7 +91,7 @@ fn run_forth(forth: &mut ForthRuntime) {
                 }
 
                 // Print the backtrace if RUST_BACKTRACE is set
-                // Optionally re-raise to get Rust’s full backtrace output
+                // Optionally re-raise to get Rust's full backtrace output
                 std::panic::resume_unwind(err);
             }       
         }

@@ -7,10 +7,13 @@
 ///      Cache the remainder of the line.
 
 use std::fs::File;
-use std::io::{self, BufReader, BufRead, Read, Write};
+use std::io::{self, BufReader, BufRead, Read, Write, Seek, SeekFrom};
+use std::path::PathBuf;
+use std::sync::Mutex;
+use std::collections::HashMap;
 
 use crate::internals::tui::ForthTui; 
-use crate::messages::{DebugLevel, Msg};
+use crate::internals::messages::{DebugLevel, Msg};
 
 #[derive(Debug, PartialEq)]
 pub enum FileMode {

@@ -2,8 +2,7 @@
 
 use crate::runtime::{ForthRuntime, ADDRESS_MASK, EXEC, BUILTIN_MASK,
     VARIABLE, CONSTANT, LITERAL, STRLIT, DEFINITION, BRANCH, BRANCH0, ABORT, EXIT, BREAK};
-use crate::messages::DebugLevel;
-
+use crate::internals::messages::DebugLevel;
 
 impl ForthRuntime {
     /// show-stack ( -- ) turns on stack printing at the time the prompt is issued

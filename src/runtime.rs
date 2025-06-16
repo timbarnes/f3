@@ -10,8 +10,8 @@
 
 use crate::kernel::{Kernel, WORD_START, BUF_SIZE};
 use crate::internals::builtin::BuiltInFn;
-use crate::messages::Msg;
-use crate::files::{FileHandle, FileMode};
+use crate::internals::messages::Msg;
+use crate::internals::files::FileHandle;
 use std::time::Instant;
 
 // STRING AREA constants

@@ -1,7 +1,7 @@
 /// Input-output words
 use crate::kernel::{BUF_SIZE, STACK_START};
-use crate::messages::Msg;
-use crate::files::{FileHandle, FType, FileMode};
+use crate::internals::messages::Msg;
+use crate::internals::files::{FileHandle, FType, FileMode};
 use crate::runtime::{ForthRuntime, FALSE, TRUE, FILEMODE_RO};
 use std::cmp::min;
 use std::io::{self, Write, BufRead};

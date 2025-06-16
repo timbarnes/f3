@@ -1,7 +1,7 @@
 // system configuration and command line processing
 
-use crate::messages::DebugLevel;
 use ::clap::{arg, Command};
+use crate::internals::messages::DebugLevel;
 
 pub const VERSION: &str = "alpha.25.6.11";
 pub const DEFAULT_CORE: [&str; 3] = ["./corelib.fs", "~/.f2/corelib.fs", "src/forth/corelib.fs"];
