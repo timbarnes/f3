@@ -147,6 +147,7 @@ pub fn f_system_p(&mut self) {
             print!("{} ", self.kernel.get(i));
         }
         print!("] ");
+        io::stdout().flush().unwrap();
     }
 
     /// include-file (s -- T | F ) Pushes a new reader, pointing to the file named at s, calling ABORT if unsuccessful
@@ -272,7 +273,7 @@ pub fn f_system_p(&mut self) {
                             Err(e) => self.msg.error("read-line", e.to_string().as_str(), None::<bool>),
                         }
                     }
-                    _ => self.msg.error("read-line", "No source found", Some(&self.files[file_id].source)),
+                    _ => {}//self.msg.error("read-line", "No source found", Some(&self.files[file_id].source)),
                 }
             }
         }

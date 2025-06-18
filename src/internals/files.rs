@@ -7,12 +7,9 @@
 ///      Cache the remainder of the line.
 
 use std::fs::File;
-use std::io::{self, BufReader, BufRead, Read, Write, Seek, SeekFrom};
-use std::path::PathBuf;
-use std::sync::Mutex;
-use std::collections::HashMap;
+use std::io::{self, BufReader, BufRead, Read};
+use std::io::{stdin, stdout};
 
-use crate::internals::tui::ForthTui; 
 use crate::internals::messages::{DebugLevel, Msg};
 
 #[derive(Debug, PartialEq)]
@@ -21,27 +18,21 @@ pub enum FileMode {
     RO,     //  0 => Read-only
     WO,     //  1 => Write-only
 }
-#[derive(Debug)]
+
 pub enum FType {
-    Stdin,                          // Standard input (deprecated, use Tui)
+    Stdin,                          // Standard input
     File(File),
     BReader(BufReader<File>),       // Buffered reader for file input
-    Tui(ForthTui),                  // ratatui terminal input
 }
 
-//#[derive(Debug)]
 pub struct FileHandle {
-    pub source: FType,               // Stdin, File, BufReader, or Tui
-    file_mode: FileMode,
-    file_size: usize,
-    file_position: usize,
-    msg: Msg,
+    pub source: FType,               // Stdin, File, or BufReader
+    pub file_mode: FileMode,
+    pub file_size: usize,
+    pub file_position: usize,
+    pub msg: Msg,
 }
 
-/// Reader handles input, from stdin or files
-/// 
-///     A populated FileHandle is always for a specific file.
-///     Stdin has None in the source field, and the other fields are not used in this case.
 impl FileHandle {
     pub fn new_file(file_path: Option<&std::path::PathBuf>, msg_handler: Msg, mode: FileMode) -> Option<FileHandle> {
         // Initialize a tokenizer.
@@ -82,76 +73,39 @@ impl FileHandle {
                     }
                 }
             }
-            None => Some(FileHandle { // Stdin
-                source: FType::Stdin,
-                file_mode: FileMode::RO,
-                file_size: 0,
-                file_position: 0,
-                msg: message_handler,
-            }),
+            None => {
+                Some(FileHandle {
+                    source: FType::Stdin,
+                    file_mode: FileMode::RO,
+                    file_size: 0,
+                    file_position: 0,
+                    msg: msg_handler,
+                })
+            }
         }
     }
 
-    pub fn new_tui(msg_handler: Msg) -> FileHandle {
-        let tui = ForthTui::new();
-        FileHandle {
-            source: FType::Tui(tui.unwrap()),
-            file_mode: FileMode::RO,
-            file_size: 0,
-            file_position: 0,
-            msg: msg_handler, // replace with your main message handler if needed
-        }
-    }
-
-    /// get_line returns a line of text from the input stream, or an error if unable to do so
-    ///
     pub fn get_line(&mut self) -> Option<String> {
-        // Read a line, storing it if there is one
-        // In interactive (stdin) mode, blocks until the user provides a line.
-        // Returns Option(line text). None indicates the read failed.
-        let mut new_line = String::new();
-        let result;
- 
         match &mut self.source {
             FType::Stdin => {
-                io::stdout().flush().unwrap();
-                result = io::stdin().read_line(&mut new_line);
-            }
-            FType::BReader(ref mut br) => {
-                if self.file_mode == FileMode::WO {
-                    println!("Error: Cannot read from a write-only file");
-                    return None
-                } else {
-                    result = br.read_line(&mut new_line)
-                }
-            },
-             FType::Tui(tui) => {
-            // Delegate to your tui's get_line method
-            return tui.get_line();
-        }
-            _ => { return None }
-        }
-        match result {
-            Ok(chars) => {
-                if chars > 0 {
-                    let new_line = new_line.trim_end().to_string(); // Remove trailing newline
-                    Some(new_line)
+                let mut new_line = String::new();
+                if std::io::stdin().read_line(&mut new_line).is_ok() {
+                    Some(new_line.trim_end().to_string())
                 } else {
                     None
                 }
             }
-            Err(e) => {
-                self.msg
-                    .error("get_line", "read_line error", Some(e.to_string()));
-                None
+            FType::BReader(ref mut br) => {
+                let mut new_line = String::new();
+                match br.read_line(&mut new_line) {
+                    Ok(n) if n > 0 => Some(new_line.trim_end().to_string()),
+                    _ => None,
+                }
             }
+            FType::File(_) => None, // Files don't support line reading
         }
     }
 
-    /// read_char gets a single character from the input stream
-    ///     Unfortunately it blocks until the user types return, so it can't be used
-    ///     for truly interactive operations without a more complex implementation
-    ///
     pub fn read_char(&self) -> Option<char> {
         let mut buf = [0; 1];
         let mut handle = io::stdin().lock();

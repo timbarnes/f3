@@ -44,7 +44,7 @@ impl ForthRuntime {
                     if self.show_stack {
                         self.f_dot_s();
                     }
-                    print!(" ok ");
+                    print!(" ok>");
                 }
                 self.f_flush();
             }

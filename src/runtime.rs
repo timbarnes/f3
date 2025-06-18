@@ -11,7 +11,7 @@
 use crate::kernel::{Kernel, WORD_START, BUF_SIZE};
 use crate::internals::builtin::BuiltInFn;
 use crate::internals::messages::Msg;
-use crate::internals::files::FileHandle;
+use crate::internals::files::{FileHandle, FType, FileMode}; // Import FileHandle and FType for file handling
 use std::time::Instant;
 
 // STRING AREA constants
@@ -97,7 +97,13 @@ impl ForthRuntime {
             step_depth_ptr: 1,
             timer: Instant::now(),
         };
-        let fh = FileHandle::new_tui(Msg::new());
+        let fh = FileHandle {
+            source: FType::Stdin, // Use standard input
+            file_mode: FileMode::RO,
+            file_size: 0,
+            file_position: 0,
+            msg: Msg::new(),
+        }; 
         runtime.reader.push(fh); // Set fh as the active reader
         runtime
     }

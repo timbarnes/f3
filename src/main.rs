@@ -15,7 +15,7 @@ mod internals {
     pub mod general;
     pub mod inner;
     pub mod messages;
-    pub mod tui;
+    //pub mod tui;
 }
 mod config;
 mod runtime;
