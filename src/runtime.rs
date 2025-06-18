@@ -142,6 +142,7 @@ impl ForthRuntime {
     ///
     pub fn f_abort(&mut self) {
         // empty the stack, reset any pending operations, and return to the prompt
+        self.f_raw_mode_off();
         self.msg
             .warning("ABORT", "Terminating execution", None::<bool>);
         self.f_clear();
