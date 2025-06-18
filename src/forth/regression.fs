@@ -126,6 +126,13 @@ FALSE 55 0< test-single
 : exit-test 22 33 exit 44 ;
 22 33 exit-test test-dual
 
+."        Raw mode tests "
+0 raw-mode? test-single
+raw-mode-on
+-1 raw-mode? test-single
+raw-mode-off
+cr
+
 ."        Application tests" cr
 1 0 fac test-single
 1 1 fac test-single

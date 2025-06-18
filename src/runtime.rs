@@ -13,6 +13,7 @@ use crate::internals::builtin::BuiltInFn;
 use crate::internals::messages::Msg;
 use crate::internals::files::{FileHandle, FType, FileMode}; // Import FileHandle and FType for file handling
 use std::time::Instant;
+use crate::internals::terminal;
 
 // STRING AREA constants
 pub const TIB_START: usize = 0; // Text input buffer, used by readers
@@ -564,6 +565,9 @@ impl ForthRuntime {
         self.add_builtin("(system)", ForthRuntime::f_system_p, "(system) ( s -- ) Execute a shell command, using string s.
         Output is channeled to stdout");
         self.add_builtin("ms", ForthRuntime::f_ms, "sleep ( ms -- ) Puts the current thread to sleep for ms milliseconds");
+        self.add_builtin("raw-mode-on", ForthRuntime::f_raw_mode_on, "raw-mode-on ( -- ) Enable raw terminal mode");
+        self.add_builtin("raw-mode-off", ForthRuntime::f_raw_mode_off, "raw-mode-off ( -- ) Disable raw terminal mode");
+        self.add_builtin("raw-mode?", ForthRuntime::f_raw_mode_q, "raw-mode? ( -- f ) Returns true if in raw mode");
     }
 
     /// set_abort_flag allows the abort condition to be made globally visible
@@ -594,6 +598,24 @@ impl ForthRuntime {
         self.exit_flag = true;
     }
 
+    pub fn f_raw_mode_on(&mut self) {
+        if let Err(e) = terminal::enable_raw() {
+            self.msg.error("raw-mode-on", &e.to_string(), None::<bool>);
+        }
+    }
+
+    pub fn f_raw_mode_off(&mut self) {
+        if let Err(e) = terminal::disable_raw() {
+            self.msg.error("raw-mode-off", &e.to_string(), None::<bool>);
+        }
+    }
+
+    pub fn f_raw_mode_q(&mut self) {
+        match terminal::get_raw_mode() {
+            Ok(enabled) => self.kernel.push(if enabled { TRUE } else { FALSE }),
+            Err(e) => self.msg.error("raw-mode?", &e.to_string(), None::<bool>),
+        }
+    }
 }
 
 /////////////////////////
