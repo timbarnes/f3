@@ -139,8 +139,9 @@ pub fn f_system_p(&mut self) {
     pub fn f_dot_s(&mut self) {
         // print!("State: {}", self.kernel.get(self.state_ptr));
         print!("[ ");
-        for i in (self.kernel.stack_ptr..STACK_START).rev() {
-            print!("{} ", self.kernel.get(i));
+        let stack_len = self.kernel.stack_len();
+        for i in 0..stack_len {
+            print!("{} ", self.kernel.peek(i));
         }
         print!("] ");
         io::stdout().flush().unwrap();

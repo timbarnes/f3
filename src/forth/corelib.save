@@ -1,5 +1,3 @@
-clear
-\ trace-on
 : parse pad @ swap parse-to ;                       
 : \ 1 parse drop drop ; immediate                  
 : ( 41 parse drop drop ; immediate                  \ Implements in-line comments
@@ -66,24 +64,7 @@ clear
 : hex 16 base ! ;
 : binary 2 base ! ;
 
-\ Stepper controls
-1 stepper-depth !
-: step-on           1 stepper-depth ! -1 stepper ! ;
-: step-off          0 stepper ! ;
-: trace-on          1 stepper ! 2 stepper-depth ! ; immediate
-: trace-all         1 stepper ! 100 stepper-depth ! ; immediate
-\ : trace ( n -- )    abs stepper-depth ! ;
-: trace-off         0 stepper ! ; immediate
-
-: dbg-debug         3 dbg ;
-: dbg-info          2 dbg ;
-: dbg-warning       1 dbg ;
-: dbg-quiet         0 dbg ;
-: debug             show-stack step-on ;
-
-\ trace-on
-
-\ : [compile]         (') , ; immediate       \ Cause the following word to be compiled in, even if immediate
+: [compile]         (') , ; immediate       \ Cause the following word to be compiled in, even if immediate
 : exec EXEC , ; immediate
 
 : text              BL parse ;                      \ Parser shortcut for space-delimited tokens
@@ -137,14 +118,6 @@ clear
 : max ( m n -- m | n ) 2dup > if drop else nip then ;
 : abs ( n -- n | -n ) dup 0 < if -1 * then ;
 
-\ trace-all
-
-: while   \ ( dest -- dest 0 )
-                    BRANCH0 ,  here @  0 , 0 ; immediate
-: repeat  \ ( dest 0 -- )
-                    BRANCH , swap  here @ - ,     \ back to begin
-                    here @ swap - swap ! ;        \ fix up while's offset
-                    immediate
 : for               here @ ['] >r , ; immediate
 : next              ['] r> , 
                     LITERAL , 1 , 
@@ -156,20 +129,40 @@ clear
 : begin             here @ ; immediate
 : until             BRANCH0 , here @ - , ; immediate
 : again             BRANCH , here @ - , ; immediate
+: while   \ ( dest -- dest 0 )
+                    BRANCH0 ,  here @  0 ,  ; immediate
 
-
+: repeat  \ ( dest 0 -- )
+                    BRANCH ,   swap  here @ - ,   \ back to begin
+                    here @ swap - swap ! ;        \ fix up while's offset
+                    immediate
 : case              0 ; immediate
-\ : of                ['] over ,
-\                     ['] = ,
-\                     [compile] if
-\                     ['] drop , ; immediate
-\ : endof             [compile] else ; immediate
-\ : endcase           ['] drop ,
-\                     begin
-\                         ?dup
-\                     while
-\                         [compile] then
-\                     repeat ; immediate
+: of                ['] over ,
+                    ['] = ,
+                    [compile] if
+                    ['] drop , ; immediate
+: endof             [compile] else ; immediate
+: endcase           ['] drop ,
+                    begin
+                        ?dup
+                    while
+                        [compile] then
+                    repeat ; immediate
+
+\ Stepper controls
+1 stepper-depth !
+: step-on           1 stepper-depth ! -1 stepper ! ;
+: step-off          0 stepper ! ;
+: trace-on          1 stepper ! 2 stepper-depth ! ;
+: trace-all         1 stepper ! 100 stepper-depth ! ;
+\ : trace ( n -- )    abs stepper-depth ! ;
+: trace-off         0 stepper ! ;
+
+: dbg-debug         3 dbg ;
+: dbg-info          2 dbg ;
+: dbg-warning       1 dbg ;
+: dbg-quiet         0 dbg ;
+: debug             show-stack step-on ;
 
 : system" ( <command> ) tmp @ '"' parse-to drop (system) ;
 : sec ( n -- )      1000 * ms ;  \ sleep for n seconds
@@ -313,13 +306,11 @@ variable word-counter
                     begin
                         dup                    \ check bp != 0
                     while
-                        trace-all
                         traverse-exec          \ call xt with bp
                         traverse-next          \ follow link
-                        \ trace-all
                     repeat
                     drop ;                     \ drop final null bp
-trace-off
+
 : traverse-words ( xt -- )
                     here @ 1- @                 \ get initial bp (as in words)
                     (traverse-words) ;

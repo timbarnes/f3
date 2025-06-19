@@ -37,7 +37,7 @@ pub struct Kernel {
     pub (crate) heap: [i64; DATA_SIZE],
     pub (crate) strings: [u8; STRING_SIZE], // storage for strings
     pub (crate) builtins: Vec<BuiltInFn>,     // the dictionary of builtins
-    pub stack_ptr: usize,             // top of the linear space stack
+    pub stack_ptr: usize,             // top of the linear space stack (public again)
     pub return_ptr: usize,            // top of the return stack
     pub string_ptr: usize,            // pointer to the next free string space
  
@@ -94,32 +94,55 @@ impl Kernel {
         self.heap[addr] += delta;
     }
 
-    /// top returns the value at the top of the stack without removing it
+    /// Safe stack accessors
     #[inline(always)]
-    pub fn top(&mut self) -> i64 {
-        self.heap[self.stack_ptr]
-    }
-
-    /// push adds a value to the top of the stack
-     #[inline(always)]
     pub fn push(&mut self, val: i64) {
+        if self.stack_ptr <= 0 {
+            panic!("Stack corruption detected: cannot push, stack_ptr ({}) <= 0", self.stack_ptr);
+        }
         self.stack_ptr -= 1;
         self.heap[self.stack_ptr] = val;
     }
 
-    /// pop removes the top value from the stack and returns it
     #[inline(always)]
     pub fn pop(&mut self) -> i64 {
+        if self.stack_ptr >= STACK_START {
+            panic!("Stack corruption detected: cannot pop, stack_ptr ({}) >= STACK_START ({})", self.stack_ptr, STACK_START);
+        }
         let r = self.heap[self.stack_ptr];
         self.stack_ptr += 1;
         r
     }
 
+    #[inline(always)]
+    pub fn top(&self) -> i64 {
+        self.heap[self.stack_ptr]
+    }
+
+    #[inline(always)]
+    pub fn peek(&self, n: usize) -> i64 {
+        self.heap[self.stack_ptr + n]
+    }
+
+    #[inline(always)]
+    pub fn set_top(&mut self, val: i64) {
+        self.heap[self.stack_ptr] = val;
+    }
+
+    #[inline(always)]
+    pub fn stack_len(&self) -> usize {
+        if self.stack_ptr > STACK_START {
+            panic!("Stack corruption detected: stack_ptr ({}) > STACK_START ({})", self.stack_ptr, STACK_START);
+        }
+        STACK_START - self.stack_ptr
+    }
+
     /// stack_check checks if there are enough items on the stack for an operation
     #[inline(always)]
     pub fn stack_check(&self, needed: usize, word: &str) -> bool{
-        if self.stack_ptr < needed {
-            panic!("{}: Stack underflow: need {}, have {}", word, needed, self.stack_ptr);
+        let available = STACK_START - self.stack_ptr;
+        if available < needed {
+            panic!("{}: Stack underflow: need {}, have {}", word, needed, available);
         }
         true
     }

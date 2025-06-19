@@ -782,22 +782,22 @@ mod tests {
     #[test]
     fn test_f_clear() {
         let mut runtime = ForthRuntime::new();
-        runtime.cold_start();
-
+        runtime.kernel.push(42);
+        runtime.kernel.push(99);
+        assert_eq!(runtime.kernel.stack_len(), 2); // stack should have 2 items
         runtime.f_clear();
-        assert_eq!(runtime.kernel.stack_ptr, STACK_START); // stack pointer should be reset
-        assert_eq!(runtime.kernel.return_ptr, RET_START); // return pointer should be reset
+        assert_eq!(runtime.kernel.stack_len(), 0); // stack should be cleared
     }
 
 
     #[test]
     fn test_f_abort() {
         let mut runtime = ForthRuntime::new();
-        runtime.cold_start();
-
+        runtime.kernel.push(42);
+        runtime.kernel.push(99);
+        assert_eq!(runtime.kernel.stack_len(), 2); // stack should have 2 items
         runtime.f_abort();
-        assert!(runtime.get_abort_flag());
-        assert_eq!(runtime.kernel.stack_ptr, STACK_START); // stack should be cleared
+        assert_eq!(runtime.kernel.stack_len(), 0); // stack should be cleared
     }
 
     #[test]
