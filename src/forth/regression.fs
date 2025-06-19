@@ -58,6 +58,15 @@ variable test-num 0 test-num !
 1 1 45 emit test-single
 
 ."                Loop tests" cr
+\ : test-loop  ( -- n )
+\     0                         \ initialize counter
+\     begin
+\         dup 0=                \ check if counter is zero
+\     while
+\         drop 12345            \ drop counter, return test value
+\         false                 \ force loop exit
+\     repeat ;
+\ 12345 test-loop test-single
 7 21 7 loop-test + + + + +  test-dual
 4 2 4 nested-loop-test - - test-dual
 3 3 3 loop-test + test-dual
@@ -154,7 +163,7 @@ cr
                     dup 1 = if exit then 
                     1 - dup recurse 
                     swap 1 - recurse + ;
-                    
+
 1 0 fac test-single
 1 1 fac test-single
 6 3 fac test-single

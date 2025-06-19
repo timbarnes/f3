@@ -136,12 +136,18 @@
 : max ( m n -- m | n ) 2dup > if drop else nip then ;
 : abs ( n -- n | -n ) dup 0 < if -1 * then ;
 
+: begin             here @ ; immediate
 : while   \ ( dest -- dest 0 )
-                    BRANCH0 ,  here @  0 , 0 ; immediate
+                    BRANCH0 , 
+                    here @ 
+                    0 , 
+                    ; immediate
 : repeat  \ ( dest 0 -- )
-                    BRANCH , swap  here @ - ,     \ back to begin
+                    BRANCH , 
+                    swap  here @ - ,              \ back to begin
                     here @ swap - swap ! ;        \ fix up while's offset
                     immediate
+
 : for               here @ ['] >r , ; immediate
 : next              ['] r> , 
                     LITERAL , 1 , 
@@ -149,8 +155,6 @@
                     ['] 0= , BRANCH0 , 
                     here @ - , 
                     ['] drop , ; immediate
-
-: begin             here @ ; immediate
 : until             BRANCH0 , here @ - , ; immediate
 : again             BRANCH , here @ - , ; immediate
 
@@ -297,29 +301,29 @@ variable word-counter
 
 
 
-: print-name ( bp -- )
-                    dup 1+ @ 13 ltype ;
+\ : print-name ( bp -- )
+\                     dup 1+ @ 13 ltype ;
 
-: traverse-exec ( xt bp -- xt )
-                    over swap exec ;            \ pass bp to xt, keep xt
+\ : traverse-exec ( xt bp -- xt )
+\                     over swap exec ;            \ pass bp to xt, keep xt
 
-: traverse-next ( bp -- bp' )
-                    @ ;                         \ follow the link
+\ : traverse-next ( bp -- bp' )
+\                     @ ;                         \ follow the link
 
-: (traverse-words) ( xt bp -- xt )
-                    begin
-                        dup                    \ check bp != 0
-                    while
-                        \ trace-all
-                        traverse-exec          \ call xt with bp
-                        traverse-next          \ follow link
-                        \ trace-all
-                    repeat
-                    drop ;                     \ drop final null bp
-trace-off
-: traverse-words ( xt -- )
-                    here @ 1- @                 \ get initial bp (as in words)
-                    (traverse-words) ;
+\ : (traverse-words) ( xt bp -- xt )
+\                     begin
+\                         dup                    \ check bp != 0
+\                     while
+\                         trace-all
+\                         \traverse-exec          \ call xt with bp
+\                         \traverse-next          \ follow link
+\                         trace-all
+\                     repeat
+\                     drop ;                     \ drop final null bp
+\ trace-off
+\ : traverse-words ( xt -- )
+\                     here @ 1- @                 \ get initial bp (as in words)
+\                     (traverse-words) ;
 
 : forget-last ( -- )                            \ delete the most recent definition
                     here @ 1- @ dup 1+ here !                   \ resets HERE to the previous back pointer

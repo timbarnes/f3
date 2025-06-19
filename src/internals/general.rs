@@ -292,8 +292,6 @@ impl ForthRuntime {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::kernel::Kernel;
     use crate::runtime::ForthRuntime;
 
     fn setup_stack(rt: &mut ForthRuntime, vals: &[i64]) {
