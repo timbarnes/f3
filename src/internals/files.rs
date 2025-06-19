@@ -8,7 +8,6 @@
 
 use std::fs::File;
 use std::io::{self, BufReader, BufRead, Read};
-use std::io::{stdin, stdout};
 use crossterm::event::{poll, read, Event, KeyEvent, KeyCode};
 use std::time::Duration;
 
@@ -32,7 +31,6 @@ pub struct FileHandle {
     pub file_mode: FileMode,
     pub file_size: usize,
     pub file_position: usize,
-    pub msg: Msg,
 }
 
 impl FileHandle {
@@ -52,7 +50,6 @@ impl FileHandle {
                                     file_mode: FileMode::RO,
                                     file_size: 0,
                                     file_position: 0,        
-                                    msg: msg_handler,
                                 }),
                             FileMode::RW | FileMode::WO => {
                                 Some(FileHandle {
@@ -60,7 +57,6 @@ impl FileHandle {
                                     file_mode: mode,
                                     file_size: 0,
                                     file_position: 0,
-                                    msg: msg_handler,
                                 })
                             }
                         }
@@ -81,7 +77,6 @@ impl FileHandle {
                     file_mode: FileMode::RO,
                     file_size: 0,
                     file_position: 0,
-                    msg: msg_handler,
                 })
             }
         }

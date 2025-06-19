@@ -1,5 +1,5 @@
 /// Input-output words
-use crate::kernel::{BUF_SIZE, STACK_START};
+use crate::kernel::BUF_SIZE;
 use crate::internals::messages::Msg;
 use crate::internals::files::{FileHandle, FType, FileMode};
 use crate::runtime::{ForthRuntime, FALSE, TRUE, FILEMODE_RO};

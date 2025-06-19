@@ -345,28 +345,6 @@ trace-off
                                                 
 ( Application functions )
 
-: _fac ( r n -- r )   \ Helper function that does most of the work.
-                    dup 
-                    if 
-                        tuck * swap 1 - recurse 
-                    else 
-                        drop 
-                    then ;
-dbg-quiet \ Suppress the redefinition warning
-: fac ( n -- n! )   \ Calculates factorial of a non-negative integer. No checks for stack or calculation overflow.
-                    dup 
-                    if 
-                        1 swap _fac  \ Calls the previous definition - this is not recursion
-                    else 
-                        drop 1 
-                    then ;
-dbg-warning
-
-: fib  ( n -- )     dup 0= if exit then 
-                    dup 1 = if exit then 
-                    1 - dup recurse 
-                    swap 1 - recurse + ;
-
 \ : run-tests  s" src/forth/regression.fs" included ; \ Run the regression tests
 
 \ clear

@@ -48,14 +48,12 @@ pub struct ForthRuntime {
     pub kernel: Kernel,               // the kernel that contains the Forth runtime
     pub here_ptr: usize,              // first free cell at top of dictionary
     pub context_ptr: usize,           // nfa of most recent word
-    // pub eval_ptr: usize,              // used to turn compile mode on and off
     pub base_ptr: usize,              // for numeric I/O
     pub pad_ptr: usize,               // string buffer for parser
     pub tmp_ptr: usize,               // temporary string buffer
     pub last_ptr: usize,              // points to name of top word
     pub hld_ptr: usize,               // for numeric string work
     pub state_ptr: usize,             // true if compiling a word
-    // pub pc_ptr: usize,                // program counter
     pub abort_ptr: usize,             // true if abort has been called
     pub tib_ptr: usize,               // TIB
     pub tib_size_ptr: usize,
@@ -77,14 +75,12 @@ impl ForthRuntime {
             kernel: Kernel::new(),
             here_ptr: WORD_START,
             context_ptr: 0,
-            // eval_ptr: 0,
             base_ptr: 0,
             pad_ptr: 0,
             tmp_ptr: 0,
             last_ptr: 0,
             hld_ptr: 0,
             state_ptr: 0,
-            // pc_ptr: 0,
             abort_ptr: 0,
             tib_ptr: 0,
             tib_size_ptr: 0,
@@ -103,7 +99,6 @@ impl ForthRuntime {
             file_mode: FileMode::RO,
             file_size: 0,
             file_position: 0,
-            msg: Msg::new(),
         }; 
         runtime.reader.push(fh); // Set fh as the active reader
         runtime

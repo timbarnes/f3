@@ -134,6 +134,27 @@ raw-mode-off
 cr
 
 ."        Application tests" cr
+
+: _fac ( r n -- r )   \ Helper function that does most of the work.
+                    dup 
+                    if 
+                        tuck * swap 1 - recurse 
+                    else 
+                        drop 
+                    then ;
+: fac ( n -- n! )   \ Calculates factorial of a non-negative integer. No checks for stack or calculation overflow.
+                    dup 
+                    if 
+                        1 swap _fac  \ Calls the previous definition - this is not recursion
+                    else 
+                        drop 1 
+                    then ;
+
+: fib  ( n -- )     dup 0= if exit then 
+                    dup 1 = if exit then 
+                    1 - dup recurse 
+                    swap 1 - recurse + ;
+                    
 1 0 fac test-single
 1 1 fac test-single
 6 3 fac test-single

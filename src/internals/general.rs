@@ -1,6 +1,6 @@
 // General-purpose builtin words
 
-use crate::kernel::{DATA_SIZE, STACK_START};
+use crate::kernel::DATA_SIZE;
 use crate::runtime::{ForthRuntime, FALSE, TRUE};
 use std::time::{Instant, Duration};
 use std::thread;
