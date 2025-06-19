@@ -137,10 +137,9 @@ pub fn f_system_p(&mut self) {
     /// .s ( -- ) prints a copy of the computation stack
     ///
     pub fn f_dot_s(&mut self) {
-        // print!("State: {}", self.kernel.get(self.state_ptr));
         print!("[ ");
         let stack_len = self.kernel.stack_len();
-        for i in 0..stack_len {
+        for i in (0..stack_len).rev() {
             print!("{} ", self.kernel.peek(i));
         }
         print!("] ");

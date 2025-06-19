@@ -1,5 +1,4 @@
-clear
-\ trace-on
+\ Core library for Forth
 : parse pad @ swap parse-to ;                       
 : \ 1 parse drop drop ; immediate                  
 : ( 41 parse drop drop ; immediate                  \ Implements in-line comments
@@ -136,8 +135,6 @@ clear
 : min ( m n -- m | n ) 2dup < if drop else nip then ;
 : max ( m n -- m | n ) 2dup > if drop else nip then ;
 : abs ( n -- n | -n ) dup 0 < if -1 * then ;
-
-\ trace-all
 
 : while   \ ( dest -- dest 0 )
                     BRANCH0 ,  here @  0 , 0 ; immediate
@@ -313,7 +310,7 @@ variable word-counter
                     begin
                         dup                    \ check bp != 0
                     while
-                        trace-all
+                        \ trace-all
                         traverse-exec          \ call xt with bp
                         traverse-next          \ follow link
                         \ trace-all

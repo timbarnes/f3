@@ -101,34 +101,33 @@ impl ForthRuntime {
             self.kernel.push(third);
         }
     }
-pub fn f_pick(&mut self) {
-    if self.kernel.stack_check(1, "pick") {
-        let n = self.kernel.pop() as usize;
-        if self.kernel.stack_check(n, "pick") {
-            let val = self.kernel.get(self.kernel.stack_ptr + n + 1);
-            self.kernel.push(val);
+    pub fn f_pick(&mut self) {
+        if self.kernel.stack_check(1, "pick") {
+            let n = self.kernel.pop() as usize;
+            if self.kernel.stack_check(n + 1, "pick") {
+                let val = self.kernel.peek(n);
+                self.kernel.push(val);
+            }
         }
     }
-}
-pub fn f_roll(&mut self) {
-    if self.kernel.stack_check(1, "roll") {
-        let n = self.kernel.pop() as usize;
-        if n == 0 { return }; // 0 roll is a no-op
-        if self.kernel.stack_check(n + 1, "roll") {
-            // save the nth value
-            let new_top = self.kernel.get(self.kernel.stack_ptr + n);
-            // iterate, moving elements down
-            let mut i = self.kernel.stack_ptr + n - 1;
-            while i >= self.kernel.stack_ptr {
-                let val = self.kernel.get(i);
-                self.kernel.set(i + 1, val);
-                i -= 1;
-            } 
-            self.kernel.stack_ptr += 1; // because we removed an element
-            self.kernel.push(new_top);
+    pub fn f_roll(&mut self) {
+        if self.kernel.stack_check(1, "roll") {
+            let n = self.kernel.pop() as usize;
+            if n == 0 { return; } // 0 roll is a no-op
+            if self.kernel.stack_check(n + 1, "roll") {
+                // Save the nth value from the top
+                let val = self.kernel.peek(n);
+                // Shift all items above it down by one
+                for i in (1..=n).rev() {
+                    let tmp = self.kernel.peek(i - 1);
+                    let idx = self.kernel.stack_ptr + i;
+                    self.kernel.set(idx, tmp);
+                }
+                // Place the saved value on top
+                self.kernel.set(self.kernel.stack_ptr, val);
+            }
         }
     }
-}
     pub fn f_and(&mut self) {
         if self.kernel.stack_check(2, "and") {
             let a = self.kernel.pop();
@@ -285,8 +284,74 @@ pub fn f_roll(&mut self) {
     /// DEPTH - print the number of items on the stack
     ///
     pub fn f_stack_depth(&mut self) {
-        let depth = STACK_START - self.kernel.stack_ptr;
+        let depth = self.kernel.stack_len();
         self.kernel.push(depth as i64);
     }
 
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kernel::Kernel;
+    use crate::runtime::ForthRuntime;
+
+    fn setup_stack(rt: &mut ForthRuntime, vals: &[i64]) {
+        for &v in vals.iter() {
+            rt.kernel.push(v);
+        }
+    }
+
+    #[test]
+    fn test_roll_basic() {
+        let mut rt = ForthRuntime::new();
+        rt.cold_start();
+        setup_stack(&mut rt, &[1, 2, 3, 4, 5]);
+        // Stack: 1 2 3 4 5 (5 is top)
+        rt.kernel.push(2); // n = 2
+        rt.f_roll();
+        // Should move 3 to top: 1 2 4 5 3
+        let mut result = vec![];
+        for i in (0..rt.kernel.stack_len()).rev() {
+            result.push(rt.kernel.peek(i));
+        }
+        assert_eq!(result, vec![1, 2, 4, 5, 3]);
+    }
+
+    #[test]
+    fn test_roll_zero() {
+        let mut rt = ForthRuntime::new();
+        setup_stack(&mut rt, &[1, 2, 3]);
+        rt.kernel.push(0); // n = 0
+        rt.f_roll();
+        // Should be unchanged
+        let mut result = vec![];
+        for i in (0..rt.kernel.stack_len()).rev() {
+            result.push(rt.kernel.peek(i));
+        }
+        assert_eq!(result, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_roll_top() {
+        let mut rt = ForthRuntime::new();
+        setup_stack(&mut rt, &[7, 8, 9]);
+        rt.kernel.push(2); // n = 2 (bottom)
+        rt.f_roll();
+        // Should move 7 to top: 8 9 7
+        let mut result = vec![];
+        for i in (0..rt.kernel.stack_len()).rev() {
+            result.push(rt.kernel.peek(i));
+        }
+        assert_eq!(result, vec![8, 9, 7]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_roll_underflow() {
+        let mut rt = ForthRuntime::new();
+        setup_stack(&mut rt, &[1]);
+        rt.kernel.push(2); // n = 2, not enough items
+        rt.f_roll();
+    }
 }
