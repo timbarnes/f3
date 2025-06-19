@@ -207,7 +207,7 @@ impl ForthRuntime {
         //     self.kernel.strings[i + STR_START + 1] = *c;
         // }
 
-        self.kernel.string_ptr = 4;
+        self.kernel.set_string_ptr(4);
         self.kernel.set(3, VARIABLE);
         self.kernel.set(4, (STR_START + 7) as i64); // update the value of S-HERE
         self.kernel.set(5, 1); // back pointer

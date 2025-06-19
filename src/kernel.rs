@@ -34,13 +34,12 @@ pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
 ///
 //#[derive(Debug)]
 pub struct Kernel {
-    pub (crate) heap: [i64; DATA_SIZE],
-    pub (crate) strings: [u8; STRING_SIZE], // storage for strings
-    pub (crate) builtins: Vec<BuiltInFn>,     // the dictionary of builtins
-    pub stack_ptr: usize,             // top of the linear space stack (public again)
-    pub return_ptr: usize,            // top of the return stack
-    pub string_ptr: usize,            // pointer to the next free string space
- 
+    heap: [i64; DATA_SIZE],
+    strings: [u8; STRING_SIZE], // storage for strings
+    builtins: Vec<BuiltInFn>,     // the dictionary of builtins
+    stack_ptr: usize,             // top of the linear space stack
+    return_ptr: usize,            // top of the return stack
+    string_ptr: usize,            // pointer to the next free string space
     //pub return_stack: Vec<i64>,     // for do loops etc.
 }
 
@@ -326,6 +325,10 @@ impl Kernel {
     }
     pub fn set_string_ptr(&mut self, val: usize) {
         self.string_ptr = val;
+    }
+
+    pub fn get_stack_ptr(&self) -> usize {
+        self.stack_ptr
     }
 }
 

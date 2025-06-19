@@ -120,11 +120,11 @@ impl ForthRuntime {
                 // Shift all items above it down by one
                 for i in (1..=n).rev() {
                     let tmp = self.kernel.peek(i - 1);
-                    let idx = self.kernel.stack_ptr + i;
+                    let idx = self.kernel.get_stack_ptr() + i;
                     self.kernel.set(idx, tmp);
                 }
                 // Place the saved value on top
-                self.kernel.set(self.kernel.stack_ptr, val);
+                self.kernel.set(self.kernel.get_stack_ptr(), val);
             }
         }
     }
