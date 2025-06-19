@@ -205,11 +205,9 @@ pub fn f_system_p(&mut self) {
                 let file_handle = FileHandle::new_file(Some(&full_path), Msg::new(), mode);
                 match file_handle {
                     Some(fh) => {
-                        // self.kernel.push(TRUE);
                         return Some(fh);
                     }
                     None => {
-                        self.kernel.push(FALSE);
                         self.msg.error(
                             "open-file",
                             "Failed to create new reader",
@@ -219,7 +217,6 @@ pub fn f_system_p(&mut self) {
                 }
             }
             Err(error) => {
-                self.kernel.push(FALSE);
                 self.msg
                     .warning("open-file", error.to_string().as_str(), None::<bool>);
             }

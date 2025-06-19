@@ -24,6 +24,7 @@ mod kernel;
 
 use config::{Config, DEFAULT_CORE, VERSION};
 use runtime::ForthRuntime;
+use kernel::STACK_START;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const WELCOME_MESSAGE: &str = "Welcome to f3.";
@@ -34,10 +35,14 @@ fn boot_forth(config: &Config) -> ForthRuntime {
     fn load_file(interpreter: &mut ForthRuntime, file_name: &str) {
         let addr = interpreter.kernel.get(interpreter.tmp_ptr) as usize;
         println!("Loading file: {}", file_name);
-            interpreter.kernel.string_set(addr, file_name);
-            let tmp = interpreter.kernel.get(interpreter.tmp_ptr);
-            interpreter.kernel.push(tmp);
-            interpreter.f_include_file();
+        println!("DEBUG: stack_ptr before loading {}: {}", file_name, interpreter.kernel.stack_ptr);
+        interpreter.kernel.string_set(addr, file_name);
+        let tmp = interpreter.kernel.get(interpreter.tmp_ptr);
+        interpreter.kernel.push(tmp);
+        println!("DEBUG: stack_ptr after pushing tmp: {}", interpreter.kernel.stack_ptr);
+        interpreter.f_include_file();
+        println!("DEBUG: stack_ptr after f_include_file: {}", interpreter.kernel.stack_ptr);
+        // Don't assert here as the stack might legitimately have content from the file
     }   
 
     let mut forth = ForthRuntime::new();
@@ -49,12 +54,29 @@ fn boot_forth(config: &Config) -> ForthRuntime {
         if !config.no_core {
             for path in DEFAULT_CORE {
                 load_file(&mut forth, &path);
+                let result = forth.kernel.pop();
+                println!("DEBUG: After popping result for {}, stack_ptr: {}", path, forth.kernel.stack_ptr);
+                if result != 0 {
+                    println!("Loaded core file: {}", path);
+                } else {
+                    println!("Failed to load core file: {}", path);
+                }
             }
         }
 
         if let Some(file) = &config.loaded_file {
             load_file(&mut forth, file);
+            let result = forth.kernel.pop();
+            println!("DEBUG: After popping result for {}, stack_ptr: {}", file, forth.kernel.stack_ptr);
+            if result != 0 {
+                println!("Loaded user file: {}", file);
+            } else {
+                println!("Failed to load user file: {}", file);
+            }
         }
+        
+        // Assert that stack pointer is correct after file loading
+        assert_eq!(forth.kernel.stack_ptr, STACK_START, "Stack pointer should be {} after file loading, but is {}", STACK_START, forth.kernel.stack_ptr);
     }));
 
     if boot_result.is_err() {
