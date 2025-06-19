@@ -4,7 +4,7 @@
 ///
 use crate::runtime::{
     ForthRuntime, ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BREAK, 
-        BUILTIN, BUILTIN_MASK, CONSTANT, DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE
+        BUILTIN, BUILTIN_FLAG, CONSTANT, DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE
 };
 use crate::kernel::{RET_START, DATA_SIZE};
 
@@ -165,7 +165,7 @@ impl ForthRuntime {
                 _ => {
                    // we have a word address
                     // see if it's a builtin:
-                    let builtin_flag = code as usize & BUILTIN_MASK;
+                    let builtin_flag = code as usize & BUILTIN_FLAG;
                     let address = code as usize & ADDRESS_MASK;
                     if builtin_flag != 0 {
                         self.builtin(address);

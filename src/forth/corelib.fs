@@ -35,6 +35,8 @@
 100011 constant EXEC
 
 72057594037927935 constant ADDRESS_MASK                      \ wipes any flags
+2305843009213693952 constant BUILTIN_FLAG
+4611686018427387904 constant IMMEDIATE_FLAG
 
 \ ASCII symbols that are useful for text processing
 10 constant '\n'
@@ -60,6 +62,7 @@
 
 : decimal 10 base ! ;
 : hex 16 base ! ;
+: binary 2 base ! ;
 
 : [compile]         (') , ; immediate       \ Cause the following word to be compiled in, even if immediate
 : exec EXEC , ; immediate
@@ -82,11 +85,14 @@
 : nip ( a b -- b )  swap drop ;
 : tuck ( a b -- b a b ) swap over ;
 
-: if                BRANCH0 , here @  0 , ; immediate
-: else              BRANCH , here @ 0 , swap dup here @ swap - swap ! ; immediate
-: then dup here @ swap - swap ! ; immediate
+: _patch-here ( addr -- )
+    here @ over - swap ! ;
 
-: '                 (') dup @ dup DEFINITION = if drop else nip then ; \ searches for a (postfix) word and returns its cfa or FALSE
+: if     BRANCH0 , here @ 0 , ; immediate
+: else   BRANCH , here @ 0 , swap _patch-here ; immediate
+: then   _patch-here ; immediate
+
+: ' (') dup @ dup DEFINITION = if drop else nip then ;
 
 : [']               LITERAL , ' , ; immediate                    \ compiles a word's cfa into a definition as a literal
 : cfa>nfa           1 - ;                                        \ converts an cfa to an nfa
@@ -123,9 +129,13 @@
 : begin             here @ ; immediate
 : until             BRANCH0 , here @ - , ; immediate
 : again             BRANCH , here @ - , ; immediate
-: while             BRANCH0 , here @ 0 , ;  immediate
-: repeat            BRANCH , swap here @ - , dup here @ swap - swap ! ; immediate
+: while   \ ( dest -- dest 0 )
+                    BRANCH0 ,  here @  0 ,  ; immediate
 
+: repeat  \ ( dest 0 -- )
+                    BRANCH ,   swap  here @ - ,   \ back to begin
+                    here @ swap - swap ! ;        \ fix up while's offset
+                    immediate
 : case              0 ; immediate
 : of                ['] over ,
                     ['] = ,
@@ -355,3 +365,20 @@ dbg-warning
 
 \ clear
 cr ." Library loaded." cr
+
+\ run ( -- ) executes a word by name from the input buffer, aborting if not found
+: run ( -- )
+    tmp @ 32 parse-to ( -- b u )
+    if ( b u )
+        find ( b u -- cfa T | b F )
+        if ( cfa )
+            execute
+        else
+            drop
+            \ abort" word not found"
+        then
+    else
+        drop
+        \ abort" no word to run"
+    then
+;

@@ -1,6 +1,6 @@
 // Debugging help
 
-use crate::runtime::{ForthRuntime, ADDRESS_MASK, EXEC, BUILTIN_MASK,
+use crate::runtime::{ForthRuntime, ADDRESS_MASK, EXEC, BUILTIN_FLAG,
     VARIABLE, CONSTANT, LITERAL, STRLIT, DEFINITION, BRANCH, BRANCH0, ABORT, EXIT, BREAK};
 use crate::internals::messages::DebugLevel;
 
@@ -50,7 +50,7 @@ impl ForthRuntime {
         let stepper_depth = self.kernel.get(self.step_depth_ptr) as usize;
         if stepper_mode == 0  || call_depth > stepper_depth { return };
         let mut contents = self.kernel.get(pc) as usize;
-        let is_builtin = if contents & BUILTIN_MASK != 0 { true } else { false };
+        let is_builtin = if contents & BUILTIN_FLAG != 0 { true } else { false };
         contents &= ADDRESS_MASK;
         let mut c = 's';
 

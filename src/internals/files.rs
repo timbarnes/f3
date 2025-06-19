@@ -9,6 +9,8 @@
 use std::fs::File;
 use std::io::{self, BufReader, BufRead, Read};
 use std::io::{stdin, stdout};
+use crossterm::event::{poll, read, Event, KeyEvent, KeyCode};
+use std::time::Duration;
 
 use crate::internals::messages::{DebugLevel, Msg};
 
@@ -106,13 +108,50 @@ impl FileHandle {
         }
     }
 
-    pub fn read_char(&self) -> Option<char> {
-        let mut buf = [0; 1];
-        let mut handle = io::stdin().lock();
-        let bytes_read = handle.read(&mut buf);
-        match bytes_read {
-            Ok(_size) => Some(buf[0] as char),
-            Err(_) => None,
+    pub fn read_char(&mut self) -> Option<char> {
+        match &mut self.source {
+            FType::Stdin => {
+                // Check if we're in raw mode by trying to poll for events
+                if poll(Duration::from_millis(0)).unwrap_or(false) {
+                    // Raw mode - use crossterm event system
+                    match read() {
+                        Ok(Event::Key(KeyEvent { code, .. })) => {
+                            match code {
+                                KeyCode::Char(c) => Some(c),
+                                KeyCode::Enter => Some('\n'),
+                                KeyCode::Backspace => Some(8 as char), // ASCII backspace
+                                KeyCode::Delete => Some(127 as char),  // ASCII delete
+                                _ => None, // Ignore other keys
+                            }
+                        }
+                        _ => None, // Ignore non-key events
+                    }
+                } else {
+                    // Non-raw mode - use stdin
+                    let mut buf = [0; 1];
+                    let mut handle = io::stdin().lock();
+                    let bytes_read = handle.read(&mut buf);
+                    match bytes_read {
+                        Ok(_size) => Some(buf[0] as char),
+                        Err(_) => None,
+                    }
+                }
+            }
+            FType::File(_) => {
+                // Files don't support character-by-character reading
+                None
+            }
+            FType::BReader(ref mut br) => {
+                // Read from file using buffered reader
+                let mut buf = [0; 1];
+                match br.read(&mut buf) {
+                    Ok(1) => {
+                        self.file_position += 1;
+                        Some(buf[0] as char)
+                    }
+                    _ => None,
+                }
+            }
         }
     }
 
@@ -168,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_read_char() { // This test requires interactive input
-        let handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
+        let mut handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
         println!("Please enter a character:");
         let ch = handle.read_char();
         assert!(ch.is_some());

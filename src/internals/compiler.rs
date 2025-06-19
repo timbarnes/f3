@@ -1,6 +1,6 @@
 // Compiler and Interpreter
 
-use crate::runtime::{BUILTIN_MASK, FALSE, IMMEDIATE_MASK, TRUE};
+use crate::runtime::{BUILTIN_FLAG, FALSE, IMMEDIATE_FLAG, TRUE};
 use crate::internals::general::u_is_integer;
 use crate::runtime::{ForthRuntime, ADDRESS_MASK, ABORT, BRANCH, BRANCH0, BREAK, BUILTIN, CONSTANT, DEFINITION, 
     EXIT, EXEC, LITERAL, STRLIT, VARIABLE};
@@ -12,18 +12,24 @@ impl ForthRuntime {
     pub fn f_immediate(&mut self) {
         let addr = self.kernel.get(self.context_ptr) as usize;
         let mut str_addr = self.kernel.get(addr) as usize;
-        str_addr |= IMMEDIATE_MASK;
+        str_addr |= IMMEDIATE_FLAG;
         let addr = self.kernel.get(self.context_ptr) as usize;
         self.kernel.set(addr, str_addr as i64);
     }
 
-    /// immediate? ( cfa -- T | F ) Determines if a word is immediate or not
+    /// immediate? ( cfa -- flag ) checks if the word at cfa is immediate
     ///
     pub fn f_immediate_q(&mut self) {
         if self.kernel.stack_check(1, "immediate?") {
             let cfa = self.kernel.pop() as usize;
-            let name_ptr = self.kernel.get(cfa - 1) as usize;
-            let immed = name_ptr & IMMEDIATE_MASK;
+            
+            // Clear the BUILTIN_MASK to get the actual address for indexing
+            let clean_cfa = cfa & ADDRESS_MASK;
+            
+            // Get the NFA (Name Field Address) which is always cfa - 1
+            let name_ptr = self.kernel.get(clean_cfa - 1) as usize;
+            let immed = name_ptr & IMMEDIATE_FLAG;
+            
             let result = if immed == 0 { FALSE } else { TRUE };
             self.kernel.push(result);
         }
@@ -44,7 +50,7 @@ impl ForthRuntime {
                     if self.show_stack {
                         self.f_dot_s();
                     }
-                    print!(" ok>");
+                    print!("ok> ");
                 }
                 self.f_flush();
             }
@@ -125,7 +131,7 @@ impl ForthRuntime {
                 } else {
                     // check if it's a builtin, and compile appropriately
                     let indirect = self.kernel.get(cfa as usize) as usize;
-                    if indirect & BUILTIN_MASK != 0 {
+                    if indirect & BUILTIN_FLAG != 0 {
                         self.kernel.push(indirect as i64);
                     } else {
                         self.kernel.push(cfa);
@@ -474,13 +480,13 @@ impl ForthRuntime {
             self.msg.warning("see", "Word not found", None::<bool>);
         } else {
             let mut nfa = self.kernel.get(cfa as usize - 1) as usize;
-            let is_immed = nfa & IMMEDIATE_MASK;
+            let is_immed = nfa & IMMEDIATE_FLAG;
             let xt = self.kernel.get(cfa as usize) as usize;
-            let is_builtin = xt & BUILTIN_MASK;
+            let is_builtin = xt & BUILTIN_FLAG;
             if is_builtin != 0 {
                 println!(
                     "Builtin: {}",
-                    self.kernel.get_builtin(xt as usize & !BUILTIN_MASK).doc
+                    self.kernel.get_builtin(xt as usize & !BUILTIN_FLAG).doc
                 );
             } else {
                 // It's a definition of some kind
@@ -526,14 +532,14 @@ impl ForthRuntime {
                                 _ => {
                                     // it's a definition or a builtin
                                     let mut cfa = self.kernel.get(index) as usize;
-                                    let mut mask = cfa & BUILTIN_MASK;
+                                    let mut mask = cfa & BUILTIN_FLAG;
                                     if mask == 0 {
                                         let addr = self.kernel.get(index) as usize - 1;
                                         let word = ADDRESS_MASK & self.kernel.get(addr) as usize; // nfa address
                                         let name = self.kernel.string_get(word);
                                         print!("{name} ");
                                     } else {
-                                        mask = !BUILTIN_MASK;
+                                        mask = !BUILTIN_FLAG;
                                         cfa &= mask;
                                         let name = &self.kernel.get_builtin(cfa).name;
                                         print!("{name} ");

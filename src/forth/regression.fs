@@ -140,6 +140,17 @@ cr
 479001600 12 fac test-single 
 4181 19 fib test-single
 
+."        Run tests "
+: test-run 1 2 + ;
+3 test-run test-single
+3 run test-run test-single
+\ 22 run nonexistent test-none \ This should abort and clear the stack
+
+\ === Line Editor Tests ===
+."        Line editor tests "
+\ Note: These tests require interactive input
+\ get-line test-single
+
 test-results  \ Checks to see if all tests passed. Errors, if any, are left on the stack.
 
 forget test-num

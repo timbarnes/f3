@@ -38,8 +38,8 @@ pub const EXEC: i64       = 100011; // calls the word with address on the stack
 // GENERAL constants
 pub const TRUE: i64 = -1; // forth convention for true and false
 pub const FALSE: i64 = 0;
-pub const IMMEDIATE_MASK: usize = 0x4000000000000000;  // the immediate flag bit
-pub const BUILTIN_MASK: usize   = 0x2000000000000000;  // the builtin flag bit
+pub const IMMEDIATE_FLAG: usize = 0x4000000000000000;  // the immediate flag bit
+pub const BUILTIN_FLAG: usize   = 0x2000000000000000;  // the builtin flag bit
 pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
 pub const FILEMODE_RO: i64 = 0; // Read-only file mode
 
@@ -267,7 +267,7 @@ impl ForthRuntime {
     ///
     fn add_builtin(&mut self, name: &str, code: fn(&mut ForthRuntime), doc: &str) -> usize{
         let index = self.kernel.add_builtin(BuiltInFn::new(name.to_string(), code, doc.to_string()));
-        let cfa = index | BUILTIN_MASK;
+        let cfa = index | BUILTIN_FLAG;
         self.make_word(name, &[cfa as i64])
 }
     /// Set up all the words that are implemented in Rust
@@ -680,7 +680,7 @@ mod tests {
         let addr = runtime.add_builtin("test", ForthRuntime::f_plus, "Test function");
         let cfa = runtime.kernel.get(addr) as usize;
         println!("ADDR: {}, CFA: {}", addr, cfa);
-        assert!(cfa > BUILTIN_MASK);
+        assert!(cfa > BUILTIN_FLAG);
     }
 
     #[test]

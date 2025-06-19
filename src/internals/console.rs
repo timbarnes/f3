@@ -48,20 +48,16 @@ pub fn f_system_p(&mut self) {
 
     /// key ( -- c | 0 ) get a character and push on the stack, or zero if none available
     pub fn f_key(&mut self) {
-        let reader = self.reader.last();
-        match reader {
-            Some(reader) => {
-                let c = reader.read_char();
-                match c {
-                    Some(c) => {
-                        self.kernel.push(c as u8 as i64);
-                    }
-                    None => {
-                        self.kernel.push(0);
-                    }
+        if let Some(reader) = self.reader.last_mut() {
+            let c = reader.read_char();
+            match c {
+                Some(c) => {
+                    self.kernel.push(c as u8 as i64);
+                }
+                None => {
+                    self.kernel.push(0);
                 }
             }
-            None => {}
         }
     }
 
