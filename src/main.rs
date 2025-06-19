@@ -34,14 +34,14 @@ fn boot_forth(config: &Config) -> ForthRuntime {
 
     fn load_file(interpreter: &mut ForthRuntime, file_name: &str) {
         let addr = interpreter.kernel.get(interpreter.tmp_ptr) as usize;
-        println!("Loading file: {}", file_name);
-        println!("DEBUG: stack_ptr before loading {}: {}", file_name, interpreter.kernel.get_stack_ptr());
+        //println!("Loading file: {}", file_name);
+        //println!("DEBUG: stack_ptr before loading {}: {}", file_name, interpreter.kernel.get_stack_ptr());
         interpreter.kernel.string_set(addr, file_name);
         let tmp = interpreter.kernel.get(interpreter.tmp_ptr);
         interpreter.kernel.push(tmp);
-        println!("DEBUG: stack_ptr after pushing tmp: {}", interpreter.kernel.get_stack_ptr());
+        //println!("DEBUG: stack_ptr after pushing tmp: {}", interpreter.kernel.get_stack_ptr());
         interpreter.f_include_file();
-        println!("DEBUG: stack_ptr after f_include_file: {}", interpreter.kernel.get_stack_ptr());
+        //println!("DEBUG: stack_ptr after f_include_file: {}", interpreter.kernel.get_stack_ptr());
         // Don't assert here as the stack might legitimately have content from the file
     }   
 
@@ -55,11 +55,11 @@ fn boot_forth(config: &Config) -> ForthRuntime {
             for path in DEFAULT_CORE {
                 load_file(&mut forth, &path);
                 let result = forth.kernel.pop();
-                println!("DEBUG: After popping result for {}, stack_ptr: {}", path, forth.kernel.get_stack_ptr());
+                // println!("DEBUG: After popping result for {}, stack_ptr: {}", path, forth.kernel.get_stack_ptr());
                 if result != 0 {
                     println!("Loaded core file: {}", path);
                 } else {
-                    println!("Failed to load core file: {}", path);
+                    // println!("Failed to load core file: {}", path);
                 }
             }
         }
@@ -67,11 +67,11 @@ fn boot_forth(config: &Config) -> ForthRuntime {
         if let Some(file) = &config.loaded_file {
             load_file(&mut forth, file);
             let result = forth.kernel.pop();
-            println!("DEBUG: After popping result for {}, stack_ptr: {}", file, forth.kernel.get_stack_ptr());
+            // println!("DEBUG: After popping result for {}, stack_ptr: {}", file, forth.kernel.get_stack_ptr());
             if result != 0 {
                 println!("Loaded user file: {}", file);
             } else {
-                println!("Failed to load user file: {}", file);
+                // println!("Failed to load user file: {}", file);
             }
         }
         
@@ -93,7 +93,7 @@ fn run_forth(forth: &mut ForthRuntime) {
     loop {
         let result = catch_unwind(AssertUnwindSafe(|| {   
             forth.set_abort_flag(false);
-            println!("Entering f_quit");
+            // println!("Entering f_quit");
             forth.f_quit();  // main interpreter loop
         }));
 

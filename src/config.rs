@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use crate::internals::messages::Msg;
 
-pub const VERSION: &str = "alpha.25.6.11";
+pub const VERSION: &str = "alpha.25.6.19";
 pub const DEFAULT_CORE: &[&str] = &["./corelib.fs", "~/.f2/corelib.fs", "src/forth/corelib.fs"];
 
 #[derive(FromArgs)]
