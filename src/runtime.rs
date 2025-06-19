@@ -35,6 +35,10 @@ pub const EXIT: i64       = 100009; // returns from a word
 pub const BREAK: i64      = 100010; // breaks out of a word
 pub const EXEC: i64       = 100011; // calls the word with address on the stack
 
+pub const MARK_BEGIN: i64 = 200000; // marks the beginning of a control structure
+pub const MARK_WHILE: i64 = 200001; // marks the beginning of a WHILE control structure
+pub const MARK_FOR: i64   = 200002; // marks the beginning of a FOR control structure
+
 // GENERAL constants
 pub const TRUE: i64 = -1; // forth convention for true and false
 pub const FALSE: i64 = 0;
@@ -43,9 +47,16 @@ pub const BUILTIN_FLAG: usize   = 0x2000000000000000;  // the builtin flag bit
 pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
 pub const FILEMODE_RO: i64 = 0; // Read-only file mode
 
+#[derive(Debug)]
+pub enum ControlMarker {
+    Begin(usize),       // address of begin
+    While(usize),       // unresolved BRANCH0 location
+    For(usize),         // address of FOR loop
+}
 
 pub struct ForthRuntime {
     pub kernel: Kernel,               // the kernel that contains the Forth runtime
+    pub control_stack: Vec<ControlMarker>, // stack for control structures like IF, BEGIN, WHILE
     pub here_ptr: usize,              // first free cell at top of dictionary
     pub context_ptr: usize,           // nfa of most recent word
     pub base_ptr: usize,              // for numeric I/O
@@ -73,6 +84,7 @@ impl ForthRuntime {
     pub fn new() -> ForthRuntime {
         let mut runtime = ForthRuntime {
             kernel: Kernel::new(),
+            control_stack: Vec::new(),
             here_ptr: WORD_START,
             context_ptr: 0,
             base_ptr: 0,
@@ -102,6 +114,46 @@ impl ForthRuntime {
         }; 
         runtime.reader.push(fh); // Set fh as the active reader
         runtime
+    }
+
+    /// Return the current value of the HERE pointer.
+    /// 
+    pub fn here(&mut self) -> usize {
+        self.kernel.get(self.here_ptr) as usize // Get the current HERE pointer
+    } 
+
+    /// Emit a value into the current definition (at HERE) and increment HERE.
+    /// Functionally equivalent to push() and comma().
+    /// 
+    pub fn emit_cell(&mut self, value: i64) {
+        let addr = self.here();
+        self.kernel.set(addr, value);
+        self.kernel.incr(self.here_ptr);
+    }
+
+    fn f_to_c(&mut self) {
+        let tag = self.kernel.pop();      // e.g. 1 = Begin, 2 = While, etc.
+        let addr = self.kernel.pop() as usize;      // Optionally, could take another item from stack
+        let marker = match tag {
+            MARK_BEGIN => ControlMarker::Begin(addr),
+            MARK_WHILE => ControlMarker::While(addr),
+            MARK_FOR => ControlMarker::For(addr),
+            _ => panic!(">c: unknown control tag {}", tag),
+        };
+        println!(">c pushing {:?}", marker);
+        self.control_stack.push(marker);
+    }
+
+    fn f_from_c(&mut self) {
+        match self.control_stack.pop() {
+            Some(ControlMarker::Begin(addr)) |
+            Some(ControlMarker::While(addr)) |
+            Some(ControlMarker::For(addr)) => {
+                println!("c> popping {:?}", addr);
+                self.kernel.push(addr as i64)
+            },
+            None => self.msg.error("c>", "control stack underflow", None::<()>),
+        }
     }
 
     /// cold_start is where the interpreter begins, installing some variables and the builtin functions.
@@ -564,6 +616,17 @@ impl ForthRuntime {
         self.add_builtin("raw-mode-on", ForthRuntime::f_raw_mode_on, "raw-mode-on ( -- ) Enable raw terminal mode");
         self.add_builtin("raw-mode-off", ForthRuntime::f_raw_mode_off, "raw-mode-off ( -- ) Disable raw terminal mode");
         self.add_builtin("raw-mode?", ForthRuntime::f_raw_mode_q, "raw-mode? ( -- f ) Returns true if in raw mode");
+        //self.add_builtin("mark-begin", ForthRuntime::f_mark_begin, "Mark BEGIN");
+        //self.add_builtin("mark-while", ForthRuntime::f_mark_while, "Mark WHILE");
+        //self.add_builtin("mark-for", ForthRuntime::f_mark_for, "Mark FOR");
+        //self.add_builtin("patch-repeat", ForthRuntime::f_patch_repeat, "Patch REPEAT");
+        //self.add_builtin("patch-until", ForthRuntime::f_patch_until, "Patch UNTIL");
+        //self.add_builtin("patch-again", ForthRuntime::f_patch_again, "Patch AGAIN");
+        //self.add_builtin("patch-next", ForthRuntime::f_patch_next, "Patch NEXT");
+        self.add_builtin(">c", ForthRuntime::f_to_c,
+         ">c ( tag -- ) Push a control marker onto the control stack");
+        self.add_builtin("c>", ForthRuntime::f_from_c,
+         ">c ( -- tag ) Pop a control marker from the control stack and push its address");
     }
 
     /// set_abort_flag allows the abort condition to be made globally visible
@@ -621,7 +684,7 @@ impl ForthRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::{RET_START, STACK_START};
+    //use crate::kernel::{RET_START, STACK_START};
 
     // Access the kernel directly for testing purposes
     #[test]

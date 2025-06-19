@@ -241,8 +241,7 @@ impl ForthRuntime {
     ///     The value comes from the stack.
     ///
     pub fn f_literal(&mut self) {
-        self.kernel.push(LITERAL);
-        self.f_comma();
+        self.emit_cell(LITERAL);
         self.f_comma(); // write the value passed in from the stack
     }
 
@@ -379,8 +378,7 @@ impl ForthRuntime {
     pub fn f_colon(&mut self) {
         self.set_compile_mode(true);
         self.f_create(); // gets the name and makes a new dictionary entry
-        self.kernel.push(DEFINITION);
-        self.f_comma();
+        self.emit_cell(DEFINITION);
     }
 
     /// ; terminates a definition, writing the cfa for EXIT, and resetting to interpret mode
@@ -390,8 +388,7 @@ impl ForthRuntime {
     ///
     pub fn f_semicolon(&mut self) {
         // println!("; (semicolon) - end of definition");
-        self.kernel.push(EXIT);
-        self.f_comma();
+        self.emit_cell(EXIT);
         let back = self.kernel.get(self.last_ptr); // get the current LAST pointer
         let here = self.kernel.get(self.here_ptr) as usize; // get the current HERE pointer
         self.kernel.set(here, back - 1); // write the back pointer
@@ -424,37 +421,6 @@ impl ForthRuntime {
         self.kernel.set(self.last_ptr, here as i64); // save the last pointer
         self.kernel.incr(self.here_ptr);
     }
-
-    /*     /// variable <name> ( -- ) Creates a new variable in the dictionary
-       ///     This is a good candidate for shifting to Forth
-       ///     Variables use three words: a name pointer, the VARIABLE token, and the value
-       ///
-       pub fn f_variable(&mut self) {
-           self.f_create(); // gets a name and makes a name field in the dictionary
-           self.kernel.push(VARIABLE);
-           self.f_comma(); // ( n -- )
-           self.kernel.push(0); // default initial value
-           self.f_comma();
-           self.data[self.data[self.here_ptr] as usize] = self.data[self.last_ptr] - 1; // write the back pointer
-           self.data[self.here_ptr] += 1; // over EXIT and back pointer
-           self.data[self.context_ptr] = self.data[self.last_ptr]; // adds the new definition to FIND
-       }
-    */
-    /*     /// constant <name> ( n -- ) Creates and initializez a new constant in the dictionary
-       ///     Very similar to variables, except that their value is not intended to be changed
-       ///
-       pub fn f_constant(&mut self) {
-           if self.kernel.stack_check(1, "constant") {
-               self.f_create();
-               self.kernel.push(CONSTANT);
-               self.f_comma();
-               self.f_comma(); // write the value from the stack
-               self.data[self.data[self.here_ptr] as usize] = self.data[self.last_ptr] - 1; // write the back pointer
-               self.data[self.here_ptr] += 1; // over EXIT and back pointer
-               self.data[self.context_ptr] = self.data[self.last_ptr]; // adds the new definition to FIND
-           }
-       }
-    */
     /// f_pack_d ( source len dest -- dest ) builds a new counted string from an existing counted string.
     ///     Used by CREATE
     ///

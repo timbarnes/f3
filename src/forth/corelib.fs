@@ -35,6 +35,10 @@
 100010 constant BREAK
 100011 constant EXEC
 
+200000 constant MARK_BEGIN
+200001 constant MARK_WHILE
+200002 constant MARK_FOR
+
 72057594037927935 constant ADDRESS_MASK                      \ wipes any flags
 2305843009213693952 constant BUILTIN_FLAG
 4611686018427387904 constant IMMEDIATE_FLAG
@@ -136,31 +140,36 @@
 : max ( m n -- m | n ) 2dup > if drop else nip then ;
 : abs ( n -- n | -n ) dup 0 < if -1 * then ;
 
-: begin             here @ ; immediate
-: while   \ ( dest -- dest 0 )
-                    BRANCH0 , 
-                    here @ 
-                    0 , 
-                    ; immediate
-: repeat  \ ( dest 0 -- )
-                    BRANCH , 
-                    swap  here @ - ,              \ back to begin
-                    here @ swap - swap ! ;        \ fix up while's offset
-                    immediate
 
-: for               here @ ['] >r , ; immediate
-: next              ['] r> , 
+: begin ( -- )      here @ MARK_BEGIN >c ; immediate
+: while ( -- )      MARK_WHILE >c
+                    BRANCH0 , here @ 0 , ; immediate
+: unmark ( -- marker ) c>                ; immediate
+: repeat ( -- )     c> \ here - .                         \ back-branch offset to begin
+                    c> here swap -                      \ patch forward offset in while
+                    swap !               ; immediate    \ store the offset
+
+: for               here @ MARK_FOR >c
+                    ['] >r ,             ; immediate
+: next ( -- )       c>                                  \ get FOR addr
+                    ['] r> , 
                     LITERAL , 1 , 
-                    ['] - , ['] dup , 
-                    ['] 0= , BRANCH0 , 
-                    here @ - , 
-                    ['] drop , ; immediate
-: until             BRANCH0 , here @ - , ; immediate
-: again             BRANCH , here @ - , ; immediate
+                    ['] - , 
+                    ['] dup , 
+                    ['] 0= , 
+                    BRANCH0 , here @ 0 ,                \ placeholder for exit
+                    ['] drop , 
+                    BRANCH , 
+                    here @ swap - ,                     \ back to top of loop
+                    here swap - swap !   ; immediate    \ patch forward branch0
 
+: until             c> BRANCH0 ,
+                    here @ - ,           ; immediate
+: again             c> BRANCH ,
+                    here @ - ,           ; immediate
 
-: case              0 ; immediate
-\ : of                ['] over ,
+: case              0                    ; immediate
+\ : of                ['] over , 
 \                     ['] = ,
 \                     [compile] if
 \                     ['] drop , ; immediate
@@ -181,6 +190,7 @@
                     128 mod dup 31 > if (emit) else drop then ;
 
 : space ( -- )      BL emit ;
+: test ( n -- ) 10 for drop next 123 ;
 : spaces ( n -- )   dup 0> if for space next else drop then ;
 : cr ( -- )         '\n' (emit) ;
 
@@ -193,8 +203,8 @@
                         drop ;
 
 : type ( s -- )                                 \ Print from the string pointer on the stack
-                    ADDRESS_MASK and                \ Wipe out any flags
-                    dup c@ swap 1+ swap             \ Get the length to drive the for loop
+                    ADDRESS_MASK and            \ Wipe out any flags
+                    dup c@ swap 1+ swap         \ Get the length to drive the for loop
                     tell ;
 
 : rtell ( s l w -- )                            \ Right justify a string of length l in a field of w characters
@@ -275,22 +285,23 @@
 : +! ( n addr -- )  dup @ rot + swap ! ;
 : ?  ( addr -- )    @ . ;
 
+
 \ Implementation of word
-variable word-counter
+\ variable word-counter
 
-: .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
-                    dup dup 1+ 4 u.r space 1+ @ 13 ltype 
-                    1 word-counter +! 
-                    word-counter @ 8 mod
-                    if space else cr then @ ;   
+\ : .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
+\                     dup dup 1+ 4 u.r space 1+ @ 13 ltype 
+\                     1 word-counter +! 
+\                     word-counter @ 8 mod
+\                     if space else cr then @ ;   
 
-: words ( -- )
-                    0 word-counter !
-                    here @ 1- @                                 \ Get the starting point: the top back pointer
-                    begin                                       \ loops through the words in the dictionary
-                        .word dup not                           \ print a word and test the next pointer
-                    until 
-                        drop ;   
+\ : words ( -- )
+\                     0 word-counter !
+\                     here @ 1- @                                 \ Get the starting point: the top back pointer
+\                     begin                                       \ loops through the words in the dictionary
+\                         .word dup not                           \ print a word and test the next pointer
+\                     until 
+\                         drop ;   
 
 : print-word ( xt -- ) 
                     1- @ 13 ltype ;                 \ print a word name, given the xt as produced by '
