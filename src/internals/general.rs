@@ -178,37 +178,37 @@ impl ForthRuntime {
     pub fn f_to_r(&mut self) {
         if self.kernel.stack_check(1, ">r") {
             let val = self.kernel.pop();
-            self.kernel.return_ptr -= 1;
-            self.kernel.set(self.kernel.return_ptr, val);
+            self.kernel.set_return_ptr(self.kernel.get_return_ptr() - 1);
+            self.kernel.set(self.kernel.get_return_ptr(), val);
         }
     }
 
     /// r> ( -- n ) Pops the return stack, pushing the value to the calculation stack
     ///
     pub fn f_r_from(&mut self) {
-        let val = self.kernel.get(self.kernel.return_ptr);
+        let val = self.kernel.get(self.kernel.get_return_ptr());
         self.kernel.push(val);
-        self.kernel.return_ptr += 1;
+        self.kernel.set_return_ptr(self.kernel.get_return_ptr() + 1);
     }
 
     /// r@ ( -- n ) Gets the top value from the return stack, pushing the value to the calculation stack
     ///
     pub fn f_r_get(&mut self) {
-        let val = self.kernel.get(self.kernel.return_ptr);
+        let val = self.kernel.get(self.kernel.get_return_ptr());
         self.kernel.push(val);
     }
 
     /// i ( -- n ) Pushes the current loop index to the calculation stack
     ///
     pub fn f_i(&mut self) {
-        let val = self.kernel.get(self.kernel.return_ptr);
+        let val = self.kernel.get(self.kernel.get_return_ptr());
         self.kernel.push(val);
     }
 
     /// j ( -- n ) Pushes the second level (outer) loop index to the calculation stack
     ///
     pub fn f_j(&mut self) {
-        let val = self.kernel.get(self.kernel.return_ptr + 1);
+        let val = self.kernel.get(self.kernel.get_return_ptr() + 1);
         self.kernel.push(val);
     }
 
@@ -249,9 +249,9 @@ impl ForthRuntime {
         if self.kernel.stack_check(1, "s-create") {
             let source = self.kernel.pop() as usize;
             let length = self.kernel.byte_get(source) as usize;
-            let dest = self.kernel.get(self.kernel.string_ptr);
+            let dest = self.kernel.get(self.kernel.get_string_ptr());
             self.kernel.string_copy(source, dest as usize, length, true);
-            self.kernel.delta(self.kernel.string_ptr, length as i64 + 1);
+            self.kernel.delta(self.kernel.get_string_ptr(), length as i64 + 1);
             self.kernel.push(dest); // pointer to the beginning of the new string
         }
     }

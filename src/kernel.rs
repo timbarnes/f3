@@ -314,6 +314,19 @@ impl Kernel {
     pub fn get_builtin(&self, index: usize) -> &BuiltInFn {
         &self.builtins[index]
     }
+
+    pub fn get_return_ptr(&self) -> usize {
+        self.return_ptr
+    }
+    pub fn set_return_ptr(&mut self, val: usize) {
+        self.return_ptr = val;
+    }
+    pub fn get_string_ptr(&self) -> usize {
+        self.string_ptr
+    }
+    pub fn set_string_ptr(&mut self, val: usize) {
+        self.string_ptr = val;
+    }
 }
 
 //////////////////////////////////////////////

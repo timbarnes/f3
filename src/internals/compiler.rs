@@ -413,13 +413,13 @@ impl ForthRuntime {
         let str_addr = self.kernel.get(self.pad_ptr) as usize; // get the string address
         let length = self.kernel.string_length(str_addr) as u8 as i64;
         self.kernel.push(length);
-        let val = self.kernel.get(self.kernel.string_ptr);
+        let val = self.kernel.get(self.kernel.get_string_ptr());
         self.kernel.push(val);
         self.f_smove(); // make a new string with the name from PAD
         let addr = self.kernel.get(self.here_ptr) as usize; // get the current HERE pointer
         let val = self.kernel.pop(); // get the string address
         self.kernel.set(addr, val); // the string header
-        self.kernel.delta(self.kernel.string_ptr, length + 1); // update the free string pointer
+        self.kernel.delta(self.kernel.get_string_ptr(), length + 1); // update the free string pointer
         let here = self.kernel.get(self.here_ptr) as usize;
         self.kernel.set(self.last_ptr, here as i64); // save the last pointer
         self.kernel.incr(self.here_ptr);

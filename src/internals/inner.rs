@@ -76,7 +76,7 @@ impl ForthRuntime {
         loop {
             // each time round the loop should be one word
             if pc == 0 || self.get_abort_flag() {
-                self.kernel.return_ptr = RET_START; // clear the return stack
+                self.kernel.set_return_ptr(RET_START); // clear the return stack
                 return; // we've completed the last exit or encountered an error
             }
             let code = if pc < DATA_SIZE { self.kernel.get(pc) } else { pc as i64 };
