@@ -38,6 +38,8 @@
 200000 constant MARK_BEGIN
 200001 constant MARK_WHILE
 200002 constant MARK_FOR
+200003 constant MARK_CASE
+200004 constant MARK_OF
 
 72057594037927935 constant ADDRESS_MASK                      \ wipes any flags
 2305843009213693952 constant BUILTIN_FLAG
@@ -148,7 +150,6 @@
 : repeat ( -- )     c>                                  \ pop while branch placeholder address
                     here @ over - swap !                \ patch forward offset at WHILE's placeholder
                     BRANCH ,                            \ unconditional branch to the beginning of the loop 
-                    ." first branch done" cr   
                     c>                                  \ pop begin address
                     here @ swap -                       \ compute negative offset to BEGIN
                     ,                                   \ emit negative offset
@@ -171,18 +172,23 @@
 : again             c> BRANCH ,
                     here @ - ,           ; immediate
 
-: case              0                    ; immediate
-\ : of                ['] over , 
-\                     ['] = ,
-\                     [compile] if
-\                     ['] drop , ; immediate
-\ : endof             [compile] else ; immediate
-\ : endcase           ['] drop ,
-\                     begin
-\                         ?dup
-\                     while
-\                         [compile] then
-\                     repeat ; immediate
+: case              here @ MARK_CASE >c  ; immediate
+: of                ['] over , ['] = , [compile] if
+                    ['] drop , 
+                    here @ MARK_OF >c ; immediate
+: endof             [compile] else
+                    here @ MARK_OF >c ; immediate
+: endcase           begin
+                        c> dup MARK_OF = if
+                        here @ swap - swap !
+                        else
+                        MARK_CASE = if
+                            drop exit
+                        else
+                            abort" malformed case structure"
+                        then
+                        then
+                    again ; immediate
 
 : system" ( <command> ) tmp @ '"' parse-to drop (system) ;
 : sec ( n -- )      1000 * ms ;  \ sleep for n seconds
@@ -290,21 +296,22 @@
 
 
 \ Implementation of word
-\ variable word-counter
 
-\ : .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
-\                     dup dup 1+ 4 u.r space 1+ @ 13 ltype 
-\                     1 word-counter +! 
-\                     word-counter @ 8 mod
-\                     if space else cr then @ ;   
+variable word-counter
 
-\ : words ( -- )
-\                     0 word-counter !
-\                     here @ 1- @                                 \ Get the starting point: the top back pointer
-\                     begin                                       \ loops through the words in the dictionary
-\                         .word dup not                           \ print a word and test the next pointer
-\                     until 
-\                         drop ;   
+: .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
+                    dup dup 1+ 4 u.r space 1+ @ 13 ltype 
+                    1 word-counter +! 
+                    word-counter @ 8 mod
+                    if space else cr then @ ;   
+
+: words ( -- )
+                    0 word-counter !
+                    here @ 1- @                                 \ Get the starting point: the top back pointer
+                    begin                                       \ loops through the words in the dictionary
+                        .word dup not                           \ print a word and test the next pointer
+                    until 
+                        drop ;   
 
 : print-word ( xt -- ) 
                     1- @ 13 ltype ;                 \ print a word name, given the xt as produced by '

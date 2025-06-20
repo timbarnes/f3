@@ -38,6 +38,8 @@ pub const EXEC: i64       = 100011; // calls the word with address on the stack
 pub const MARK_BEGIN: i64 = 200000; // marks the beginning of a control structure
 pub const MARK_WHILE: i64 = 200001; // marks the beginning of a WHILE control structure
 pub const MARK_FOR: i64   = 200002; // marks the beginning of a FOR control structure
+pub const MARK_CASE: i64  = 200003; // marks the beginning of a CASE control structure
+pub const MARK_OF: i64    = 200004; // marks the beginning of an OF control structure
 
 // GENERAL constants
 pub const TRUE: i64 = -1; // forth convention for true and false
@@ -52,6 +54,8 @@ pub enum ControlMarker {
     Begin(usize),       // address of begin
     While(usize),       // unresolved BRANCH0 location
     For(usize),         // address of FOR loop
+    Case(usize),        // address of CASE
+    Of(usize),          // address of OF
 }
 
 pub struct ForthRuntime {
@@ -137,10 +141,12 @@ impl ForthRuntime {
         let marker = match tag {
             MARK_BEGIN => ControlMarker::Begin(addr),
             MARK_WHILE => ControlMarker::While(addr),
-            MARK_FOR => ControlMarker::For(addr),
-            _ => panic!(">c: unknown control tag {}", tag),
+            MARK_FOR   => ControlMarker::For(addr),
+            MARK_CASE  => ControlMarker::Case(addr), 
+            MARK_OF    => ControlMarker::Of(addr), 
+            _          => panic!(">c: unknown control tag {}", tag),
         };
-        println!(">c pushing {:?}", marker);
+        //println!(">c pushing {:?}", marker);
         self.control_stack.push(marker);
     }
 
@@ -148,8 +154,10 @@ impl ForthRuntime {
         match self.control_stack.pop() {
             Some(ControlMarker::Begin(addr)) |
             Some(ControlMarker::While(addr)) |
-            Some(ControlMarker::For(addr)) => {
-                println!("c> popping {:?}", addr);
+            Some(ControlMarker::For(addr))   |
+            Some(ControlMarker::Case(addr))  |
+            Some(ControlMarker::Of(addr)) => {
+                //println!("c> popping {:?}", addr);
                 self.kernel.push(addr as i64)
             },
             None => self.msg.error("c>", "control stack underflow", None::<()>),
