@@ -88,7 +88,7 @@
 
 \ trace-on
 
-\ : [compile]         (') , ; immediate       \ Cause the following word to be compiled in, even if immediate
+: [compile]         (') , ; immediate       \ Cause the following word to be compiled in, even if immediate
 : exec EXEC , ; immediate
 
 : text              BL parse ;                      \ Parser shortcut for space-delimited tokens
@@ -173,22 +173,24 @@
                     here @ - ,           ; immediate
 
 : case              here @ MARK_CASE >c  ; immediate
-: of                ['] over , ['] = , [compile] if
-                    ['] drop , 
-                    here @ MARK_OF >c ; immediate
+: of                ['] over , ['] = , 
+                    [compile] if
+                    here @ MARK_OF >c 
+                    ['] drop             ; immediate
 : endof             [compile] else
-                    here @ MARK_OF >c ; immediate
-: endcase           begin
-                        c> dup MARK_OF = if
-                        here @ swap - swap !
+                    here @ MARK_OF >c    ; immediate
+: endcase           ['] drop ,
+                    begin
+                        c> dup MARK_OF = 
+                        if
+                            here @ swap - swap !
                         else
-                        MARK_CASE = if
-                            drop exit
-                        else
-                            abort" malformed case structure"
+                            MARK_CASE = 
+                            if
+                                drop exit
+                            then
                         then
-                        then
-                    again ; immediate
+                    again                ; immediate
 
 : system" ( <command> ) tmp @ '"' parse-to drop (system) ;
 : sec ( n -- )      1000 * ms ;  \ sleep for n seconds

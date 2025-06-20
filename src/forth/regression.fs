@@ -35,6 +35,22 @@ variable test-num 0 test-num !
         i 
     next ;
 
+: test-loop  ( -- n )
+    0                         \ initialize counter
+    begin
+        dup 0=                \ check if counter is zero
+    while
+        drop              \ drop counter
+        12345             \ dreturn test value
+    repeat ;
+
+: testcase ( n -- n ) \ case statement test
+  case
+    1 of 111 endof
+    2 of 222 endof
+    3 of 333 endof
+    444
+  endcase ;
 
 ."         Clear has to be the first test" cr
 1 2 3 4 5 clear test-none
@@ -57,19 +73,14 @@ variable test-num 0 test-num !
 \ 1 1 .s test-single
 1 1 45 emit test-single
 
-."                Loop tests" cr
-: test-loop  ( -- n )
-    0                         \ initialize counter
-    begin
-        dup 0=                \ check if counter is zero
-    while
-        drop              \ drop counter
-        12345             \ dreturn test value
-    repeat ;
+."         Control Structure tests" cr
 12345 test-loop test-single
 7 21 7 loop-test + + + + +  test-dual
 4 2 4 nested-loop-test - - test-dual
 3 3 3 loop-test + test-dual
+111 1 testcase test-single
+333 3 testcase test-single
+444 99 testcase test-single
 
 ."         Arithmetic" cr
 5 1 4 + test-single
