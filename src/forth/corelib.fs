@@ -101,8 +101,8 @@
 : [ FALSE state ! ; immediate                       \ Turns compile mode off
 : ] TRUE state ! ;                                  \ Turns compile mode on
 
-: recurse ( -- ) \ Simply compiles the cfa of the word being defined
-                    last @ 1 + , ; immediate \ last points to the latest nfa, so increment
+: recurse ( -- )                                    \ Simply compiles the cfa of the word being defined
+                    last @ 1 + , ; immediate        \ last points to the latest nfa, so increment
 
 : nip ( a b -- b )  swap drop ;
 : tuck ( a b -- b a b ) swap over ;
@@ -142,26 +142,29 @@
 
 
 : begin ( -- )      here @ MARK_BEGIN >c ; immediate
-: while ( -- )      MARK_WHILE >c
-                    BRANCH0 , here @ 0 , ; immediate
-: unmark ( -- marker ) c>                ; immediate
-: repeat ( -- )     c> \ here - .                         \ back-branch offset to begin
-                    c> here swap -                      \ patch forward offset in while
-                    swap !               ; immediate    \ store the offset
+: while ( -- )      BRANCH0 ,
+                    here @ MARK_WHILE >c
+                    999 ,                ; immediate
+: repeat ( -- )     c>                                  \ pop while branch placeholder address
+                    here @ over - swap !                \ patch forward offset at WHILE's placeholder
+                    BRANCH ,                            \ unconditional branch to the beginning of the loop 
+                    ." first branch done" cr   
+                    c>                                  \ pop begin address
+                    here @ swap -                       \ compute negative offset to BEGIN
+                    ,                                   \ emit negative offset
+                ; immediate
 
 : for               here @ MARK_FOR >c
                     ['] >r ,             ; immediate
 : next ( -- )       c>                                  \ get FOR addr
-                    ['] r> , 
+                    ['] r> ,                            \ compile saving the loop index
                     LITERAL , 1 , 
-                    ['] - , 
+                    ['] - ,                             \ compile decrementing the index
                     ['] dup , 
-                    ['] 0= , 
-                    BRANCH0 , here @ 0 ,                \ placeholder for exit
-                    ['] drop , 
-                    BRANCH , 
-                    here @ swap - ,                     \ back to top of loop
-                    here swap - swap !   ; immediate    \ patch forward branch0
+                    ['] 0= ,                            \ compile dup and 0 test
+                    BRANCH0 ,                           \ compile branch0 backwards
+                    here @ - ,                          \ patch the backwards branch0
+                    ['] drop ,           ; immediate    \ patch forward branch0
 
 : until             c> BRANCH0 ,
                     here @ - ,           ; immediate
