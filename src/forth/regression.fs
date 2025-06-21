@@ -26,33 +26,6 @@ variable test-num 0 test-num !
 
 : test-results depth 0= if ." All tests passed!" else ." The following tests failed: " .s clear then ;
 
-: loop-test for i next ;
-: nested-loop-test 
-    for 
-        3 for 
-            i . j .
-            next i . 
-        i 
-    next ;
-
-: test-loop  ( -- n )
-    0                         \ initialize counter
-    begin
-        dup 0=                \ check if counter is zero
-    while
-        drop              \ drop counter
-        12345             \ dreturn test value
-    repeat ;
-
-: test-case ( n -- n ) \ case statement test
-  case
-    1 of 111 endof
-    2 of 222 endof
-    3 of 333 endof
-    444
-  endcase ;
-
-
 ."         Clear has to be the first test" cr
 1 2 3 4 5 clear test-none
 
@@ -139,16 +112,47 @@ FALSE 55 0< test-single
 3 1 3 2 1 0 2 roll drop drop test-dual
 
 ."         Control Structure tests" cr
-\ 12345 test-loop test-single
+
+: loop-test for i next ;
+
+: nested-loop-test 
+    for 
+        3 for 
+            i . j .
+            next i . 
+        i 
+    next ;
+
+: test-loop  ( -- n )
+    0                         \ initialize counter
+    begin
+        dup 0=                \ check if counter is zero
+    while
+        drop                  \ drop counter
+        12345                 \ dreturn test value
+    repeat ;
+
+: test-case ( n -- n ) \ case statement test
+    case
+        1 of 111 endof
+        2 of 222 endof
+        3 of 333 endof
+        444
+    endcase ;
+
+: test-until begin 1- dup dup 0= until drop ;
+
 7 21 7 loop-test + + + + +  test-dual
 4 2 4 nested-loop-test - - test-dual
 3 3 3 loop-test + test-dual
+3 3 4 test-until + + test-dual
+\ 12345 test-loop test-single 
 \ 111 1 test-case test-single
 \ 333 3 test-case test-single
 \ 444 99 test-case test-single
 
 
-."        Raw mode tests "
+."        Raw mode tests " cr
 0 raw-mode? test-single
 raw-mode-on
 -1 raw-mode? test-single
@@ -190,9 +194,12 @@ cr
 \ 22 run nonexistent test-none \ This should abort and clear the stack
 
 \ === Line Editor Tests ===
-."        Line editor tests "
+."        Line editor tests " cr
 \ Note: These tests require interactive input
 \ get-line test-single
+
+."        TESTING test-loop " cr
+12345 test-loop test-single 
 
 test-results  \ Checks to see if all tests passed. Errors, if any, are left on the stack.
 

@@ -445,7 +445,9 @@ variable word-counter
     2 pick < 2 roll 2 roll < and ;
 
 : dump-help 
-    ." dump ( addr cells -- addr ) dumps heap data. Opcode reference:" cr
+    ." dump ( addr cells -- addr ) dumps heap data." cr
+    ." dump-here ( cells -- )      dumps the top of the heap" cr
+    ." Opcode reference: "
     ." 100000=BUILTIN  100001=VARIABLE    100002=CONSTANT  100003=LITERAL" cr
     ." 100004=STRLIT   100005=DEFINITION  100006=BRANCH    100007=BRANCH0" cr
     ." 100008=ABORT    100009=EXIT        100010=BREAK     100012=EXEC" cr
@@ -505,7 +507,7 @@ variable word-counter
 : dump-string ( s_addr -- s_addr )      \ print 20 characters from s_addr
     dup dup ADDRESS_MASK and = not      \ It's a builtin
     if
-        dup ." BUILTIN # " ADDRESS_MASK and . exit
+        dup ." BUILTIN # " ADDRESS_MASK and 2 .r exit
     then
     dup is-token-range                  ( s_addr mod_addr bool )
     if
@@ -546,6 +548,10 @@ variable word-counter
     drop drop ;
 
 cr ." Library loaded." cr
+
+\ dump-here dumps the top n cells. Useful for seeing recent dictionary entries.
+: dump-here     ( n -- )
+    dup here @ swap - swap 2 + dump ;
 
 \ run ( -- ) executes a word by name from the input buffer, aborting if not found
 : run ( -- )
