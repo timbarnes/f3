@@ -14,15 +14,24 @@
                     "build",
                     "--bin=f3",
                     "--package=f3",
-                    "--",
+                    // "--",
                 ],
                 "filter": {
                     "name": "f3",
                     "kind": "bin"
                 }
             },
-            //"args": [],
+            "args": ["-n"],
             "cwd": "${workspaceFolder}/target/debug",
         },
+        {
+            "name": "Run in external terminal",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/f3",
+            "terminal": "external",  // <- Important
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
     ]
 }

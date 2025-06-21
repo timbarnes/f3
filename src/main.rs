@@ -92,6 +92,7 @@ fn run_forth(forth: &mut ForthRuntime) {
     // --- Interactive Loop Phase ---
     loop {
         let result = catch_unwind(AssertUnwindSafe(|| {   
+            forth.f_dot_s();
             forth.set_abort_flag(false);
             // println!("Entering f_quit");
             forth.f_quit();  // main interpreter loop

@@ -44,13 +44,14 @@ variable test-num 0 test-num !
         12345             \ dreturn test value
     repeat ;
 
-: testcase ( n -- n ) \ case statement test
+: test-case ( n -- n ) \ case statement test
   case
     1 of 111 endof
     2 of 222 endof
     3 of 333 endof
     444
   endcase ;
+
 
 ."         Clear has to be the first test" cr
 1 2 3 4 5 clear test-none
@@ -73,14 +74,20 @@ variable test-num 0 test-num !
 \ 1 1 .s test-single
 1 1 45 emit test-single
 
-."         Control Structure tests" cr
-12345 test-loop test-single
-7 21 7 loop-test + + + + +  test-dual
-4 2 4 nested-loop-test - - test-dual
-3 3 3 loop-test + test-dual
-111 1 testcase test-single
-333 3 testcase test-single
-444 99 testcase test-single
+."        Variables" cr
+5 variable x 5 x ! x @ test-single
+42 variable y 40 y ! 2 y +! y @ test-single
+42 variable z 42 z ! z ? z @ test-single
+
+."        Constants" cr
+12 12 constant months months test-single \ a constant with the value 12
+
+."        Engine" cr
+264 s" does-not-exist" drop ?unique test-single
+264 s" *" drop ?unique test-single
+264 s" min" drop ?unique test-single
+: exit-test 22 33 exit 44 ;
+22 33 exit-test test-dual
 
 ."         Arithmetic" cr
 5 1 4 + test-single
@@ -131,20 +138,15 @@ FALSE 55 0< test-single
 1 1 0 roll test-single
 3 1 3 2 1 0 2 roll drop drop test-dual
 
-."        Variables" cr
-5 variable x 5 x ! x @ test-single
-42 variable y 40 y ! 2 y +! y @ test-single
-42 variable z 42 z ! z ? z @ test-single
+."         Control Structure tests" cr
+\ 12345 test-loop test-single
+7 21 7 loop-test + + + + +  test-dual
+4 2 4 nested-loop-test - - test-dual
+3 3 3 loop-test + test-dual
+\ 111 1 test-case test-single
+\ 333 3 test-case test-single
+\ 444 99 test-case test-single
 
-."        Constants" cr
-12 12 constant months months test-single \ a constant with the value 12
-
-."        Engine" cr
-264 s" does-not-exist" drop ?unique test-single
-264 s" *" drop ?unique test-single
-264 s" min" drop ?unique test-single
-: exit-test 22 33 exit 44 ;
-22 33 exit-test test-dual
 
 ."        Raw mode tests "
 0 raw-mode? test-single

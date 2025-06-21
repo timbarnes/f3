@@ -465,12 +465,14 @@ impl ForthRuntime {
                         let mut index = cfa as usize + 1; // skip the inner interpreter
                         loop {
                             let xt = self.kernel.get(index);
+                            // print!("(xt is {}) ", xt);
                             match xt {
                                 LITERAL => {
                                     print!("{} ", self.kernel.get(index as usize + 1));
                                     index += 1;
                                 }
                                 STRLIT => {
+                                    // println!("Found STRLIT {}:{}", xt, self.kernel.get(index as usize + 1));
                                     let s_addr = self.kernel.get(index as usize + 1) as usize;
                                     print!("\" {}\" ", self.kernel.string_get(s_addr));
                                     index += 1;
@@ -512,6 +514,7 @@ impl ForthRuntime {
                                     }
                                 }
                             }
+                            self.f_flush();
                             index += 1;
                         }
                     }

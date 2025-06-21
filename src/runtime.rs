@@ -150,19 +150,36 @@ impl ForthRuntime {
         self.control_stack.push(marker);
     }
 
-    fn f_from_c(&mut self) {
-        match self.control_stack.pop() {
-            Some(ControlMarker::Begin(addr)) |
-            Some(ControlMarker::While(addr)) |
-            Some(ControlMarker::For(addr))   |
-            Some(ControlMarker::Case(addr))  |
-            Some(ControlMarker::Of(addr)) => {
-                //println!("c> popping {:?}", addr);
-                self.kernel.push(addr as i64)
-            },
-            None => self.msg.error("c>", "control stack underflow", None::<()>),
+fn f_from_c(&mut self) {
+    match self.control_stack.pop() {
+        Some(ControlMarker::Begin(addr)) => {
+            println!("c> popping Begin({addr})");
+            self.kernel.push(addr as i64);
+            self.kernel.push(MARK_BEGIN);
         }
+        Some(ControlMarker::While(addr)) => {
+            println!("c> popping While({addr})");
+            self.kernel.push(addr as i64);
+            self.kernel.push(MARK_WHILE);
+        }
+        Some(ControlMarker::For(addr)) => {
+            println!("c> popping For({addr})");
+            self.kernel.push(addr as i64);
+            self.kernel.push(MARK_FOR);
+        }
+        Some(ControlMarker::Case(addr)) => {
+            println!("c> popping Case({addr})");
+            self.kernel.push(addr as i64);
+            self.kernel.push(MARK_CASE);
+        }
+        Some(ControlMarker::Of(addr)) => {
+            //println!("c> popping Of({addr})");
+            self.kernel.push(addr as i64);
+            self.kernel.push(MARK_OF);
+        }
+        None => self.msg.error("c>", "control stack underflow", None::<()>),
     }
+}
 
     /// cold_start is where the interpreter begins, installing some variables and the builtin functions.
     pub fn cold_start(&mut self) {

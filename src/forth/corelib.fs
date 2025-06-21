@@ -46,18 +46,19 @@
 4611686018427387904 constant IMMEDIATE_FLAG
 
 \ ASCII symbols that are useful for text processing
-10 constant '\n'
-32 constant BL
-34 constant '"'
-39 constant '''
-41 constant ')'
-45 constant '-'
-48 constant '0'
-58 constant ':'
-61 constant '='
-65 constant 'A'
-91 constant '['
-93 constant ']'
+10  constant '\n'
+32  constant BL
+34  constant '"'
+39  constant '''
+41  constant ')'
+45  constant '-'
+48  constant '0'
+58  constant ':'
+61  constant '='
+65  constant 'A'
+91  constant '['
+93  constant ']'
+124 constant '|'
 
 \ For file I/O
 -1 constant R/W
@@ -88,12 +89,12 @@
 
 \ trace-on
 
-: [compile]         (') , ; immediate       \ Cause the following word to be compiled in, even if immediate
+: [compile]         (') , ; immediate               \ Cause the following word to be compiled in, even if immediate
 : exec EXEC , ; immediate
 
 : text              BL parse ;                      \ Parser shortcut for space-delimited tokens
 : s-parse           tmp @ swap parse-to ;           \ Same as text, but loads to tmp instead of pad
-\ : (s") ( -- s u )   tmp @ '"' parse-to ; immediate  \ Parses a double-quoted string into tmp, returning the address and length
+: (s") ( -- s u )   tmp @ '"' parse-to ; immediate  \ Parses a double-quoted string into tmp, returning the address and length
 : s" ( -- s u ")    tmp @ '"' parse-to ;            \ Places a double-quoted string in tmp
 
 ( File reader functions )
@@ -147,17 +148,17 @@
 : while ( -- )      BRANCH0 ,
                     here @ MARK_WHILE >c
                     999 ,                ; immediate
-: repeat ( -- )     c>                                  \ pop while branch placeholder address
+: repeat ( -- )     c> drop                             \ pop while branch placeholder address
                     here @ over - swap !                \ patch forward offset at WHILE's placeholder
                     BRANCH ,                            \ unconditional branch to the beginning of the loop 
-                    c>                                  \ pop begin address
+                    c> drop                             \ pop begin address
                     here @ swap -                       \ compute negative offset to BEGIN
                     ,                                   \ emit negative offset
                 ; immediate
 
 : for               here @ MARK_FOR >c
                     ['] >r ,             ; immediate
-: next ( -- )       c>                                  \ get FOR addr
+: next ( -- )       c>  drop                            \ get FOR addr
                     ['] r> ,                            \ compile saving the loop index
                     LITERAL , 1 , 
                     ['] - ,                             \ compile decrementing the index
@@ -167,35 +168,97 @@
                     here @ - ,                          \ patch the backwards branch0
                     ['] drop ,           ; immediate    \ patch forward branch0
 
-: until             c> BRANCH0 ,
+: until             c> drop BRANCH0 ,
                     here @ - ,           ; immediate
-: again             c> BRANCH ,
+: again             c> drop BRANCH ,
                     here @ - ,           ; immediate
 
 : case              here @ MARK_CASE >c  ; immediate
-: of                ['] over , ['] = , 
+: of                
+                    ['] over , ['] = ,  ( )
                     [compile] if
-                    here @ MARK_OF >c 
-                    ['] drop             ; immediate
+                    here @ MARK_OF >c
+                    ['] drop ,           ; immediate
 : endof             [compile] else
-                    here @ MARK_OF >c    ; immediate
-: endcase           ['] drop ,
-                    begin
-                        c> dup MARK_OF = 
-                        if
-                            here @ swap - swap !
-                        else
-                            MARK_CASE = 
-                            if
-                                drop exit
-                            then
-                        then
-                    again                ; immediate
+                    here @ MARK_OF >c drop   ; immediate
+: endcase .s
+    ['] drop ,
+    begin
+        c>                          ( addr tag )
+        dup MARK_OF                 ( addr tag tag MARK_OF )
+        =                           ( addr tag bool )
+        if                          ( addr tag )
+            drop dup                ( addr addr )
+            here @                  ( addr addr HERE )
+            - swap !                ( )
+        else
+            dup MARK_CASE           ( addr tag MARK_CASE )
+            =                       ( addr bool )
+            if                      ( addr )
+                2drop               ( )
+                exit
+            else
+                abort               ( )
+            then
+        then
+    again
+; immediate
+
+\ Takes a typical descending for - next loop, and simplifies reversing the direction of the loop variable
+\     usage is : word incr-for for dup i - ... next .. ;
+
+: incr-for ( m n -- m m+n n )
+    over over + swap ;
+
+\ \ case: mark start of case, push control marker
+\ : case
+\     here @ MARK_CASE >c
+\ ; immediate
+
+\ \ of: compile "over =", then compile BRANCH0 with placeholder,
+\ \ push address of placeholder on control stack as MARK_OF,
+\ \ compile drop to remove compared value if match succeeds.
+\ : of
+\     ['] over ,       \ copy case value for compare
+\     ['] = ,          \ compare with input
+\     BRANCH0 , 0 ,    \ compile branch0 with placeholder
+\     here @ MARK_OF >c
+\     ['] drop ,       \ drop compared value if true
+\ ; immediate
+
+\ \ endof: compile unconditional BRANCH with placeholder,
+\ \ push placeholder address on control stack as MARK_OF.
+\ : endof
+\     BRANCH , 0 ,
+\     here @ MARK_OF >c
+\ ; immediate
+
+\ \ endcase: patch all MARK_OF placeholders to jump to here,
+\ \ pop MARK_CASE marker and exit.
+\ : endcase
+\     begin
+\         c>                     \ get addr tag pair from control stack
+\         dup MARK_OF = if
+\             \ patch MARK_OF branch
+\             here @ swap - swap !
+\             drop                \ drop tag after patching
+\         else
+\             dup MARK_CASE = if
+\                 drop drop        \ drop addr and tag
+\                 abort             \ exit the loop cleanly
+\             else
+\                 \ unknown marker, error or break infinite loop safely
+\                 \." ERROR: Unknown control marker in endcase" cr
+\                 abort
+\             then
+\         then
+\     again
+\ ; immediate
 
 : system" ( <command> ) tmp @ '"' parse-to drop (system) ;
 : sec ( n -- )      1000 * ms ;  \ sleep for n seconds
 
-: abort" STRLIT , s" drop s-create , ['] type , ['] abort , ; immediate \ abort with a message. Use inside another word.
+: abort" STRLIT , s" .s drop s-create , ['] type , ['] abort , ; immediate \ abort with a message. Use inside another word.
 
 : emit ( c -- )     \ print a character if in the printable range
                     128 mod dup 31 > if (emit) else drop then ;
@@ -374,7 +437,92 @@ variable word-counter
 
 \ : run-tests  s" src/forth/regression.fs" included ; \ Run the regression tests
 
-\ clear
+
+\ Returns TRUE if n is in the range of l to h inclusive
+\
+: range ( n l h -- b )
+    1 + swap 1 - 
+    2 pick < 2 roll 2 roll < and ;
+
+: dump-help 
+    ." dump ( addr cells -- addr ) dumps heap data. Opcode reference:" cr
+    ." 100000=BUILTIN  100001=VARIABLE    100002=CONSTANT  100003=LITERAL" cr
+    ." 100004=STRLIT   100005=DEFINITION  100006=BRANCH    100007=BRANCH0" cr
+    ." 100008=ABORT    100009=EXIT        100010=BREAK     100012=EXEC" cr
+    ." ADDRESS --------------HEX ------------DECIMAL CHAR STRING " cr ;
+: dump-addr  ( addr -- addr ) dup 5 .r ;
+: dump-hex   ( val -- val ) dup 20 hex .r decimal ;
+: dump-dec   ( val -- val ) dup 20 .r ;
+: dump-char  ( val -- val ) 
+    dup dup
+    space ''' emit 
+    emit 
+    ''' emit 
+    space space 
+    128 mod dup 31 > not if space then drop ;
+
+: (dump-string)
+        '|' emit 
+        dup 20 + 
+        20 for dup i - c@ emit
+           next
+        '|' emit drop ;
+
+: is-token-range 100000 100012 range ;  \ determines if the value is likely to be a token
+: is-string-range 0 5000 range ;        \ determines if it could be a string address
+: dump-token 
+    dup 100000 = if ." BUILTIN           " exit then
+    dup 100001 = if ." VARIABLE          " exit then
+    dup 100002 = if ." CONSTANT          " exit then
+    dup 100003 = if ." LITERAL           " exit then
+    dup 100004 = if ." STRLIT            " exit then
+    dup 100005 = if ." DEFINITION        " exit then
+    dup 100006 = if ." BRANCH            " exit then
+    dup 100007 = if ." BRANCH0           " exit then
+    dup 100008 = if ." ABORT             " exit then
+    dup 100009 = if ." EXIT              " exit then
+    dup 100010 = if ." BREAK             " exit then
+    dup 100011 = if ." EXEC.             " exit then
+    ." *UNKNOWN* " drop ;   
+ 
+: dump-string ( s_addr -- s_addr )      \ print 20 characters from s_addr
+    dup ADDRESS_MASK and                ( s_addr mod_addr )
+    dup is-token-range                  ( s_addr mod_addr bool )
+    if
+        dump-token drop
+    else
+        dup is-string-range 
+        if 
+            dup c@ 31 > 
+            if 
+                (dump-string) drop
+            else
+                ." -> " 18 ltype
+            then
+        else
+            ." -No string-" drop
+        then
+    then
+    ;
+
+: dump-name ( s_addr -- s_addr )   \ Print a builtin or definition name, if appropriate
+    \ If it has a builtin flag or precedes a DEFINITION tag, show the name
+    dup BUILTIN_FLAG and            \ check to see if there's a builtin flag
+    if 
+        dup 1 - 15 ltype
+    then ;
+
+: dump       ( addr cells -- addr )
+    ." ADDRESS --------------HEX ------------DECIMAL CHAR STRING " cr
+    incr-for for dup i - 
+        dump-addr @ 
+        dump-hex
+        dump-dec
+        dump-char
+        dump-string
+        \ dump-name
+        cr drop next ;
+
 cr ." Library loaded." cr
 
 \ run ( -- ) executes a word by name from the input buffer, aborting if not found
@@ -393,3 +541,4 @@ cr ." Library loaded." cr
         \ abort" no word to run"
     then
 ;
+
