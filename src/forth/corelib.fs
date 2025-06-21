@@ -1,4 +1,5 @@
-\ Core library for Forth
+\ Core library for f3
+
 : parse pad @ swap parse-to ;                       
 : \ 1 parse drop drop ; immediate                  
 : ( 41 parse drop drop ; immediate                  \ Implements in-line comments
@@ -18,10 +19,14 @@
 : constant ( n -- ) create 100002 , ,      \ v constant <name> creates a constant with value v
     (close) ;  
 
+\ Boolean constants. In fact any non-zero value is interpreted as true, but -1 is traditional.
+
 0 constant FALSE
 -1 constant TRUE
 
 \ Constants referring to inner interpreter opcodes, which are typically compiled into definitions
+\ These are used by dump to identify tokens in the dictionary / heap
+
 100000 constant BUILTIN
 100001 constant VARIABLE
 100002 constant CONSTANT
@@ -41,6 +46,7 @@
 200003 constant MARK_CASE
 200004 constant MARK_OF
 
+\ Flags and masks used to identify special words and extract addresses
 72057594037927935 constant ADDRESS_MASK                      \ wipes any flags
 2305843009213693952 constant BUILTIN_FLAG
 4611686018427387904 constant IMMEDIATE_FLAG
@@ -65,7 +71,8 @@
  0 constant R/O
  1 constant W/O
 
- : variable ( -- ) create VARIABLE , 0 ,    \ variable <name> creates a variable, initialized to zero
+\ variable <name> creates a variable, initialized to zero
+: variable ( -- ) create VARIABLE , 0 ,   
     (close) ;  
 
 : decimal 10 base ! ;
@@ -98,8 +105,16 @@
 : s" ( -- s u ")    tmp @ '"' parse-to ;            \ Places a double-quoted string in tmp
 
 ( File reader functions )
-: included          tmp @ include-file ; \ include-file uses a string pointer on the stack to load a file
-: include           tmp @ 32 parse-to included ;
+
+\ included gets the file path already in TMP and loads it, leaving a success flag
+
+: included  ( -- bool )
+                    tmp @ include-file ; \ include-file uses a string pointer on the stack to load a file
+
+\ include is for interactive use. It gets a file path from the user and loads it.
+: include   ( -- )
+                    tmp @ 32 parse-to 
+                    drop include-file drop ;        \ include-file only needs the address
 
 : [ FALSE state ! ; immediate                       \ Turns compile mode off
 : ] TRUE state ! ;                                  \ Turns compile mode on
@@ -110,7 +125,9 @@
 : nip ( a b -- b )  swap drop ;
 : tuck ( a b -- b a b ) swap over ;
 
-: _patch-here ( addr -- )
+\ if - else - then
+
+: _patch-here ( addr -- ) \ Address patcher for if - else - then
     here @ over - swap ! ;
 
 : if     BRANCH0 , here @ 0 , ; immediate
@@ -119,10 +136,11 @@
 
 : ' (') dup @ dup DEFINITION = if drop else nip then ;
 
-: [']               LITERAL , ' , ; immediate                    \ compiles a word's cfa into a definition as a literal
-: cfa>nfa           1 - ;                                        \ converts an cfa to an nfa
-: nfa>cfa           1 + ;                                        \ converts an nfa to a cfa
-: bp>nfa            1 + ;                                        \ from preceding back pointer to nfa
+: [']               LITERAL , ' , ; immediate             \ compiles a word's cfa into a definition as a literal
+
+: cfa>nfa           1 - ;                                 \ converts an cfa to an nfa
+: nfa>cfa           1 + ;                                 \ converts an nfa to a cfa
+: bp>nfa            1 + ;                                 \ from preceding back pointer to nfa
 : bp>cfa            2 + ; 
 
 : 1- ( n -- n-1 )   1 - ;
@@ -139,22 +157,27 @@
 : <> ( n -- n )     = 0= ;
 : 0>                0 > ;
 : 0<>               0= 0= ;
+
+\ Numeric operations
+
 : min ( m n -- m | n ) 2dup < if drop else nip then ;
 : max ( m n -- m | n ) 2dup > if drop else nip then ;
 : abs ( n -- n | -n ) dup 0 < if -1 * then ;
+: range ( n l h -- b ) \ Returns TRUE if n is in the range of l to h inclusive
+    1 + swap 1 - 
+    2 pick < 2 roll 2 roll < and ;
 
+\ Control structures
 
 : begin ( -- )      here @ MARK_BEGIN >c ; immediate
 : while ( -- )      BRANCH0 ,
                     here @ MARK_WHILE >c
                     999 ,                ; immediate
 : repeat ( -- )     c> drop                             \ pop while branch placeholder address
-                    here @ over - swap !                \ patch forward offset at WHILE's placeholder
                     BRANCH ,                            \ unconditional branch to the beginning of the loop 
+                    here @ over - 1 + swap !            \ patch forward offset at WHILE's placeholder
                     c> drop                             \ pop begin address
-                    here @ swap -                       \ compute negative offset to BEGIN
-                    ,                                   \ emit negative offset
-                ; immediate
+                    here @ - ,           ; immediate    \ save negative offset to BEGIN                          \ emit negative offset
 
 : for               here @ MARK_FOR >c
                     ['] >r ,             ; immediate
@@ -437,13 +460,6 @@ variable word-counter
 
 \ : run-tests  s" src/forth/regression.fs" included ; \ Run the regression tests
 
-
-\ Returns TRUE if n is in the range of l to h inclusive
-\
-: range ( n l h -- b )
-    1 + swap 1 - 
-    2 pick < 2 roll 2 roll < and ;
-
 : dump-help 
     ." dump ( addr cells -- addr ) dumps heap data." cr
     ." dump-here ( cells -- )      dumps the top of the heap" cr
@@ -451,12 +467,11 @@ variable word-counter
     ." 100000=BUILTIN  100001=VARIABLE    100002=CONSTANT  100003=LITERAL" cr
     ." 100004=STRLIT   100005=DEFINITION  100006=BRANCH    100007=BRANCH0" cr
     ." 100008=ABORT    100009=EXIT        100010=BREAK     100012=EXEC" cr
-    ." ADDRESS --------------HEX ------------DECIMAL CHAR STRING " cr 
     ;
 
-: dump-addr  ( addr -- addr ) dup 5 .r ;
+: dump-addr  ( addr -- addr ) dup 7 .r ;
 
-: dump-hex   ( val -- val ) dup 20 hex .r decimal ;
+: dump-hex   ( val -- val ) dup 16 hex .r decimal ;
 
 : dump-dec   ( val -- val ) dup 20 .r ;
 
@@ -504,25 +519,26 @@ variable word-counter
     dup 100011 = if ." EXEC.                " exit then
     ." *UNKNOWN* " drop ;   
  
-: dump-string ( s_addr -- s_addr )      \ print 20 characters from s_addr
+: dump-val ( addr -- addr )      \ Attempts to print something useful about the cell
+    space
     dup dup ADDRESS_MASK and = not      \ It's a builtin
     if
         dup ." BUILTIN # " ADDRESS_MASK and 2 .r exit
     then
-    dup is-token-range                  ( s_addr mod_addr bool )
+    dup is-token-range          ( s_addr mod_addr bool )
     if
-        dump-token 
+        dump-token              \ Print token type
     else
         dup is-string-range 
         if 
             dup c@ 31 > 
             if 
-                dump-segment
+                dump-segment    \ Print as if it was a string pointer
             else
-                dump-builtin 
+                dump-builtin    \ Print as if it's a builtin
             then
         else
-            ." -No string-" drop
+            ." -No string-" drop \ No recognizable value
         then
     then
     ;
@@ -535,13 +551,13 @@ variable word-counter
     then ;
 
 : dump       ( addr cells -- addr )
-    ." ADDRESS --------------HEX ------------DECIMAL CHAR STRING " cr
+    ." ADDRESS CHAR -------------HEX ------------DECIMAL VALUE? " cr
     incr-for for dup i - 
-        dump-addr @ 
+        dump-addr @
+        dump-char
         dump-hex
         dump-dec
-        dump-char
-        dump-string
+        dump-val
         \ dump-name
         cr drop 
     next 

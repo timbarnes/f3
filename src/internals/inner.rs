@@ -167,7 +167,7 @@ impl ForthRuntime {
                     // see if it's a builtin:
                     let builtin_flag = code as usize & BUILTIN_FLAG;
                     let address = code as usize & ADDRESS_MASK;
-                    if builtin_flag != 0 {
+                    if builtin_flag != 0 && (address <= self.kernel.max_builtin()) {
                         self.builtin(address);
                         pc += 1;
                     } else {

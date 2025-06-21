@@ -13,17 +13,23 @@ variable test-num 0 test-num !
 ( If the desired result is equal to the top of the stack, the test passes. )
 ( Relies on a variable test-num that indicates the number of the test. )
 
-: test-none ( .. -- ) depth 1 test-num +!
-    0= if test-num ? ."  Passed" else ."    Failed" test-num @ then cr ;
+: test-none ( .. -- ) 
+    depth 1 test-num +!
+    .s
+    0= if test-num ? ."  Passed " else ."    Failed " test-num @ then cr ;
 
-: test-single ( m n.. -- b ) 1 test-num +!
-    = if test-num ? ."  Passed" else ."    Failed"  test-num @ then  cr ;
+: test-single ( m n.. -- b ) 
+    1 test-num +!
+    .s
+    = if test-num ? ."  Passed " else ."    Failed "  test-num @ then cr ;
 
-: test-dual ( j k n.. -- b ) 1 test-num +!
+: test-dual ( j k n.. -- b ) 
+    1 test-num +!
     rot = 
     rot rot = 
-    and if test-num ? ."  Passed" else ."    Failed" test-num @ then cr ;
-
+    and 
+    .s 
+    if test-num ? ."  Passed " else ."    Failed " test-num @ then cr ;
 : test-results depth 0= if ." All tests passed!" else ." The following tests failed: " .s clear then ;
 
 ."         Clear has to be the first test" cr
@@ -146,7 +152,7 @@ FALSE 55 0< test-single
 4 2 4 nested-loop-test - - test-dual
 3 3 3 loop-test + test-dual
 3 3 4 test-until + + test-dual
-\ 12345 test-loop test-single 
+12345 test-loop test-single 
 \ 111 1 test-case test-single
 \ 333 3 test-case test-single
 \ 444 99 test-case test-single
@@ -193,13 +199,9 @@ cr
 3 run test-run test-single
 \ 22 run nonexistent test-none \ This should abort and clear the stack
 
-\ === Line Editor Tests ===
 ."        Line editor tests " cr
 \ Note: These tests require interactive input
 \ get-line test-single
-
-."        TESTING test-loop " cr
-12345 test-loop test-single 
 
 test-results  \ Checks to see if all tests passed. Errors, if any, are left on the stack.
 

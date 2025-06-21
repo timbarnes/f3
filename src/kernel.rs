@@ -190,6 +190,11 @@ impl Kernel {
         }
     }
 
+    /// Returns the number of builtins
+    pub fn max_builtin(&mut self) -> usize {
+        self.builtins.len() - 1
+    }
+
     /// string_new writes a new string into the next empty space, updating the free space pointer
     /// /// This function assumes that the string is counted, i.e. the first byte is the length of the string.
     /// /// Returns the address of the new string in the string space.
