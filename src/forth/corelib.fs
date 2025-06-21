@@ -449,10 +449,15 @@ variable word-counter
     ." 100000=BUILTIN  100001=VARIABLE    100002=CONSTANT  100003=LITERAL" cr
     ." 100004=STRLIT   100005=DEFINITION  100006=BRANCH    100007=BRANCH0" cr
     ." 100008=ABORT    100009=EXIT        100010=BREAK     100012=EXEC" cr
-    ." ADDRESS --------------HEX ------------DECIMAL CHAR STRING " cr ;
+    ." ADDRESS --------------HEX ------------DECIMAL CHAR STRING " cr 
+    ;
+
 : dump-addr  ( addr -- addr ) dup 5 .r ;
+
 : dump-hex   ( val -- val ) dup 20 hex .r decimal ;
+
 : dump-dec   ( val -- val ) dup 20 .r ;
+
 : dump-char  ( val -- val ) 
     dup dup
     space ''' emit 
@@ -461,7 +466,7 @@ variable word-counter
     space space 
     128 mod dup 31 > not if space then drop ;
 
-: (dump-string)
+: dump-segment
         '|' emit 
         dup 20 + 
         20 for dup i - c@ emit
@@ -469,35 +474,50 @@ variable word-counter
         '|' emit drop ;
 
 : is-token-range 100000 100012 range ;  \ determines if the value is likely to be a token
+
 : is-string-range 0 5000 range ;        \ determines if it could be a string address
+
+: dump-builtin 
+    dup 132 3 * 1- > 
+    if
+        ." nfa -> " 
+    else
+        ." buffer -> "
+    then
+    dup 18 ltype
+    ;
+
 : dump-token 
-    dup 100000 = if ." BUILTIN           " exit then
-    dup 100001 = if ." VARIABLE          " exit then
-    dup 100002 = if ." CONSTANT          " exit then
-    dup 100003 = if ." LITERAL           " exit then
-    dup 100004 = if ." STRLIT            " exit then
-    dup 100005 = if ." DEFINITION        " exit then
-    dup 100006 = if ." BRANCH            " exit then
-    dup 100007 = if ." BRANCH0           " exit then
-    dup 100008 = if ." ABORT             " exit then
-    dup 100009 = if ." EXIT              " exit then
-    dup 100010 = if ." BREAK             " exit then
-    dup 100011 = if ." EXEC.             " exit then
+    dup 100000 = if ." BUILTIN              " exit then
+    dup 100001 = if ." VARIABLE             " exit then
+    dup 100002 = if ." CONSTANT             " exit then
+    dup 100003 = if ." LITERAL              " exit then
+    dup 100004 = if ." STRLIT               " exit then
+    dup 100005 = if ." DEFINITION           " exit then
+    dup 100006 = if ." BRANCH               " exit then
+    dup 100007 = if ." BRANCH0              " exit then
+    dup 100008 = if ." ABORT                " exit then
+    dup 100009 = if ." EXIT                 " exit then
+    dup 100010 = if ." BREAK                " exit then
+    dup 100011 = if ." EXEC.                " exit then
     ." *UNKNOWN* " drop ;   
  
 : dump-string ( s_addr -- s_addr )      \ print 20 characters from s_addr
-    dup ADDRESS_MASK and                ( s_addr mod_addr )
+    dup dup ADDRESS_MASK and = not      \ It's a builtin
+    if
+        dup ." BUILTIN # " ADDRESS_MASK and . exit
+    then
     dup is-token-range                  ( s_addr mod_addr bool )
     if
-        dump-token drop
+        dump-token 
     else
         dup is-string-range 
         if 
             dup c@ 31 > 
             if 
-                (dump-string) drop
+                dump-segment
             else
-                ." -> " 18 ltype
+                dump-builtin 
             then
         else
             ." -No string-" drop
@@ -505,7 +525,7 @@ variable word-counter
     then
     ;
 
-: dump-name ( s_addr -- s_addr )   \ Print a builtin or definition name, if appropriate
+: dump-name ( s_addr -- )   \ Print a builtin or definition name, if appropriate
     \ If it has a builtin flag or precedes a DEFINITION tag, show the name
     dup BUILTIN_FLAG and            \ check to see if there's a builtin flag
     if 
@@ -521,7 +541,9 @@ variable word-counter
         dump-char
         dump-string
         \ dump-name
-        cr drop next ;
+        cr drop 
+    next 
+    drop drop ;
 
 cr ." Library loaded." cr
 
