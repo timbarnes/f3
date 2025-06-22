@@ -142,8 +142,8 @@ FALSE 55 0< test-single
     case
         1 of 111 endof
         2 of 222 endof
-        3 of 333 endof
-        444
+        3 of 111 3 * endof
+        222 222 +
     endcase ;
 
 : test-until begin 1- dup dup 0= until drop ;
@@ -153,9 +153,9 @@ FALSE 55 0< test-single
 3 3 3 loop-test + test-dual
 3 3 4 test-until + + test-dual
 12345 test-loop test-single 
-\ 111 1 test-case test-single
-\ 333 3 test-case test-single
-\ 444 99 test-case test-single
+111 1 test-case test-single
+333 3 test-case test-single
+444 99 test-case test-single
 
 
 ."        Raw mode tests " cr

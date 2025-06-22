@@ -54,6 +54,9 @@ impl ForthRuntime {
         contents &= ADDRESS_MASK;
         let mut c = 's';
 
+        // Print the program counter address
+        print!("{:>5}: ", pc);
+        // Indent based on call depth and print the stack
         for _i in 1..call_depth { print!(" "); }  
         self.f_dot_s();
 

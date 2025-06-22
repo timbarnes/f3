@@ -196,89 +196,62 @@
 : again             c> drop BRANCH ,
                     here @ - ,           ; immediate
 
-: case              here @ MARK_CASE >c  ; immediate
-: of                
-                    ['] over , ['] = ,  ( )
-                    [compile] if
-                    here @ MARK_OF >c
-                    ['] drop ,           ; immediate
-: endof             [compile] else
-                    here @ MARK_OF >c drop   ; immediate
-: endcase .s
-    ['] drop ,
+\ Case statement
+
+: case      ( val -- val )
+    ['] >r ,                \ put the key on the return stack for later use
+    here @ MARK_CASE >c     \ issues a marker to be retrieved by 'endcase'
+    ;
+    immediate
+
+: of        ( -- )          \ the "if" part
+    ['] r@ ,                \ compile getting the key from the return stack
+    ['] = ,                 \ compile the test
+    BRANCH0 , 999 ,         \ compile the branch. If the key doesn't match, we will skip
+    here @ MARK_OF >c       \ push a marker
+    ; 
+    immediate
+
+: endof     ( -- )          \ the "then" part
+    BRANCH ,            \ compile the branch
+    here @ MARK_OF >c       \ push a second marker for this clause
+    888 , 
+    ;
+    immediate
+
+: endcase   ( -- )          \ patch the branches, exiting when the MARK_CASE is found
     begin
-        c>                          ( addr tag )
-        dup MARK_OF                 ( addr tag tag MARK_OF )
-        =                           ( addr tag bool )
-        if                          ( addr tag )
-            drop dup                ( addr addr )
-            here @                  ( addr addr HERE )
-            - swap !                ( )
-        else
-            dup MARK_CASE           ( addr tag MARK_CASE )
-            =                       ( addr bool )
-            if                      ( addr )
-                2drop               ( )
-                exit
-            else
-                abort               ( )
-            then
+        c> MARK_CASE =          \ is the first marker a CASE marker?
+        if 
+            ['] r> ,            \ pop the key off the return stack
+            ['] drop ,          \ dump the key
+            drop                \ the address
+            exit                \ we've finished
+        else                    \ it's an 'endof' marker, so patch jump to the end. patch_addr is on the stack
+            dup dup             \ save extra copies of the address for the second patch operation
+            here @ swap -
+            swap  
+            !                   \ store the patch
+            c>                  \ get the corresponding 'of' marker
+            drop 1 -            \ we could test the type...
+            dup rot swap - 1 + swap
+            !                   \ store the delta between 'of' and 'endof'
         then
     again
-; immediate
+    ;
+    immediate
 
 \ Takes a typical descending for - next loop, and simplifies reversing the direction of the loop variable
 \     usage is : word incr-for for dup i - ... next .. ;
 
 : incr-for ( m n -- m m+n n )
-    over over + swap ;
+                    over over + swap ;
 
-\ \ case: mark start of case, push control marker
-\ : case
-\     here @ MARK_CASE >c
-\ ; immediate
-
-\ \ of: compile "over =", then compile BRANCH0 with placeholder,
-\ \ push address of placeholder on control stack as MARK_OF,
-\ \ compile drop to remove compared value if match succeeds.
-\ : of
-\     ['] over ,       \ copy case value for compare
-\     ['] = ,          \ compare with input
-\     BRANCH0 , 0 ,    \ compile branch0 with placeholder
-\     here @ MARK_OF >c
-\     ['] drop ,       \ drop compared value if true
-\ ; immediate
-
-\ \ endof: compile unconditional BRANCH with placeholder,
-\ \ push placeholder address on control stack as MARK_OF.
-\ : endof
-\     BRANCH , 0 ,
-\     here @ MARK_OF >c
-\ ; immediate
-
-\ \ endcase: patch all MARK_OF placeholders to jump to here,
-\ \ pop MARK_CASE marker and exit.
-\ : endcase
-\     begin
-\         c>                     \ get addr tag pair from control stack
-\         dup MARK_OF = if
-\             \ patch MARK_OF branch
-\             here @ swap - swap !
-\             drop                \ drop tag after patching
-\         else
-\             dup MARK_CASE = if
-\                 drop drop        \ drop addr and tag
-\                 abort             \ exit the loop cleanly
-\             else
-\                 \ unknown marker, error or break infinite loop safely
-\                 \." ERROR: Unknown control marker in endcase" cr
-\                 abort
-\             then
-\         then
-\     again
-\ ; immediate
-
+\ system executes a command in the shell. The shell is exited afterwards.
+\   This means that commands like 'cd' are not persistent.
+\
 : system" ( <command> ) tmp @ '"' parse-to drop (system) ;
+
 : sec ( n -- )      1000 * ms ;  \ sleep for n seconds
 
 : abort" STRLIT , s" .s drop s-create , ['] type , ['] abort , ; immediate \ abort with a message. Use inside another word.
@@ -381,7 +354,6 @@
 
 : +! ( n addr -- )  dup @ rot + swap ! ;
 : ?  ( addr -- )    @ . ;
-
 
 \ Implementation of word
 
@@ -569,6 +541,8 @@ cr ." Library loaded." cr
 : dump-here     ( n -- )
     dup here @ swap - swap 2 + dump ;
 
+: dh 25 dump-here ;
+
 \ run ( -- ) executes a word by name from the input buffer, aborting if not found
 : run ( -- )
     tmp @ 32 parse-to ( -- b u )
@@ -585,4 +559,3 @@ cr ." Library loaded." cr
         \ abort" no word to run"
     then
 ;
-
