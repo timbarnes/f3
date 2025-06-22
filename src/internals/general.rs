@@ -288,6 +288,16 @@ impl ForthRuntime {
         self.kernel.push(depth as i64);
     }
 
+    pub fn f_builtin_name(&mut self) {
+        if self.kernel.stack_check(1, "builtin-name") {
+            let index = self.kernel.pop() as usize;
+            let builtin = self.kernel.get_builtin(index).name.clone();
+            let name = builtin.as_str();
+            let destination = self.tmp_ptr;
+            self.kernel.string_save(name, destination);
+            self.kernel.push(destination as i64);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -215,6 +215,7 @@ fn f_from_c(&mut self) {
     pub fn f_abort(&mut self) {
         // empty the stack, reset any pending operations, and return to the prompt
         self.f_raw_mode_off();
+        self.f_flush();
         self.msg
             .warning("ABORT", "Terminating execution", None::<bool>);
         self.f_clear();
@@ -652,6 +653,8 @@ fn f_from_c(&mut self) {
          ">c ( tag -- ) Push a control marker onto the control stack");
         self.add_builtin("c>", ForthRuntime::f_from_c,
          ">c ( -- tag ) Pop a control marker from the control stack and push its address");
+        self.add_builtin("builtin-name", ForthRuntime::f_builtin_name,
+            "builtin-name ( index -- s_addr ) Returns the name of the builtin at the index");
     }
 
     /// set_abort_flag allows the abort condition to be made globally visible

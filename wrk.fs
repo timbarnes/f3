@@ -24,7 +24,7 @@
     emit 
     ''' emit 
     space space 
-    128 mod dup 31 > not if space then drop ;
+    128 mod dup 32 126 range not if space then drop ;
 
 
 
@@ -32,6 +32,7 @@
 \ This is usually not useful, and maybe should be replaced by something that works 
 \ properly with STRLIT tokens.
 : dump-segment
+        18 spaces
         '|' emit 
         dup 20 + 
         20 for dup i - c@ emit
@@ -69,56 +70,91 @@
     dup EXEC       = if ." EXEC                 " exit then
     ." *UNKNOWN* " drop ;   
 
-: builtin? ( addr -- bool )         \ Is the current cell a pointer to a builtin?
-    @ BUILTIN_FLAG and   ;          \ A non-zero value is a yes
+: dump-word ( addr -- )             \ Print the name of the word with compile reference at addr
+    @ 1 - @ type
+    ;
 
-: definition? ( addr -- bool )
+: builtin? ( addr -- bool )         \ Is the current cell a pointer to a builtin?
+    @ BUILTIN_FLAG and ;            \ A non-zero value is a yes
+
+: builtin-name? ( addr -- bool )     \ Builtin nfa is before the builtin reference
+    1 + builtin?
+    ;
+
+: definition-name? ( addr -- bool )
     1 + @                           \ Look at the next cell
-    DEFINITION =     ;
+    DEFINITION = ;
+
+: variable-name?    ( addr -- bool )
+    1 + @
+    VARIABLE = ;
+
+: constant-name?    ( addr -- bool )
+    1 + @
+    CONSTANT = ;
 
 : nfa?  ( addr -- bool )            \ Attempts to identify if an addr contains an nfa
-    dup builtin? swap definition? or    ;
+    \ Four types: builtin, definition, constant, and variable ;
+    dup builtin? 
+    swap dup builtin-name?
+    swap dup definition-name? 
+    swap dup variable-name? 
+    swap constant-name? 
+    or or or or
+        ;
 
 : bp?   ( addr -- bool )            \ Identifies back pointer by adjacency to an nfa
-    1 + nfa?    ;
+    dup 1 + nfa?
+    swap 1 - @ EXIT =
+    or ;
 
-: offset? ( addr -- bool )          \ Identifies branch offsets
+: offset-value? ( addr -- bool )          \ Identifies branch offsets
     1 - @ dup BRANCH = swap BRANCH0 = or    ;
 
-: literal? ( addr -- bool )         \ Identifies integer literals
+: lit-value? ( addr -- bool )         \ Identifies integer literals
     1 - @ LITERAL =    ;
 
-: strlit?                           \ Identifies string literals
+: strlit-value?                           \ Identifies string literals
     1 - @ STRLIT = ;
 
-: variable? ( addr -- bool )        \ Identifies a variable's storage cell
+: var-value? ( addr -- bool )        \ Identifies a variable's storage cell
     1 - @ VARIABLE =    ;
     
-: constant? ( addr -- bool )        \ Identifies a constant's storage cell
+: const-value? ( addr -- bool )        \ Identifies a constant's storage cell
     1 - @ CONSTANT =    ;
     
-: .builtin ( addr -- )
-    @ ADDRESS_MASK and 2 .r ;
+: dump-builtin ( addr -- )
+    @ ADDRESS_MASK and 
+    dup 2 .r 
+    ." : " builtin-name type 
+    ;
 
+: word-call?  ( addr -- )           \ Identifies a compiled call
+    @ @ DEFINITION = 
+    ;
 \ The master controller that dispatches to a display function
 \ This should probably do look-ahead / look-back, and work through the options in sequence.
 \ 
 : dump-val ( addr -- )
     space
-    dup 0 =                 if ." Bottom of memory " exit then
-    dup dup builtin?        if ." Builtin: " .builtin exit else drop then
-    dup bp?                 if ." Back pointer"   exit then
-    dup variable?           if ." Variable value" exit then
-    dup constant?           if ." Constant value" exit then
-    dup literal?            if ." Literal value"  exit then
-    dup dup strlit?         if ." Strlit: "  type exit else drop then
-    dup dup definition?     if ." NFA: "   @ type exit else drop then
-    dup @ dup token-range?  if ." Token: "  dump-token drop exit else drop then
+    dup 0 =                 if ." Bottom of memory "                 exit then
+    dup here @ =            if ."             HERE "                 exit then
+    dup here @ >            if ."       Free space "                 exit then
+    dup dup builtin?        if ."         Builtin: "    dump-builtin exit else drop then
+    dup @ dup token-range?  if ."           Token: " dump-token drop exit else drop then
+    dup var-value?          if ."   Variable value "                 exit then
+    dup const-value?        if ."   Constant value "                 exit then
+    dup lit-value?          if ."    Literal value "                 exit then
+    dup dup strlit-value?   if ."          Strlit: "          @ type exit else drop then
+    dup offset-value?       if ."    Branch offset "                 exit then
+    dup dup nfa?            if ."             NFA: "          @ type exit else drop then
+    dup bp?                 if ."     Back pointer " cr              exit then
+    dup dup word-call?      if ."       Word call: "       dump-word exit else drop then
     @ dump-segment
     ;
 
 : dump-header
-    ." ADDRESS CHAR -------------HEX ------------DECIMAL VALUE? " cr
+    ." ADDRESS CHAR -------------HEX ------------DECIMAL ------------KIND VALUE" cr
     ;
 \ : dump-val ."  some value " .s ;
 \ Output a single cell's information
@@ -142,6 +178,8 @@
 
 \ dump-here dumps the top n cells. Useful for seeing recent dictionary entries.
 : dump-here     ( n -- )
-    dup here @ swap - swap 2 + dump ;
+    dup here @ 1 - swap - swap dump
+    ." *********** HERE ************ TOP OF HEAP *************" cr
+    here @ 2 dump ;
 
 : dh 25 dump-here ;
