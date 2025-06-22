@@ -51,7 +51,7 @@ Note however that neither of these solutions are really enough, because in most 
 
 ## Future work
 
-The current regression test suite is quite weak. It only examines stack results. Implementing the standard test harness
+The current regression test suite is quite simplistic. It only examines stack results. Implementing the standard test harness would be a good step forward.
 
 # Builtin Words
 
@@ -92,7 +92,7 @@ system" \<shell command>" | ( -- ) | Runs a shell command and returns the output
 space | ( -- ) | Prints a single space.
 spaces | ( u -- ) | Prints u spaces.
 | .s            | ( -- )         | Print the contents of the stack. Does not consume stack elements.                          |
-| .             | ( v -- )       | Print the top of the stack as an integer.                                                  |
+| .             | ( v -- )       | Print the top of the stack as an integer using the value of the `base` variable as the radix.                                                  |
 u. | ( u -- ) | Print the top of the stack as an unsigned value
 u.r | ( u w -- ) | Print unsigned u right-justified in a field w wide. If w is too small, print the full number anyway
 .r | ( n w -- ) | Print integer n right-justified in a field w wide. If w is too small, print the full number anyway
@@ -159,7 +159,7 @@ sec | ( n -- ) | Sleep for `n` seconds
 
 ## Debugging
 
-A single stepper and trace capability allows for viewing interpreted functions as they execute. When active, it prints a visual indication of the depth of the return stack, the contents of the stack, and the word being executed.
+A single stepper and trace capability allows for viewing interpreted functions as they execute. When active, it prints the program counter address, a visual indication of the depth of the return stack by indentation, the contents of the stack, and the word being executed.
 
 The single stepper responds to single character commands (followed by Enter):
 * `s` => take a single step

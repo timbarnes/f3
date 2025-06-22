@@ -488,14 +488,14 @@ variable word-counter
     dup 100008 = if ." ABORT                " exit then
     dup 100009 = if ." EXIT                 " exit then
     dup 100010 = if ." BREAK                " exit then
-    dup 100011 = if ." EXEC.                " exit then
+    dup 100011 = if ." EXEC                 " exit then
     ." *UNKNOWN* " drop ;   
  
 : dump-val ( addr -- addr )      \ Attempts to print something useful about the cell
     space
     dup dup ADDRESS_MASK and = not      \ It's a builtin
     if
-        dup ." BUILTIN # " ADDRESS_MASK and 2 .r exit
+        dup ." Builtin # " ADDRESS_MASK and 2 .r exit
     then
     dup is-token-range          ( s_addr mod_addr bool )
     if
@@ -522,16 +522,25 @@ variable word-counter
         dup 1 - 15 ltype
     then ;
 
-: dump       ( addr cells -- addr )
+: dump-header
     ." ADDRESS CHAR -------------HEX ------------DECIMAL VALUE? " cr
-    incr-for for dup i - 
+    ;
+
+\ Output a single cell's information
+: dump-cell
         dump-addr @
         dump-char
         dump-hex
         dump-dec
         dump-val
-        \ dump-name
         cr drop 
+    ;
+
+\ Display the contents of a number of cells
+: dump       ( addr cells -- addr )
+    dump-header
+    incr-for for dup i - 
+        dump-cell
     next 
     drop drop ;
 
