@@ -15,21 +15,21 @@ variable test-num 0 test-num !
 
 : test-none ( .. -- ) 
     depth 1 test-num +!
-    .s
-    0= if test-num ? ."  Passed " else ."    Failed " test-num @ then cr ;
+    test-num ?
+    0= if ."  Passed " else ."        ******** Failed ******** " test-num @ .s then cr ;
 
 : test-single ( m n.. -- b ) 
     1 test-num +!
-    .s
-    = if test-num ? ."  Passed " else ."    Failed "  test-num @ then cr ;
+    test-num ?
+    = if ."  Passed " else ."        ******** Failed ******** "  test-num @ .s then cr ;
 
 : test-dual ( j k n.. -- b ) 
     1 test-num +!
     rot = 
     rot rot = 
     and 
-    .s 
-    if test-num ? ."  Passed " else ."    Failed " test-num @ then cr ;
+    test-num ?
+    if ."  Passed " else ."        ******** Failed ******** " test-num @ .s then cr ;
 : test-results depth 0= if ." All tests passed!" else ." The following tests failed: " .s clear then ;
 
 ."         Clear has to be the first test" cr
@@ -197,7 +197,7 @@ cr
 : test-run 1 2 + ;
 3 test-run test-single
 3 run test-run test-single
-\ 22 run nonexistent test-none \ This should abort and clear the stack
+22 run nonexistent test-none \ This should abort and clear the stack
 
 ."        Line editor tests " cr
 \ Note: These tests require interactive input

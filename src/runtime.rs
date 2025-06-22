@@ -153,22 +153,22 @@ impl ForthRuntime {
 fn f_from_c(&mut self) {
     match self.control_stack.pop() {
         Some(ControlMarker::Begin(addr)) => {
-            println!("c> popping Begin({addr})");
+            //println!("c> popping Begin({addr})");
             self.kernel.push(addr as i64);
             self.kernel.push(MARK_BEGIN);
         }
         Some(ControlMarker::While(addr)) => {
-            println!("c> popping While({addr})");
+            //println!("c> popping While({addr})");
             self.kernel.push(addr as i64);
             self.kernel.push(MARK_WHILE);
         }
         Some(ControlMarker::For(addr)) => {
-            println!("c> popping For({addr})");
+            //println!("c> popping For({addr})");
             self.kernel.push(addr as i64);
             self.kernel.push(MARK_FOR);
         }
         Some(ControlMarker::Case(addr)) => {
-            println!("c> popping Case({addr})");
+            //println!("c> popping Case({addr})");
             self.kernel.push(addr as i64);
             self.kernel.push(MARK_CASE);
         }
