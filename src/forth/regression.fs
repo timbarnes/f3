@@ -197,7 +197,7 @@ cr
 : test-run 1 2 + ;
 3 test-run test-single
 3 run test-run test-single
-22 run nonexistent test-none \ This should abort and clear the stack
+\ 22 run nonexistent test-none \ This should abort and clear the stack
 
 ."        Line editor tests " cr
 \ Note: These tests require interactive input

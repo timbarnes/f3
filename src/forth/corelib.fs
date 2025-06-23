@@ -357,4 +357,56 @@
 : +! ( n addr -- )  dup @ rot + swap ! ;
 : ?  ( addr -- )    @ . ;
 
+\ Dictionary traversal functions
+\   Takes an execution address on the stack, and execs it on every word, via its preceding back pointer
+\   The word being executed must consume the address: it's signature is ( bp xt -- ).
+
+
+
+\ : print-name ( bp -- )
+\                     dup 1+ @ 13 ltype ;
+
+\ : traverse-exec ( xt bp -- xt )
+\                     over swap exec ;            \ pass bp to xt, keep xt
+
+\ : traverse-next ( bp -- bp' )
+\                     @ ;                         \ follow the link
+
+\ : (traverse-words) ( xt bp -- xt )
+\                     begin
+\                         dup                    \ check bp != 0
+\                     while
+\                         trace-all
+\                         \traverse-exec          \ call xt with bp
+\                         \traverse-next          \ follow link
+\                         trace-all
+\                     repeat
+\                     drop ;                     \ drop final null bp
+\ trace-off
+\ : traverse-words ( xt -- )
+\                     here @ 1- @                 \ get initial bp (as in words)
+\                     (traverse-words) ;
+
+: forget-last ( -- )                            \ delete the most recent definition
+                    here @ 1- @ dup 1+ here !                   \ resets HERE to the previous back pointer
+                    @ 1+ dup context ! last !                   \ resets CONTEXT and LAST
+                    ;
+
+: forget ( <name> )                             \ delete <name> and any words since
+                    trace-off step-off          \ we're messing with the dictionary, so we don't want to run FIND
+                    (') dup  
+                    if 
+                        1- dup dup here ! @ s-here !            \ move to nfa and set HERE and S-HERE
+                        1- @ 1+ dup context ! last !            \ go back a link and set CONTEXT and LAST
+                    else
+                        drop 
+                    then ;
+
+\ : ?stack depth 0= if abort" Stack underflow" then ;
+
+: kkey ( -- c )     >in @ c@ 1 >in +! ;                         \ Get the next character from the TIB
+: ?key ( -- c T | F )                                           \ If there's a character in TIB, push it and TRUE
+                    #tib @ >in @ < if FALSE else key TRUE then ; \ otherwise push FALSE
+: strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
+                                                
 include src/forth/debug.fs
