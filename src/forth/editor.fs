@@ -3,10 +3,18 @@
 
 \ Constants
 
-  3 constant ETX     \ End of Text (emitted by Control-C)
+  1 constant C-A     \ Control-A - move to beginning of line
+  2 constant C-B     \ Control-B - move backwards one char
+  3 constant C-C     \ Control-C - ETC - exit the editor
+  4 constant C-D     \ Control-D - delete forwards
+  5 constant C-E     \ Control-E - move to end of line
+  6 constant C-F     \ Control-F - move forward one char
+  8 constant C-H     \ Control-H - delete backwards (same function as DEL)
  10 constant LF
+ 11 constant C-K     \ Control-K - kill to end of line
  13 constant CR
- 27 constant ESCAPE  \ Escape key
+ 16 constant C-P     \ Control-P - retrieve previous line
+ 27 constant ESC     \ Escape key
 127 constant DEL     \ Backspace key
 
 \ Utility functions
@@ -15,7 +23,9 @@
 
 : ascii-range ( -- )                      \ List printable ASCII characters with their numerical values.
     incr-for for
-        dup i - dup 4 .r space emit i 1 - 26 mod 0 = if cr then
+            dup i - dup 4 .r space emit 
+            i 1 - 26 mod 0 = if cr 
+        then
     next
     drop drop cr
     ;
@@ -38,7 +48,7 @@
 
 \ Output
 
-: esc ESCAPE (emit) ;                           \ Send escape character.
+: esc ESC (emit) ;                           \ Send escape character.
 
 : screen-clear 
     \ ascii-preamble 50 emit 74 emit ;
@@ -82,21 +92,12 @@
 : raw-unit                              \ Get a key or an escape sequence in raw mode
     raw-mode-on
     key dup                             \ wait for a key
-    ETX = if
+    C-C = if
         raw-mode-off
         ." Control-C pressed, exiting. " cr
     else
         dup emit
     then
-    raw-mode-off
-    ;
-
-: raw-move-test
-    raw-mode-on
-    50 cursor-forward
-    64 emit
-    1000 ms 
-    20 cursor-back 
     raw-mode-off
     ;
 
@@ -143,44 +144,65 @@
 \     ." End of function "
 \ ; 
 
+\ Store a character and increment the character count
+: ed-insert ( s_addr count char -- s_addr count+1 )
+    dup emit flush          \ echo the character
+    over 3 pick + c!        \ store it in the buffer
+    1 +                     \ increment char counter
+    ;
+
+\ Process end of line
+: ed-eol ( count char -- )
+    drop swap 1 - c!    \ store the character count
+    raw-mode-off
+    ."  End of line detected " cr
+    ;
+
+\ Delete a character if one or more have been entered
+: ed-del ( count char -- count )
+    over 0 > if
+        \ cursor back, emit a space, cursor back
+        1 cursor-back
+        32 emit
+        1 cursor-back flush
+        \ decrement character count
+        drop 1 - flush
+    then ;
+
 : get-line ( -- )
     raw-mode-on ( enable raw mode for direct key input )
     tmp @ 1 +             \ Store chars leaving beginning space for a count
     0 
+    ." led> " flush       \ Editor prompt
     begin
         key dup
         case
-            ETX of                      \ Control-C aborts
+            C-C of                      \ Control-C aborts
                     raw-mode-off
                     drop drop drop
                     ."  Exited with Control-C "
                     cr exit
                 endof
             LF of                       \ Linefeed ends line
-                    drop swap 1 - c!    \ store the character count
-                    raw-mode-off
-                    ."  Finished with LF "
-                    cr exit
+                    ed-eol
+                    exit
                 endof
             CR of                       \ Carriage return ends line
-                    drop swap 1 - c!    \ store the character count
-                    raw-mode-off
-                    ."  Finished with RET "
-                    \ cr space tmp @ type
-                    cr exit
+                    ed-eol
+                    exit
                 endof
             DEL of                      \ DEL deletes the last character
-                    \ cursor back, emit a space, cursor back
-                    1 cursor-back
-                    32 emit
-                    1 cursor-back flush
-                    \ decrement character count
-                    drop 1 -
+                    over 0 > if
+                        \ cursor back, emit a space, cursor back
+                        1 cursor-back
+                        BL emit
+                        1 cursor-back flush
+                        \ decrement character count
+                        drop 1 - .s flush
+                    then
                 endof
             \ default case stores the character and increments the counter
-            dup emit flush
-            over 3 pick + c!
-            1 +                     \ increment char counter
+            ed-insert
         endcase
     again
 
