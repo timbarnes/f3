@@ -1,4 +1,28 @@
-\ Memory dump utility.
+\ Memory dump and debugging utilities.
+
+\ Word - display the contents of the dictionary.
+
+variable word-counter
+
+: .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
+                    dup dup 1+ 4 u.r space 1+ @ 13 ltype 
+                    1 word-counter +! 
+                    word-counter @ 8 mod
+                    if space else cr then @ ;   
+
+: words ( -- )
+                    0 word-counter !
+                    here @ 1- @                                 \ Get the starting point: the top back pointer
+                    begin                                       \ loops through the words in the dictionary
+                        .word dup not                           \ print a word and test the next pointer
+                    until 
+                        drop ;   
+
+: print-word ( xt -- ) 
+                    1- @ 13 ltype ;                 \ print a word name, given the xt as produced by '
+
+
+\ Memory Dump Utility
 \ Attempts to print useful information from the dictionary / heap for debugging purposes. 
 \
 \ dump      ( addr count -- ) prints count records, starting from addr
@@ -7,7 +31,9 @@
 \ dmp       ( addr -- )       prints 25 records starting from addr
 \ dump-help ( -- )            prints help information
 
- dump-help 
+\ Output functions
+
+: dump-help 
     ." dump ( addr cells -- addr ) dumps heap data." cr
     ." dump-here ( cells -- )      dumps the top of the heap" cr
     ." Opcode reference: "
@@ -30,11 +56,8 @@
     space space 
     128 mod dup 32 126 range not if space then drop ;
 
-
-
 \ Emit a 20 character substring from the string address in the current cell
-\ This is usually not useful, and maybe should be replaced by something that works 
-\ properly with STRLIT tokens.
+\ This is usually not useful, and is a last resort if no other identification has been made.
 : dump-segment
         18 spaces
         '|' emit 
@@ -42,17 +65,6 @@
         20 for dup i - c@ emit
            next
         '|' emit drop ;
-
-\ Display the name of a builtin. 
-: dump-builtin 
-    dup 132 3 * 1- > 
-    if
-        ." nfa -> " 
-    else
-        ." buffer -> "
-    then
-    dup 18 ltype
-    ;
 
 \ The tokens are just integers in a specific range. They should probably be flag bits up high.
 : dump-token   ( val -- val )
@@ -74,10 +86,21 @@
     @ 1 - @ type
     ;
 
+: dump-builtin ( addr -- )
+    @ ADDRESS_MASK and 
+    dup 2 .r 
+    ." : " builtin-name type 
+    ;
+
+: dump-immed ( addr -- )            \ Output an immediate word's name
+    @ ADDRESS_MASK and type
+    ;
+
+\ Predicates to identify cell types
+
 : token-range? 100000 100012 range ;  \ determines if the value is likely to be a token
 
 : string-range? 0 5000 range ;        \ determines if it 'could' be a string address
-
 
 : builtin? ( addr -- bool )         \ Is the current cell a pointer to a builtin?
     @ BUILTIN_FLAG and ;            \ A non-zero value is a yes
@@ -145,15 +168,6 @@
 : const-value? ( addr -- bool )        \ Identifies a constant's storage cell
     1 - @ CONSTANT =    ;
     
-: dump-builtin ( addr -- )
-    @ ADDRESS_MASK and 
-    dup 2 .r 
-    ." : " builtin-name type 
-    ;
-
-: dump-immed ( addr -- )            \ Output an immediate word's name
-    @ ADDRESS_MASK and type
-    ;
 : def-call?  ( addr -- )           \ Identifies a compiled call to a Forth definition
     @ @ DEFINITION = 
     ;
@@ -161,6 +175,7 @@
 : var-call?  ( addr -- )            \ Identifies a compiled reference to a variable
     @ @ VARIABLE =
     ;
+
 \ The master controller that dispatches to a display function
 \ Analysis proceeds from the most specific to the most general cases.
 \ 
