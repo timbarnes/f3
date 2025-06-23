@@ -123,10 +123,10 @@ impl Kernel {
         self.heap[self.stack_ptr + n]
     }
 
-    #[inline(always)]
-    pub fn set_top(&mut self, val: i64) {
-        self.heap[self.stack_ptr] = val;
-    }
+    // #[inline(always)]
+    // pub fn set_top(&mut self, val: i64) {
+    //     self.heap[self.stack_ptr] = val;
+    // }
 
     #[inline(always)]
     pub fn stack_len(&self) -> usize {

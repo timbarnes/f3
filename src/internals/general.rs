@@ -1,7 +1,7 @@
 // General-purpose builtin words
 
 use crate::kernel::DATA_SIZE;
-use crate::runtime::{ForthRuntime, FALSE, TRUE};
+use crate::runtime::{ForthRuntime};
 use std::time::{Instant, Duration};
 use std::thread;
 

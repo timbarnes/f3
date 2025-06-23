@@ -173,7 +173,10 @@ variable word-counter
     ;
 
 : var-call?  ( addr -- )            \ Identifies a compiled reference to a variable
-    @ @ VARIABLE =
+    @ @ 
+    dup VARIABLE =
+    swap CONSTANT = 
+    or
     ;
 
 \ The master controller that dispatches to a display function
@@ -198,7 +201,7 @@ variable word-counter
     dup dup strlit-value?   if ."  String Literal: "          @ type exit else drop then
     dup offset-value?       if ."    Branch offset "                 exit then
     dup dup def-call?       if ." Definition call: "       dump-word exit else drop then
-    dup dup var-call?       if ."     Variable ref "       dump-word exit else drop then
+    dup dup var-call?       if ."    Var/Const ref "       dump-word exit else drop then
     dup bp?                 if ."     Back Pointer " cr              exit then
     dup dup nfa?            if ."             NFA: "          @ type exit else drop then
     dup compiled-value?     if ."   Compiled value "                 exit then
