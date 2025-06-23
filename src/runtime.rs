@@ -356,16 +356,16 @@ fn f_from_c(&mut self) {
             ForthRuntime::f_less,
             "( j k -- j/k ) If j < k push true else false",
         );
-        self.add_builtin(
-            "true",
-            ForthRuntime::f_true,
-            "true ( -- -1 ) Push the canonical true value on the stack.",
-        );
-        self.add_builtin(
-            "false",
-            ForthRuntime::f_false,
-            "false ( -- 0 ) Push the canonical false value on the stack",
-        );
+        // self.add_builtin(
+        //     "true",
+        //     ForthRuntime::f_true,
+        //     "true ( -- -1 ) Push the canonical true value on the stack.",
+        // );
+        // self.add_builtin(
+        //     "false",
+        //     ForthRuntime::f_false,
+        //     "false ( -- 0 ) Push the canonical false value on the stack",
+        // );
         self.add_builtin(
             "=",
             ForthRuntime::f_equal,
@@ -642,13 +642,6 @@ fn f_from_c(&mut self) {
         self.add_builtin("raw-mode-on", ForthRuntime::f_raw_mode_on, "raw-mode-on ( -- ) Enable raw terminal mode");
         self.add_builtin("raw-mode-off", ForthRuntime::f_raw_mode_off, "raw-mode-off ( -- ) Disable raw terminal mode");
         self.add_builtin("raw-mode?", ForthRuntime::f_raw_mode_q, "raw-mode? ( -- f ) Returns true if in raw mode");
-        //self.add_builtin("mark-begin", ForthRuntime::f_mark_begin, "Mark BEGIN");
-        //self.add_builtin("mark-while", ForthRuntime::f_mark_while, "Mark WHILE");
-        //self.add_builtin("mark-for", ForthRuntime::f_mark_for, "Mark FOR");
-        //self.add_builtin("patch-repeat", ForthRuntime::f_patch_repeat, "Patch REPEAT");
-        //self.add_builtin("patch-until", ForthRuntime::f_patch_until, "Patch UNTIL");
-        //self.add_builtin("patch-again", ForthRuntime::f_patch_again, "Patch AGAIN");
-        //self.add_builtin("patch-next", ForthRuntime::f_patch_next, "Patch NEXT");
         self.add_builtin(">c", ForthRuntime::f_to_c,
          ">c ( tag -- ) Push a control marker onto the control stack");
         self.add_builtin("c>", ForthRuntime::f_from_c,
@@ -809,7 +802,6 @@ mod tests {
         runtime.cold_start();
 
         runtime.compile_builtins();
-        assert_eq!(runtime.kernel.get_builtin(6).name, "true".to_string());
         assert_eq!(runtime.kernel.get_builtin(5).name, "<".to_string());
         assert_eq!(runtime.kernel.get_builtin(0).name, "+".to_string());
     }

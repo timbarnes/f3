@@ -43,14 +43,6 @@ impl ForthRuntime {
         self.kernel.pop2_push1("<", |a, b| if a < b { -1 } else { 0 });
     }
 
-    pub fn f_true(&mut self) {
-        self.kernel.push(TRUE);
-    }
-
-    pub fn f_false(&mut self) {
-        self.kernel.push(FALSE);
-    }
-
     pub fn f_equal(&mut self) {
         self.kernel.pop2_push1("=", |a, b| if a == b { -1 } else { 0 });
     }

@@ -405,8 +405,10 @@
 \ : ?stack depth 0= if abort" Stack underflow" then ;
 
 : kkey ( -- c )     >in @ c@ 1 >in +! ;                         \ Get the next character from the TIB
+
 : ?key ( -- c T | F )                                           \ If there's a character in TIB, push it and TRUE
                     #tib @ >in @ < if FALSE else key TRUE then ; \ otherwise push FALSE
+
 : strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
                                                 
 include src/forth/debug.fs

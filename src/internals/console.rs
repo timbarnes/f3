@@ -121,8 +121,9 @@ pub fn f_system_p(&mut self) {
     ///
     pub fn f_emit_p(&mut self) {
         if self.kernel.stack_check(1, "(emit)") {
-            let c = self.kernel.pop() % 128;
-            print!("{}", c as u8 as char);
+            let c = self.kernel.pop() as u8 as char;
+            //print!("{}", c as u8 as char);
+            io::stdout().write_all(c.encode_utf8(&mut [0; 4]).as_bytes()).unwrap();
         }
     }
 
