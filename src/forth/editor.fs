@@ -3,10 +3,11 @@
 
 \ Constants
 
- 3 constant ETX     \ End of Text (emitted by Control-C)
-10 constant LF
-13 constant CR
-27 constant ESCAPE  \ Escape key
+  3 constant ETX     \ End of Text (emitted by Control-C)
+ 10 constant LF
+ 13 constant CR
+ 27 constant ESCAPE  \ Escape key
+127 constant DEL     \ Backspace key
 
 \ Utility functions
 
@@ -113,32 +114,75 @@
 \           on the screen.
 
 \ get-line ( -- ) reads characters from key until newline, stores in TMP
+\ : get-line ( -- )
+\     raw-mode-on ( enable raw mode for direct key input )
+\     tmp @ 1 +             \ Store chars leaving beginning space for a count
+\     0 
+\     begin
+\         key
+\         dup ETX = if 
+\             raw-mode-off 
+\             drop drop drop 
+\             ." Control-C" exit 
+\         then
+\         dup dup LF = 
+\         swap CR = 
+\         or 
+\         if
+\             drop swap c!    \ store the character
+\             raw-mode-off
+\             ." Finished with line "
+\             exit
+\         else
+\             ( addr count char -- addr count char )
+\             dup emit flush
+\             over 3 pick + c!
+\             1 +             \ increment char counter
+\         then
+\     again
+\     ." End of function "
+\ ; 
+
 : get-line ( -- )
     raw-mode-on ( enable raw mode for direct key input )
     tmp @ 1 +             \ Store chars leaving beginning space for a count
     0 
     begin
-        key
-        dup ETX = if 
-            raw-mode-off 
-            drop drop drop 
-            ." Control-C" exit 
-        then
-        dup dup LF = 
-        swap CR = 
-        or 
-        if
-            drop swap c!    \ store the character
-            raw-mode-off
-            ." Finished with line "
-            exit
-        else
-            ( addr count char -- addr count char )
+        key dup
+        case
+            ETX of                      \ Control-C aborts
+                    raw-mode-off
+                    drop drop drop
+                    ."  Exited with Control-C "
+                    cr exit
+                endof
+            LF of                       \ Linefeed ends line
+                    drop swap 1 - c!    \ store the character count
+                    raw-mode-off
+                    ."  Finished with LF "
+                    cr exit
+                endof
+            CR of                       \ Carriage return ends line
+                    drop swap 1 - c!    \ store the character count
+                    raw-mode-off
+                    ."  Finished with RET "
+                    \ cr space tmp @ type
+                    cr exit
+                endof
+            DEL of                      \ DEL deletes the last character
+                    \ cursor back, emit a space, cursor back
+                    1 cursor-back
+                    32 emit
+                    1 cursor-back flush
+                    \ decrement character count
+                    drop 1 -
+                endof
+            \ default case stores the character and increments the counter
             dup emit flush
-            over 3 pick c!
-            1 +             \ increment char counter
-        then
-        .s flush
+            over 3 pick + c!
+            1 +                     \ increment char counter
+        endcase
     again
+
     ." End of function "
 ; 

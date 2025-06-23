@@ -12,7 +12,7 @@ use crate::internals::builtin::BuiltInFn;
 
 // DATA AREA constants
 pub const DATA_SIZE: usize    = 10000;
-pub const STRING_SIZE: usize  = 5000;
+pub const STRING_SIZE: usize  = 10000;
 pub const BUF_SIZE: usize     = 132;
 pub const ALLOC_START: usize  = DATA_SIZE / 2;
 pub const STACK_START: usize  = ALLOC_START - 1; // stack counts up
