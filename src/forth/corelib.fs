@@ -1,5 +1,3 @@
-
-
 : parse pad @ swap parse-to ; 
 
 : \ 1 parse drop drop ; immediate   
@@ -270,7 +268,7 @@
                     128 mod dup 31 > if (emit) else drop then ;
 
 : space ( -- )      BL emit ;
-: test ( n -- ) 10 for drop next 123 ;
+
 : spaces ( n -- )   dup 0> if for space next else drop then ;
 : cr ( -- )         '\n' (emit) ;
 
@@ -422,4 +420,4 @@
 : strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
                                                 
 include src/forth/debug.fs
-\ include src/forth/editor.fs
+include src/forth/editor.fs

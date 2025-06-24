@@ -68,6 +68,17 @@ variable test-num 0 test-num !
 : exit-test 22 33 exit 44 ;
 22 33 exit-test test-dual
 
+." char and [char] " cr
+65 char A test-single
+91 char [ test-single
+: test-[char] [char] G ;
+71 test-[char] test-single
+
+." ' and flags and mask " cr
+2305843009213693969 ' dup test-single
+17 2305843009213693969 ADDRESS_MASK and test-single
+2305843009213693952 2305843009213693969 BUILTIN_FLAG and test-single
+
 ."         Arithmetic" cr
 5 1 4 + test-single
 -10 5 15 - test-single
@@ -92,6 +103,12 @@ TRUE 5 0<> test-single
 TRUE -22 0< test-single
 FALSE 0 0< test-single
 FALSE 55 0< test-single
+TRUE 12 12 15 range test-single
+TRUE 14 12 15 range test-single
+TRUE 15 12 15 range test-single
+TRUE -5 -7 -3 range test-single
+FALSE 14 12 15 range test-single
+FALSE 16 12 15 range test-single
 
 ."         Bitwise" cr
 3 1 2 or test-single ." or"
@@ -168,15 +185,13 @@ cr
 ."        Application tests" cr
 
 : _fac ( r n -- r )   \ Helper function that does most of the work.
-                    dup 
-                    if 
+                    dup if 
                         tuck * swap 1 - recurse 
                     else 
                         drop 
                     then ;
 : fac ( n -- n! )   \ Calculates factorial of a non-negative integer. No checks for stack or calculation overflow.
-                    dup 
-                    if 
+                    dup if 
                         1 swap _fac  \ Calls the previous definition - this is not recursion
                     else 
                         drop 1 
