@@ -1,9 +1,10 @@
-\ Core library for f3
 
-: parse pad @ swap parse-to ;                       
-: \ 1 parse drop drop ; immediate                  
-: ( 41 parse drop drop ; immediate                  \ Implements in-line comments
-: [char] BL parse drop drop pad @ 1 + c@ ;          \ Place the first char of the next token on the stack
+
+: parse pad @ swap parse-to ; 
+
+: \ 1 parse drop drop ; immediate   
+
+: ( 41 parse drop drop ; immediate     \ Implements in-line comments
 
 1 dbg \ set debuglevel to warnings and errors
 
@@ -70,6 +71,15 @@
 -1 constant R/W
  0 constant R/O
  1 constant W/O
+
+
+\ char <character> takes the first character of the next token and puts its ASCII value on the stack
+: char 
+    32 parse drop 1 + c@ ;
+
+\ This version is for use inside a definition. It compiles the value into the definition as a literal.
+: [char] 
+    32 parse drop 1 + c@ LITERAL , , ; immediate 
 
 \ variable <name> creates a variable, initialized to zero
 : variable ( -- ) create VARIABLE , 0 ,   
@@ -412,4 +422,4 @@
 : strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
                                                 
 include src/forth/debug.fs
-include src/forth/editor.fs
+\ include src/forth/editor.fs

@@ -16,10 +16,6 @@
  14 constant ^N     \ Control-N - move forward in history
  16 constant ^P     \ Control-P - move backwards in history
  27 constant ESC    \ Escape key
- 65 constant A
- 66 constant B
- 67 constant C
- 68 constant D
 127 constant DEL    \ Backspace key
 
 \ Utility functions
@@ -117,16 +113,21 @@
 \   ESC standalone is passed through
 : ed-escape-seq ( key -- key )
     drop                    \ we don't need the escape key itself
-    10 ms
+    50 ms
     key? if
-        key drop            \ dump the '['
-        key                 \ this is the one that matters
-        case
-            A of ^P endof      \ Up arrow    -> Control-P
-            B of ^N endof      \ Down arrow  -> Control-N
-            C of ^F endof      \ Right arrow -> Control-F
-            D of ^B endof      \ Left arrow  -> Control-B
-        endcase
+        key dup [char] [ = if
+            drop            \ drop the '['
+            key             \ get the next character
+            case
+                [char] A of ^P endof      \ Up arrow    -> Control-P
+                [char] B of ^N endof      \ Down arrow  -> Control-N
+                [char] C of ^F endof      \ Right arrow -> Control-F
+                [char] D of ^B endof      \ Left arrow  -> Control-B
+                ( default ) dup    \ Unknown sequence, return as-is
+            endcase
+        else
+            drop ESC       \ Not a '[' after ESC, treat as ESC
+        then
     else
         ESC
     then
