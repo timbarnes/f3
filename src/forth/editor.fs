@@ -60,35 +60,35 @@
 
 : screen-clear 
     \ ascii-preamble 50 emit 74 emit ;
-    esc ." [2J" ;
+    esc ." [2J" flush ;
 
 : line-clear
-    esc ." [2K" ;
+    esc ." [2K" flush ;
 
 : cursor-home 
-    esc ." [HD" ;
+    esc ." [HD" flush ;
 
 : screen-home
     screen-clear
     cursor-home ;
 
 : cursor-up ( n -- )
-    esc ." [" dup uwidth .r ." A" ;
+    esc ." [" dup uwidth .r ." A"  flush ;
 
 : cursor-down ( n -- )
-    esc ." [" dup uwidth .r ." B" ;
+    esc ." [" dup uwidth .r ." B" flush ;
 
 : cursor-forward ( n -- )
-    esc ." [" dup uwidth .r ." C" ;
+    esc ." [" dup uwidth .r ." C" flush ;
 
 : cursor-back ( n -- )
-    esc ." [" dup uwidth .r ." D" ;
+    esc ." [" dup uwidth .r ." D" flush ;
 
 : save-cursor
-    esc ." [s" ;
+    esc ." [s" flush ;
 
 : restore-cursor
-    esc ." [u" ;
+    esc ." [u" flush ;
 
 \ Line editor
 \
@@ -102,6 +102,16 @@
 \           determine if it's a sequence, or just an escape key.
 \       Escape sequences are interpreted in the buffer and reflected
 \           on the screen.
+
+\ Variables and memory management
+\       The line we read in goes in the TMP buffer
+\       We keep its starting address on the stack
+\       The current character is managed on the stack
+\       Character and cursor counts are kept in variables
+\       Forth automatically initializes these to 0.
+
+variable ed-char-count        \ the number of characters in the buffer
+variable ed-cursor-position   \ location for edit and move functions
 
 \ Input words
 
@@ -152,49 +162,71 @@
 \ Editing functions
 
 \ Store a character and increment the character count
-: ed-insert ( s_addr count char -- s_addr count+1 )
-    dup emit flush          \ echo the character
-    over 3 pick + c!        \ store it in the buffer
-    1 +                     \ increment char counter
+: ed-insert ( s_addr char -- s_addr )
+    dup emit flush              \ echo the character
+    over ed-char-count @ + c!   \ store it in the buffer
+    1 ed-char-count +!          \ increment char counter
+    1 ed-cursor-position +!     \ increment the cursor position
     ;
 
 \ Process end of line
-: ed-eol ( count char -- )
-    ed-insert           \ save the newline 
-    swap 1 - c!         \ store the character count
+: ed-eol ( s_addr char -- s_addr )
+    ed-insert                   \ save the newline 
+    ed-char-count @
+    swap 1 - c!                 \ store the character count
     raw-mode-off cr
     ;
 
 \ Delete a character if one or more have been entered
-: ed-del ( count char -- count )
-    over 0 > if
+\    *** Currently ignores ed-cursor-position ***
+: ed-del ( s_addr char -- s_addr )
+    ed-char-count @ 0 > if
         \ cursor back, emit a space, cursor back
         1 cursor-back
         BL emit
-        1 cursor-back flush
-        \ decrement character count
-        drop 1 -
-    else
-        drop
-    then ;
+        1 cursor-back 
+        \ decrement character count and cursor position
+        -1 ed-char-count +!
+        -1 ed-cursor-position +!
+    then 
+    drop
+    ;
 
 \ Move to the end of the line (Control-E)
-: ed-line-end ( )
-    \ Needs to know prompt length and count
+: ed-line-end ( char -- )
+    drop
+    ed-char-count @
+    ed-cursor-position @ -
+    cursor-forward 
+    ed-char-count @ ed-cursor-position !
     ;
 
 \ Move to the beginning of the line (Control-A)
-: ed-line-start ( -- )
-    \ Move the cursor to the start of the line and reissue the prompt
+: ed-line-start ( char -- )
+    drop
+    ed-cursor-position @
+    cursor-back 
+    0 ed-cursor-position !
     ;
 
 \ Move forward one character if possible
 : ed-forward
-    \ Needs position and count
+    drop
+    ed-char-count @
+    ed-cursor-position @ -
+    0 > if
+        1 cursor-forward
+        1 ed-cursor-position +!
+    then
     ;
-\ Move forward one character if possible
+\ Move back one character if possible
 : ed-back
-    \ Needs position and count
+    drop
+    ed-cursor-position @
+    0 > if
+        1 cursor-back
+        -1 ed-cursor-position +!
+    then
     ;
 
 \ Delete the character to the right of the cursor, if possible
@@ -207,11 +239,17 @@
     \ Needs position and count
     ;
 
+\ Initialize editor variables, get buffer address, and issue prompt
+: ed-init 
+    0 ed-char-count !
+    0 ed-cursor-position !
+    tmp @ 1 +
+    ed-prompt
+    ;
+
 : get-line ( -- )
     raw-mode-on ( enable raw mode for direct key input )
-    tmp @ 1 +             \ Store chars leaving beginning space for a count
-    0 
-    ed-prompt                           \ Editor prompt
+    ed-init
     begin
         ed-get-key dup
         case
@@ -224,10 +262,11 @@
             LF  of ed-eol exit    endof  \ Linefeed ends line
             DEL of ed-del         endof  \ DEL deletes the last character
             ^A  of ed-line-start  endof  \ Move to the beginning of line
-            ^B  of ed-forward     endof  \ Move one to the right
+            ^B  of ed-back        endof  \ Move one to the right
             ^D  of ed-del-forward endof  \ Delete to the right
             ^E  of ed-line-end    endof  \ Move to the end of the line
-            ^K  of ed-del-to-eol  endof  \ Alternative delete forward
+            ^F  of ed-forward     endof  \ Move forward one character
+            ^K  of ed-del-to-eol  endof  \ Delete to end of line
             \ default case stores the character and increments the counter
             ed-insert
         endcase

@@ -209,9 +209,9 @@ cr
 4181 19 fib test-single
 
 ."        Run tests "
-: test-run 1 2 + ;
-3 test-run test-single
-3 run test-run test-single
+\ : test-run 1 2 + ;
+\ 3 test-run test-single
+\ 3 run test-run test-single
 \ 22 run nonexistent test-none \ This should abort and clear the stack
 
 ."        Line editor tests " cr
