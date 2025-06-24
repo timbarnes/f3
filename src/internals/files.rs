@@ -13,6 +13,11 @@ use std::time::Duration;
 
 use crate::internals::messages::{DebugLevel, Msg};
 
+// Check if a key is available. Only works properly in raw mode
+pub fn key_available() -> bool {
+    poll(Duration::from_millis(0)).unwrap_or(false)
+}
+
 #[derive(Debug, PartialEq)]
 pub enum FileMode {
     RW,     // -1 => Read-write

@@ -61,6 +61,18 @@ pub fn f_system_p(&mut self) {
         }
     }
 
+    /// key? ( -- b ) Checks to see if a character is ready to be read.
+    ///     Only works properly in raw mode. In cooked mode it waits until EOL.
+    /// 
+    pub fn f_key_q(&mut self) {
+        let result = crate::internals::files::key_available();
+        if result {
+            self.kernel.push(TRUE);
+        } else {
+            self.kernel.push(FALSE);
+        }   
+    }
+
     /// accept ( b u -- b u ) Read up to u characters, storing them at string address b and returning the actual length.
     ///     If the read fails, we assume EOF, and pop the reader. Returned length will be 0.
     ///

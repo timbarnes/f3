@@ -3,19 +3,24 @@
 
 \ Constants
 
-  1 constant C-A     \ Control-A - move to beginning of line
-  2 constant C-B     \ Control-B - move backwards one char
-  3 constant C-C     \ Control-C - ETC - exit the editor
-  4 constant C-D     \ Control-D - delete forwards
-  5 constant C-E     \ Control-E - move to end of line
-  6 constant C-F     \ Control-F - move forward one char
-  8 constant C-H     \ Control-H - delete backwards (same function as DEL)
+  1 constant ^A     \ Control-A - move to beginning of line
+  2 constant ^B     \ Control-B - move backwards one char
+  3 constant ^C     \ Control-C - ETC - exit the editor
+  4 constant ^D     \ Control-D - delete forwards
+  5 constant ^E     \ Control-E - move to end of line
+  6 constant ^F     \ Control-F - move forward one char
+  8 constant ^H     \ Control-H - delete backwards (same function as DEL)
  10 constant LF
- 11 constant C-K     \ Control-K - kill to end of line
+ 11 constant ^K     \ Control-K - kill to end of line
  13 constant CR
- 16 constant C-P     \ Control-P - retrieve previous line
- 27 constant ESC     \ Escape key
-127 constant DEL     \ Backspace key
+ 14 constant ^N     \ Control-N - move forward in history
+ 16 constant ^P     \ Control-P - move backwards in history
+ 27 constant ESC    \ Escape key
+ 65 constant A
+ 66 constant B
+ 67 constant C
+ 68 constant D
+127 constant DEL    \ Backspace key
 
 \ Utility functions
 
@@ -46,7 +51,14 @@
     91  5 ascii-range 
     123 4 ascii-range ;
 
-\ Output
+\ Input test words
+
+: raw-key                               \ Get and echo a single key in raw mode. Primarily for testing
+    raw-mode-on 
+    key dup emit 
+    raw-mode-off ;
+
+\ Screen control words
 
 : esc ESC (emit) ;                           \ Send escape character.
 
@@ -82,25 +94,6 @@
 : restore-cursor
     esc ." [u" ;
 
-\ Input utilities
-
-: raw-key                               \ Get and echo a single key in raw mode. Primarily for testing
-    raw-mode-on 
-    key dup emit 
-    raw-mode-off ;
-
-: raw-unit                              \ Get a key or an escape sequence in raw mode
-    raw-mode-on
-    key dup                             \ wait for a key
-    C-C = if
-        raw-mode-off
-        ." Control-C pressed, exiting. " cr
-    else
-        dup emit
-    then
-    raw-mode-off
-    ;
-
 \ Line editor
 \
 \ Approach: characters are accumulated in TMP (for now). 
@@ -114,35 +107,48 @@
 \       Escape sequences are interpreted in the buffer and reflected
 \           on the screen.
 
-\ get-line ( -- ) reads characters from key until newline, stores in TMP
-\ : get-line ( -- )
-\     raw-mode-on ( enable raw mode for direct key input )
-\     tmp @ 1 +             \ Store chars leaving beginning space for a count
-\     0 
-\     begin
-\         key
-\         dup ETX = if 
-\             raw-mode-off 
-\             drop drop drop 
-\             ." Control-C" exit 
-\         then
-\         dup dup LF = 
-\         swap CR = 
-\         or 
-\         if
-\             drop swap c!    \ store the character
-\             raw-mode-off
-\             ." Finished with line "
-\             exit
-\         else
-\             ( addr count char -- addr count char )
-\             dup emit flush
-\             over 3 pick + c!
-\             1 +             \ increment char counter
-\         then
-\     again
-\     ." End of function "
-\ ; 
+\ Input words
+
+\ Process an escape, checking for a possible escape sequence from the terminal
+\   Up-Arrow    becomes Control-P
+\   Down-Arrow  becomes Control-N
+\   Left-Arrow  becomes Control-B
+\   Right-Arrow becomes Control-F
+\   ESC standalone is passed through
+: ed-escape-seq ( key -- key )
+    drop                    \ we don't need the escape key itself
+    10 ms
+    key? if
+        key drop            \ dump the '['
+        key                 \ this is the one that matters
+        case
+            A of ^P endof      \ Up arrow    -> Control-P
+            B of ^N endof      \ Down arrow  -> Control-N
+            C of ^F endof      \ Right arrow -> Control-F
+            D of ^B endof      \ Left arrow  -> Control-B
+        endcase
+    else
+        ESC
+    then
+    ;
+
+\ Get a character or a terminal control sequence and translate the sequence into a single character
+\   *** This definition assumes raw mode is on ***
+\   \r (Return) becomes \n (Newline)
+\   Printable characters and control characters are passed through
+: ed-get-key ( -- keyval )
+    key dup
+    case 
+        ESC of ed-escape-seq endof      \ handle escape sequences
+        CR  of drop LF       endof      \ replace CR with LF
+    endcase
+    ;
+
+\ Issue the prompt
+: ed-prompt
+    ." led> " flush ;
+
+\ Editing functions
 
 \ Store a character and increment the character count
 : ed-insert ( s_addr count char -- s_addr count+1 )
@@ -153,9 +159,9 @@
 
 \ Process end of line
 : ed-eol ( count char -- )
-    drop swap 1 - c!    \ store the character count
-    raw-mode-off
-    ."  End of line detected " cr
+    ed-insert           \ save the newline 
+    swap 1 - c!         \ store the character count
+    raw-mode-off cr
     ;
 
 \ Delete a character if one or more have been entered
@@ -163,48 +169,66 @@
     over 0 > if
         \ cursor back, emit a space, cursor back
         1 cursor-back
-        32 emit
+        BL emit
         1 cursor-back flush
         \ decrement character count
-        drop 1 - flush
+        drop 1 -
+    else
+        drop
     then ;
+
+\ Move to the end of the line (Control-E)
+: ed-line-end ( )
+    \ Needs to know prompt length and count
+    ;
+
+\ Move to the beginning of the line (Control-A)
+: ed-line-start ( -- )
+    \ Move the cursor to the start of the line and reissue the prompt
+    ;
+
+\ Move forward one character if possible
+: ed-forward
+    \ Needs position and count
+    ;
+\ Move forward one character if possible
+: ed-back
+    \ Needs position and count
+    ;
+
+\ Delete the character to the right of the cursor, if possible
+: ed-del-forward 
+    \ Needs position and count 
+    ;
+
+\ Delete to end of line. Does nothing if already at EOL
+: ed-del-to-eol
+    \ Needs position and count
+    ;
 
 : get-line ( -- )
     raw-mode-on ( enable raw mode for direct key input )
     tmp @ 1 +             \ Store chars leaving beginning space for a count
     0 
-    ." led> " flush       \ Editor prompt
+    ed-prompt                           \ Editor prompt
     begin
-        key dup
+        ed-get-key dup
         case
-            C-C of                      \ Control-C aborts
+            ^C of                      \ Control-C aborts
                     raw-mode-off
                     drop drop drop
                     ."  Exited with Control-C "
                     cr exit
                 endof
-            LF of                       \ Linefeed ends line
-                    ed-eol
-                    exit
-                endof
-            CR of                       \ Carriage return ends line
-                    ed-eol
-                    exit
-                endof
-            DEL of                      \ DEL deletes the last character
-                    over 0 > if
-                        \ cursor back, emit a space, cursor back
-                        1 cursor-back
-                        BL emit
-                        1 cursor-back flush
-                        \ decrement character count
-                        drop 1 - .s flush
-                    then
-                endof
+            LF  of ed-eol exit    endof  \ Linefeed ends line
+            DEL of ed-del         endof  \ DEL deletes the last character
+            ^A  of ed-line-start  endof  \ Move to the beginning of line
+            ^B  of ed-forward     endof  \ Move one to the right
+            ^D  of ed-del-forward endof  \ Delete to the right
+            ^E  of ed-line-end    endof  \ Move to the end of the line
+            ^K  of ed-del-to-eol  endof  \ Alternative delete forward
             \ default case stores the character and increments the counter
             ed-insert
         endcase
     again
-
-    ." End of function "
 ; 

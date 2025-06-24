@@ -473,6 +473,11 @@ fn f_from_c(&mut self) {
             ForthRuntime::f_key,
             "key ( -- c | 0 ) get a character and push on the stack, or zero if none available",
         );
+        self.add_builtin(
+            "key?",
+            ForthRuntime::f_key_q,
+            "key? ( -- b ) returns TRUE if a character is available, otherwise false",
+        );
        self.add_builtin(
             "include-file",
             ForthRuntime::f_include_file,
