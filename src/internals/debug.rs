@@ -31,7 +31,15 @@ impl ForthRuntime {
     }
 
     pub fn f_debuglevel(&mut self) {
-        println!("DebugLevel is {:?}", self.msg.get_level());
+        let level = self.msg.get_level();
+        let result = match level {
+                            DebugLevel::Error   => 1,
+                            DebugLevel::Warning => 2,
+                            DebugLevel::Info    => 3,
+                            DebugLevel::Debug   => 4,
+                         };
+        self.kernel.push(result as i64);
+        // println!("DebugLevel is {:?}", self.msg.get_level());
     }
 
     /// u_step provides the step / trace functionality

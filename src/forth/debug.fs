@@ -239,3 +239,19 @@ variable word-counter
 
 : dh 25 dump-here ;
 : dmp 25 dump ;
+
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Debug print commands.
+\   These only produce output if the dbg variable is set to 4 (debug).
+\
+: debug? debuglevel 4 = ;
+
+: d. debug?     ( n -- n ) 
+    if dup . then ;
+
+: d.cr debug?   ( -- ) 
+    if cr then ;
+
+: d.s debug?    ( -- ) 
+    if .s then ;

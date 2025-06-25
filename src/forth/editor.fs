@@ -329,6 +329,7 @@ variable ed-cursor-position   \ location for edit and move functions
         1 ed-cursor-position +!
     then
     ;
+    
 \ Move back one character if possible
 : ed-back
     drop
