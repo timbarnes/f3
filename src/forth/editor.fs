@@ -154,24 +154,24 @@ variable ed-cursor-position   \ location for edit and move functions
     ;
 
 \ Redraw the characters in the buffer at the current cursor position
-: ed-draw-buffer ( s_addr -- s_addr )
-    ed-char-count @
-    dup 0 > if 
-        \ cr ." ed-draw-buffer " cr
-        incr-for for dup i - c@ emit next drop
-    then
-    ;
+\ : ed-draw-buffer ( s_addr -- s_addr )
+\     ed-char-count @
+\     dup 0 > if 
+\         \ cr ." ed-draw-buffer " cr
+\         incr-for for dup i - c@ emit next drop
+\     then
+\     ;
 
 \ Repaint the line
-: ed-repaint    ( s_addr -- s_addr )
-    cr ." Repainting " cr
-    line-clear
-    CR (emit)
-    ed-prompt
-    ed-draw-buffer
-    ed-char-count @ ed-cursor-position @ -
-    dup 0 > if cursor-back else drop then
-    ;
+\ : ed-repaint    ( s_addr -- s_addr )
+\     cr ." Repainting " cr
+\     line-clear
+\     CR (emit)
+\     ed-prompt
+\     ed-draw-buffer
+\     ed-char-count @ ed-cursor-position @ -
+\     dup 0 > if cursor-back else drop then
+\     ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Buffer utilities
@@ -269,13 +269,6 @@ variable ed-cursor-position   \ location for edit and move functions
 
 \ Store a character and increment the character count
 : ed-insert ( s_addr char -- s_addr )
-    dup emit flush              \ echo the character
-    over ed-char-count @ + c!   \ store it in the buffer
-    1 ed-char-count +!          \ increment char counter
-    1 ed-cursor-position +!     \ increment the cursor position
-    ;
-
-: ed-insert ( s_addr char -- s_addr )
     ed-buffer-end? not if
         1 insert-char         \ shift the characters to the right of the cursor
         swap chars-right swap \ we have to move the char out of the way
@@ -300,16 +293,13 @@ variable ed-cursor-position   \ location for edit and move functions
 \ Delete a character if one or more have been entered
 \    *** Currently ignores ed-cursor-position ***
 : ed-del ( s_addr char -- s_addr )
-    ed-char-count @ 0 > if
-        \ cursor back, emit a space, cursor back
-        1 cursor-back
-        BL emit
-        1 cursor-back 
-        \ decrement character count and cursor position
-        -1 ed-char-count +!
-        -1 ed-cursor-position +!
-    then 
     drop
+    ed-char-count @ 0= if exit then
+    -1 ed-cursor-position +!    
+    chars-left
+    -1 ed-char-count +!
+    1 cursor-back
+    1 delete-char flush
     ;
 
 \ Move to the end of the line (Control-E)
