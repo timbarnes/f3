@@ -5,7 +5,7 @@
 
   1 constant ^A     \ Control-A - move to beginning of line
   2 constant ^B     \ Control-B - move backwards one char
-  3 constant ^C     \ Control-C - ETC - exit the editor
+  3 constant ^C     \ Control-C - ETX - exit the editor
   4 constant ^D     \ Control-D - delete forwards
   5 constant ^E     \ Control-E - move to end of line
   6 constant ^F     \ Control-F - move forward one char
@@ -19,8 +19,6 @@
 127 constant DEL    \ Backspace key
 
 \ Utility functions
-
-\ Generic
 
 : ascii-range ( -- )                      \ List printable ASCII characters with their numerical values.
     incr-for for
@@ -59,36 +57,47 @@
 : esc ESC (emit) ;                           \ Send escape character.
 
 : screen-clear 
-    \ ascii-preamble 50 emit 74 emit ;
-    esc ." [2J" flush ;
+    esc ." [2J" ;
 
 : line-clear
-    esc ." [2K" flush ;
+    esc ." [2K" ;
+
+: line-clear-to-end 
+    esc ." [K" ;
 
 : cursor-home 
-    esc ." [HD" flush ;
+    esc ." [HD" ;
 
 : screen-home
     screen-clear
     cursor-home ;
 
 : cursor-up ( n -- )
-    esc ." [" dup uwidth .r ." A"  flush ;
+    esc ." [" 0 .r ." A" ;
 
 : cursor-down ( n -- )
-    esc ." [" dup uwidth .r ." B" flush ;
+    esc ." [" 0 .r ." B" ;
 
 : cursor-forward ( n -- )
-    esc ." [" dup uwidth .r ." C" flush ;
+    esc ." [" 0 .r ." C" ;
 
 : cursor-back ( n -- )
-    esc ." [" dup uwidth .r ." D" flush ;
+    esc ." [" 0 .r ." D" ;
 
 : save-cursor
-    esc ." [s" flush ;
+    esc ." [s" ;
 
 : restore-cursor
-    esc ." [u" flush ;
+    esc ." [u" ;
+
+: insert-char ( n -- )              \ Move n characters to the right of the cursor left by one
+    esc ." [" .r ." @" ;
+
+: delete-char ( n -- )              \ Move n characters to the right of the cursor left by one
+    esc ." [" dup uwidth .r ." P" ;
+
+: erase-chars   ( n -- )            \ Replace n chars to the right of the cursor with spaces
+    esc ." [" 0 .r ." K" ;
 
 \ Line editor
 \
@@ -113,7 +122,108 @@
 variable ed-char-count        \ the number of characters in the buffer
 variable ed-cursor-position   \ location for edit and move functions
 
-\ Input words
+\ \\\\\\\\\\\\\\\\\\\\\\\\\
+\ Editor utilities
+
+\ Initialize editor variables, get buffer address, and issue prompt
+: ed-init 
+    0 ed-char-count !
+    0 ed-cursor-position !
+    tmp @ 1 +
+    ed-prompt
+    ;
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\
+\ Display utilities
+
+\ Issue the prompt
+: ed-prompt
+    ." led> " flush ;
+
+\ Redraw the characters in the buffer at the current cursor position
+: ed-draw-buffer ( s_addr -- s_addr )
+    ed-char-count @
+    dup 0 > if 
+        \ cr ." ed-draw-buffer " cr
+        incr-for for dup i - c@ emit next drop
+    then
+    ;
+
+\ Repaint the line
+: ed-repaint    ( s_addr -- s_addr )
+    line-clear
+    CR (emit)
+    ed-prompt
+    ed-draw-buffer
+    ed-char-count @ ed-cursor-position @ -
+    dup 0 > if cursor-back else drop then
+    ;
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Buffer utilities
+
+\ Copy a single character from one location to another in string space
+: char-copy ( dest source -- )
+    c@ dup emit swap c!
+    ;
+
+\ shift a character left by 1
+: char-left ( s_addr -- )
+    dup 1- 
+    swap dup
+    char-copy ;
+
+: chars-left ( s_addr -- s_addr )
+    \ start at the beginning, move forwards to avoid overwrites
+    ed-char-count @
+    ed-cursor-position @ -               \ the count
+    0 > if
+        dup ed-char-count @ +
+        over ed-cursor-position @ +
+        begin 
+            dup char-left
+            1+
+            2dup =
+        until
+        drop drop
+    else
+        drop
+    then
+    ;
+
+\ shift a character right by 1
+: char-right ( s_addr -- )
+    dup 1+ swap
+    char-copy ;
+
+: chars-right ( s_addr -- s_addr )
+    \ start at the end, move backwards to avoid overwrites
+    ed-char-count @
+    ed-cursor-position @ -             \ the count
+    dup 0 > if
+        over ed-cursor-position @ +   \ the starting address in the buffer
+        swap 
+        for
+            dup i + 1- char-right
+        next
+        drop
+    else
+        drop
+    then
+    ;
+
+\ Tests for cursor at beginning of line
+: ed-buffer-start? ( -- )
+    ed-cursor-position @ 0= ;
+
+\ Tests for cursor at end of line
+: ed-buffer-end? ( -- )
+    ed-cursor-position @
+    ed-char-count @
+    = ;
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Input utilities
 
 \ Process an escape, checking for a possible escape sequence from the terminal
 \   Up-Arrow    becomes Control-P
@@ -154,31 +264,46 @@ variable ed-cursor-position   \ location for edit and move functions
         CR  of drop LF       endof      \ replace CR with LF
     endcase
     ;
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Editing functions - these are the operations directly bound to keys
 
-\ Issue the prompt
-: ed-prompt
-    ." led> " flush ;
-
-\ Editing functions
-
-\ Store a character and increment the character count
+\ <printable character>: insert a character at the current cursor position
+\   Move other characters to the right, and redraw the remaining characters
+\ Store a character at the current cursor location and increment the character count
+\       If at the end of the line
+\           Echo the character
+\           Add to the end of the buffer
+\       Otherwise we're inserting inside the string
+\           Move chars from cursor to end right by one
+\           Insert new char at cursor
+\           Repaint the buffer
+\       Finally, increment the char and cursor variable (both cases)
 : ed-insert ( s_addr char -- s_addr )
-    dup emit flush              \ echo the character
-    over ed-char-count @ + c!   \ store it in the buffer
-    1 ed-char-count +!          \ increment char counter
-    1 ed-cursor-position +!     \ increment the cursor position
+    over
+    chars-right
+    ed-cursor-position @ +
+    c!
+    1 ed-char-count +!
+    1 ed-cursor-position +!
     ;
 
 \ Process end of line
 : ed-eol ( s_addr char -- s_addr )
+    \ CR ed-prompt ed-draw-buffer flush
     ed-insert                   \ save the newline 
-    ed-char-count @
-    swap 1 - c!                 \ store the character count
+    ed-char-count @             \ get the final character count
+    swap 1 - c!                 \ store the character count in the buffer
     raw-mode-off cr
     ;
 
 \ Delete a character if one or more have been entered
-\    *** Currently ignores ed-cursor-position ***
+\   If at the beginning of the line, return
+\   Otherwise:
+\       Move the cursor back by one
+\       Reduce the character count by one
+\       If we're not at the end:
+\           Move characters from cursor to end back by one in the buffer
+\           Repaint the line
 : ed-del ( s_addr char -- s_addr )
     ed-char-count @ 0 > if
         \ cursor back, emit a space, cursor back
@@ -205,8 +330,10 @@ variable ed-cursor-position   \ location for edit and move functions
 : ed-line-start ( char -- )
     drop
     ed-cursor-position @
-    cursor-back 
-    0 ed-cursor-position !
+    dup 0 > if
+        cursor-back 
+        0 ed-cursor-position !
+    then
     ;
 
 \ Move forward one character if possible
@@ -230,21 +357,21 @@ variable ed-cursor-position   \ location for edit and move functions
     ;
 
 \ Delete the character to the right of the cursor, if possible
-: ed-del-forward 
+\   If at the end of the line, return
+\   Otherwise:
+\       Reduce the character count by one
+\       Move characters from cursor to end back by one in the buffer
+\       Repaint the line
+: ed-del-forward ( char -- )
     \ Needs position and count 
     ;
 
-\ Delete to end of line. Does nothing if already at EOL
-: ed-del-to-eol
-    \ Needs position and count
-    ;
-
-\ Initialize editor variables, get buffer address, and issue prompt
-: ed-init 
-    0 ed-char-count !
-    0 ed-cursor-position !
-    tmp @ 1 +
-    ed-prompt
+\ ^K: Delete to end of line. Does nothing if already at EOL
+: ed-del-to-eol ( char -- )
+    drop
+    ed-cursor-position @
+    ed-char-count !         \ set the char count to the current cursor position
+    line-clear-to-end
     ;
 
 : get-line ( -- )
@@ -267,8 +394,46 @@ variable ed-cursor-position   \ location for edit and move functions
             ^E  of ed-line-end    endof  \ Move to the end of the line
             ^F  of ed-forward     endof  \ Move forward one character
             ^K  of ed-del-to-eol  endof  \ Delete to end of line
-            \ default case stores the character and increments the counter
-            ed-insert
+            ed-insert                    \ default case stores the character at the cursor
+                                        \ and increments the counter and cursor values
         endcase
+        ed-repaint flush
     again
 ; 
+
+: push-one-right ( position -- )
+    .tmp cr
+    tmp @ +
+    char-right
+    .tmp cr
+    ;
+
+: push-right ( position -- )
+    .tmp cr
+    ed-cursor-position !
+    tmp @ 1 +
+    .s
+    chars-right
+    .s cr .tmp cr
+    drop
+    ;
+
+: ed-setup ( cursor_position -- s_addr )
+    ed-cursor-position !
+    tmp @ 
+    dup 4 swap c!
+    dup 1 + [char] A swap c!
+    dup 2 + [char] B swap c!
+    dup 3 + [char] C swap c!
+    dup 4 + [char] D swap c!
+    4 ed-char-count !
+    1+ \ increment tmp
+    .tmp
+    ;
+
+: ed-dump ( -- )
+    .tmp cr
+    265 ed-repaint drop cr
+    ." Cursor:" ed-cursor-position ? cr
+    ."  Chars:" ed-char-count ? cr
+    ;

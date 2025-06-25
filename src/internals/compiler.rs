@@ -551,35 +551,35 @@ impl ForthRuntime {
     }
     */
 
-    /// Execute a Forth word by name from Rust, with the same semantics as Forth's run
-    pub fn run_forth_word(&mut self, name: &str) {
-        let tmp_addr = self.kernel.get(self.tmp_ptr) as usize;
-        self.kernel.string_save(name, tmp_addr);
-        self.kernel.push(tmp_addr as i64);
-        self.f_find(); // ( s -- cfa T | s F )
-        if self.kernel.pop() == TRUE {
-            // Found: cfa is on top of stack
-            self.f_execute();
-        } else {
-            // Not found: drop and abort
-            self.kernel.pop(); // drop the string address
-            self.f_abort();
-        }
-    }
+    // Execute a Forth word by name from Rust, with the same semantics as Forth's run
+    // pub fn run_forth_word(&mut self, name: &str) {
+    //     let tmp_addr = self.kernel.get(self.tmp_ptr) as usize;
+    //     self.kernel.string_save(name, tmp_addr);
+    //     self.kernel.push(tmp_addr as i64);
+    //     self.f_find(); // ( s -- cfa T | s F )
+    //     if self.kernel.pop() == TRUE {
+    //         // Found: cfa is on top of stack
+    //         self.f_execute();
+    //     } else {
+    //         // Not found: drop and abort
+    //         self.kernel.pop(); // drop the string address
+    //         self.f_abort();
+    //     }
+    // }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
-    #[test]
-    fn test_run_forth_word_dup_and_mul() {
-        let mut rt = ForthRuntime::new();
-        rt.cold_start(); // Initialize the Forth system and builtins
-        rt.kernel.push(7);
-        rt.run_forth_word("dup");
-        rt.run_forth_word("*");
-        let result = rt.kernel.pop();
-        assert_eq!(result, 49);
-    }
+//     #[test]
+//     fn test_run_forth_word_dup_and_mul() {
+//         let mut rt = ForthRuntime::new();
+//         rt.cold_start(); // Initialize the Forth system and builtins
+//         rt.kernel.push(7);
+//         rt.run_forth_word("dup");
+//         rt.run_forth_word("*");
+//         let result = rt.kernel.pop();
+//         assert_eq!(result, 49);
+//     }
 }

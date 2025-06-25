@@ -396,8 +396,8 @@
 \                     (traverse-words) ;
 
 : forget-last ( -- )                            \ delete the most recent definition
-                    here @ 1- @ dup 1+ here !                   \ resets HERE to the previous back pointer
-                    @ 1+ dup context ! last !                   \ resets CONTEXT and LAST
+                    here @ 1- @ dup 1+ here !   \ resets HERE to the previous back pointer
+                    @ 1+ dup context ! last !   \ resets CONTEXT and LAST
                     ;
 
 : forget ( <name> )                             \ delete <name> and any words since
@@ -421,4 +421,5 @@
                                                 
 include src/forth/debug.fs
 \ include src/forth/editor.fs
-include wrk.fs
+\ include wrk.fs
+include src/forth/ed2.fs
