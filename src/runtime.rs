@@ -34,6 +34,7 @@ pub const ABORT: i64      = 100008; // break and reset
 pub const EXIT: i64       = 100009; // returns from a word
 pub const BREAK: i64      = 100010; // breaks out of a word
 pub const EXEC: i64       = 100011; // calls the word with address on the stack
+pub const ARRAY: i64      = 100012;
 
 pub const MARK_BEGIN: i64 = 200000; // marks the beginning of a control structure
 pub const MARK_WHILE: i64 = 200001; // marks the beginning of a WHILE control structure

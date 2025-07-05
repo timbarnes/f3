@@ -1,6 +1,6 @@
 : parse pad @ swap parse-to ; 
 
-: \ 1 parse drop drop ; immediate   
+: \ 1 parse drop drop ; immediate
 
 : ( 41 parse drop drop ; immediate     \ Implements in-line comments
 
@@ -38,6 +38,7 @@
 100009 constant EXIT
 100010 constant BREAK
 100011 constant EXEC
+100012 constant ARRAY
 
 200000 constant MARK_BEGIN
 200001 constant MARK_WHILE
@@ -69,7 +70,6 @@
 -1 constant R/W
  0 constant R/O
  1 constant W/O
-
 
 \ char <character> takes the first character of the next token and puts its ASCII value on the stack
 : char 
@@ -142,6 +142,7 @@
 : else   BRANCH , here @ 0 , swap _patch-here ; immediate
 : then   _patch-here ; immediate
 
+      
 : ' (') dup @ dup DEFINITION = if drop else nip then ;
 
 : [']               LITERAL , ' , ; immediate             \ compiles a word's cfa into a definition as a literal
@@ -165,6 +166,23 @@
 : <> ( n -- n )     = 0= ;
 : 0>                0 > ;
 : 0<>               0= 0= ;
+
+\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+\ Memory allocation
+\   
+\ If n > 0, reserve n cells of data space. If n < 0, release |n| cells. If n is zero, no action is taken.
+\            Allot updates `here`, but does not create a back pointer.
+\
+: allot ( n -- )
+   dup 0= if
+     drop exit
+   then
+   dup 0> if
+     here @ + here !
+   else
+     here @ swap - here !
+     then
+   ;
 
 \ Numeric operations
 
@@ -395,7 +413,7 @@
 \                     here @ 1- @                 \ get initial bp (as in words)
 \                     (traverse-words) ;
 
-: forget-last ( -- )                            \ delete the most recent definition
+: forget-last ( -- )                            \ delete the most recent definitions
                     here @ 1- @ dup 1+ here !   \ resets HERE to the previous back pointer
                     @ 1+ dup context ! last !   \ resets CONTEXT and LAST
                     ;
@@ -421,4 +439,5 @@
                                                 
 include src/forth/debug.fs
 include src/forth/editor.fs
+include src/forth/sequences.fs	
 

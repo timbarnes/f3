@@ -2,7 +2,7 @@
 
 use crate::runtime::{BUILTIN_FLAG, FALSE, IMMEDIATE_FLAG, TRUE};
 use crate::internals::general::u_is_integer;
-use crate::runtime::{ForthRuntime, ADDRESS_MASK, ABORT, BRANCH, BRANCH0, BREAK, BUILTIN, CONSTANT, DEFINITION, 
+use crate::runtime::{ForthRuntime, ADDRESS_MASK, ABORT, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN, CONSTANT, DEFINITION, 
     EXIT, EXEC, LITERAL, STRLIT, VARIABLE};
 
 impl ForthRuntime {
@@ -80,6 +80,7 @@ impl ForthRuntime {
                 ABORT      => self.i_abort(),
                 EXIT       => self.i_exit(),
                 BREAK      => self.i_exit(),
+		        ARRAY	   => self.i_array(),
                 _ => {
                     self.kernel.pop();
                     let cfa = self.kernel.get(xt as usize) as usize & ADDRESS_MASK;
@@ -469,6 +470,10 @@ impl ForthRuntime {
                             match xt {
                                 LITERAL => {
                                     print!("{} ", self.kernel.get(index as usize + 1));
+                                    index += 1;
+                                }
+                                ARRAY => {
+                                    print!("ARRAY pointer ");
                                     index += 1;
                                 }
                                 STRLIT => {

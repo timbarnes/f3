@@ -3,7 +3,7 @@
 /// Core functions to execute specific types of objects
 ///
 use crate::runtime::{
-    ForthRuntime, ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BREAK, 
+    ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, 
         BUILTIN, BUILTIN_FLAG, CONSTANT, DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE
 };
 use crate::kernel::{RET_START, DATA_SIZE};
@@ -36,6 +36,10 @@ impl ForthRuntime {
         let val = self.kernel.pop();
         let val = self.kernel.get(val as usize);
         self.kernel.push(val);
+    }
+
+    pub fn i_array(&mut self) {
+        self.i_variable();
     }
 
     /// Places the number in data[d] on the stack
@@ -88,8 +92,8 @@ impl ForthRuntime {
                     self.f_r_from();
                     pc = self.kernel.pop() as usize;
                 }
-                VARIABLE => {
-                    // this means we've pushed into a variable and are seeing the inner interpreter
+                VARIABLE | ARRAY => {
+                    // this means we've pushed into a variable or an array reference
                     pc += 1;
                     self.kernel.push(pc as i64); // the address of the variable's data
                     self.f_r_from();
