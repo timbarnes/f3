@@ -1,4 +1,4 @@
 /target
 *~
-src/forth/.#vec.fs
-src/forth/#vec.fs#
+src/forth/.#*.*
+src/forth/#*.*#
