@@ -39,7 +39,8 @@ variable word-counter
     ." Opcode reference: "
     ." 100000=BUILTIN  100001=VARIABLE    100002=CONSTANT  100003=LITERAL" cr
     ." 100004=STRLIT   100005=DEFINITION  100006=BRANCH    100007=BRANCH0" cr
-    ." 100008=ABORT    100009=EXIT        100010=BREAK     100012=EXEC" cr
+    ." 100008=ABORT    100009=EXIT        100010=BREAK     100011=EXEC" cr
+    ." 100012=ARRAY" cr
     ;
 
 : dump-addr  ( addr -- addr ) dup 7 .r ;
@@ -73,6 +74,7 @@ variable word-counter
     dup CONSTANT   = if ." CONSTANT             " exit then
     dup LITERAL    = if ." LITERAL              " exit then
     dup STRLIT     = if ." STRLIT               " exit then
+    dup ARRAY      = if ." ARRAY                " exit then
     dup DEFINITION = if ." DEFINITION           " exit then
     dup BRANCH     = if ." BRANCH               " exit then
     dup BRANCH0    = if ." BRANCH0              " exit then
@@ -121,23 +123,34 @@ variable word-counter
     1 + @
     CONSTANT = ;
 
+: array-name?    ( addr -- bool )
+    1 + @
+    ARRAY = ;
+
 : _nfa?  ( addr -- bool )            \ Attempts to identify if an addr contains an nfa
-    \ Four types: builtin, definition, constant, and variable ;
+    \ Five types: builtin, definition, constant, and variable ;
     dup builtin?
     swap dup builtin-name?
     swap dup definition-name? 
     swap dup variable-name? 
-    swap constant-name? 
-    or or or or
+    swap dup constant-name?
+    swap array-name?
+    or or or or or
         ;
 
 : bp?   ( addr -- bool )            \ Identifies back pointer by adjacency to dictionary entries
-    2 +
-    dup dup builtin? swap 1 - _nfa? and
-    swap @ dup DEFINITION = 
-    swap dup VARIABLE =
-    swap CONSTANT =
-    or or or ;
+    1 +
+    dup @ token-range? if
+        drop FALSE
+    else
+        1 +
+        dup dup builtin? swap 1 - _nfa? and
+        swap @ dup DEFINITION = 
+        swap dup ARRAY =
+        swap dup VARIABLE =
+        swap CONSTANT =
+        or or or or
+    then ;
 
 : nfa?  ( addr -- bool )
     1 - bp?

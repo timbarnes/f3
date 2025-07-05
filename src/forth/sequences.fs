@@ -1,5 +1,5 @@
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
-\ Arrays, stacks, queues and deques
+\ Sequences: Arrays, stacks, queues and deques
 \
 \   The underlying functionality is a fixed block of memory, with four  associated properties:
 \   1. A name
@@ -9,9 +9,9 @@
 \
 \   Memory layoout:
 \          <back pointer>
-\          nfa	       - name field for the data structure
+\          nfa             - name field for the data structure
 \          token field     - indicates the type of the object
-\          size  	       - the number of cells allocated for data
+\          size            - the number of cells allocated for data
 \          pointer 1       - first pointer into the array
 \          pointer 2       - second pointer into the array
 \          <back pointer>
@@ -64,37 +64,40 @@
 
 \ Get the number of elements in an array
 : ac@ ( addr -- n )
-        @ ;               \ the use of the array name returns the address of the count
+        @ ;                     \ the use of the array name returns the address of the count
 
 \ Return the value of cell n in an array
 : a@ ( n addr -- v )
-  + 2 +                   \ advance past the count and the two pointers
-  @ ;                     \ this does no bounds checking!
+        + 2 +                   \ advance past the count and the two pointers
+        @ ;                     \ this does no bounds checking!
 
 \ Set cell n in an array
 : a! ( v n addr -- )
-  + 2 + ! ;
+        + 2 + ! ;
 
 \ Create a stack of n cells. Stacks use pointer1 as the stack pointer
 \    The stack pointer is an offset into the array, zero based
 : stack ( n -- )
-  array ;
+        array ;
 
 \ Increment the stack pointer by the value on the stack
 : (s+!) ( v addr -- )     \ addr is the address of the array (counter), not the stack pointer
-  1 + +! ;
+        1 + +! ;
 
 \ Get the stack pointer
 : (sp@) ( addr -- v )     \ addr is the address of the array (counter), not the stack pointer
-  1 + @ ;
+        1 + @ ;
 
 \ Push an element onto the stack
 : >s ( v addr -- )
-  1 over (s+!)            \ increment the stack pointer
-  (sp@) @ + ! ;           \ store the value into the address
+        1 over (s+!)            \ increment the stack pointer
+        (sp@) @ + ! ;           \ store the value into the address
 
 \ Pop an element off the stack
 : s> ( addr -- v )
-  -1 over (s+!)           \ decrement the stack pointer
-  (sp@) + 1 + @ ;         \ get the value previously pointed to by the stack pointer.
-  
+        -1 over (s+!)           \ decrement the stack pointer
+        (sp@) + 1 + @ ;         \ get the value previously pointed to by the stack pointer.
+
+\ Get the stack size
+: sc@ ( addr -- n )
+        ac@ ;
