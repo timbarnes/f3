@@ -1,10 +1,9 @@
 // General-purpose builtin words
 
 use crate::kernel::DATA_SIZE;
-use crate::runtime::{ForthRuntime};
-use std::time::{Instant, Duration};
+use crate::runtime::ForthRuntime;
 use std::thread;
-
+use std::time::{Duration, Instant};
 
 /// u_is_integer determines whether a string parses correctly as an integer
 ///
@@ -40,15 +39,18 @@ impl ForthRuntime {
     }
 
     pub fn f_less(&mut self) {
-        self.kernel.pop2_push1("<", |a, b| if a < b { -1 } else { 0 });
+        self.kernel
+            .pop2_push1("<", |a, b| if a < b { -1 } else { 0 });
     }
 
     pub fn f_equal(&mut self) {
-        self.kernel.pop2_push1("=", |a, b| if a == b { -1 } else { 0 });
+        self.kernel
+            .pop2_push1("=", |a, b| if a == b { -1 } else { 0 });
     }
 
     pub fn f_0equal(&mut self) {
-        self.kernel.pop1_push1("0=", |a| if a == 0 { -1 } else { 0 });
+        self.kernel
+            .pop1_push1("0=", |a| if a == 0 { -1 } else { 0 });
     }
 
     pub fn f_0less(&mut self) {
@@ -105,7 +107,9 @@ impl ForthRuntime {
     pub fn f_roll(&mut self) {
         if self.kernel.stack_check(1, "roll") {
             let n = self.kernel.pop() as usize;
-            if n == 0 { return; } // 0 roll is a no-op
+            if n == 0 {
+                return;
+            } // 0 roll is a no-op
             if self.kernel.stack_check(n + 1, "roll") {
                 // Save the nth value from the top
                 let val = self.kernel.peek(n);
@@ -215,7 +219,7 @@ impl ForthRuntime {
     }
 
     /// c! - ( c s -- ) write a character to the string-space address on the stack
-    /// 
+    ///
     pub fn f_c_store(&mut self) {
         if self.kernel.stack_check(2, "c!") {
             let s_address = self.kernel.pop() as usize;
@@ -243,7 +247,8 @@ impl ForthRuntime {
             let length = self.kernel.byte_get(source) as usize;
             let dest = self.kernel.get(self.kernel.get_string_ptr());
             self.kernel.string_copy(source, dest as usize, length, true);
-            self.kernel.delta(self.kernel.get_string_ptr(), length as i64 + 1);
+            self.kernel
+                .delta(self.kernel.get_string_ptr(), length as i64 + 1);
             self.kernel.push(dest); // pointer to the beginning of the new string
         }
     }
