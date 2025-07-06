@@ -61,12 +61,12 @@ variable ed-hist-tmp          \ text buffer for swap;
 
 \ Issue the prompt
 : ed-prompt
-    ." led> " flush 
+    ." led " flush 
     ;
 
 \ Redraw the characters in the buffer at the current cursor position
 : ed-draw-buffer ( s_addr -- s_addr )
-    ed-char-count @
+    tmp @ c@
     dup 0 > if 
         \ cr ." ed-draw-buffer " cr
         incr-for for dup i - c@ emit next drop
@@ -277,7 +277,7 @@ variable ed-hist-tmp          \ text buffer for swap;
 \ ^P: Swap current input buffer with history buffer and redraw the line
 : ed-history ( char -- )
     \ The current string is in TMP
-    \ We'll use PAD as a temporary buffer
+    \ We'll use ed-hist-tmp as a temporary buffer
     \ The history buffer is stored in a variable `ed-hist-buf`
     tmp @ ed-hist-tmp @ s-copy
     ed-hist-buf @ tmp @ s-copy

@@ -216,7 +216,7 @@ variable word-counter
     dup dup def-call?       if ." Definition call: "       dump-word exit else drop then
     dup dup var-call?       if ."    Var/Const ref "       dump-word exit else drop then
     dup bp?                 if ."     Back Pointer " cr              exit then
-    dup dup nfa?            if ."             NFA: " @ inverse type t-reset exit else drop then
+    dup dup nfa?            if inverse ."             NFA: " @ 12 ltype t-reset exit else drop then
     dup compiled-value?     if ."   Compiled value "                 exit then
     @ dump-segment
     ;
