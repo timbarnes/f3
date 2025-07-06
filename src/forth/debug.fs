@@ -16,7 +16,7 @@ variable word-counter
                     begin                                       \ loops through the words in the dictionary
                         .word dup not                           \ print a word and test the next pointer
                     until 
-                        drop ;   
+                        drop cr ;   
 
 : print-word ( xt -- ) 
                     1- @ 13 ltype ;                 \ print a word name, given the xt as produced by '
@@ -247,7 +247,7 @@ variable word-counter
 \ dump-here dumps the top n cells. Useful for seeing recent dictionary entries.
 : dump-here     ( n -- )
     dup here @ 1 - swap - swap dump
-    ." *********** HERE ************ TOP OF HEAP *************" cr
+    ." **************** HERE ********** TOP OF HEAP *********************" cr
     here @ 2 dump ;
 
 : dh 25 dump-here ;

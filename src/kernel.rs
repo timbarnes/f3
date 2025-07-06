@@ -1,13 +1,11 @@
 //////////////////////////////////////////////////////////////
 /// Forth Interpreter Kernel
-/// 
+///
 /// This module contains the core data structures and functions for the Forth interpreter.
 /// The intention is that this module handles lower level functions directly related to the data structures.
-/// 
+///
 /// Specifically it manages the main data area (heap) in an FK (Forth Kernel) struct.
-/// 
-
-
+///
 use crate::internals::builtin::BuiltInFn;
 
 // DATA AREA constants
@@ -18,7 +16,7 @@ pub const ALLOC_START: usize  = DATA_SIZE / 2;
 pub const STACK_START: usize  = ALLOC_START - 1; // stack counts up
 pub const RET_START: usize    = DATA_SIZE - 1; // return stack counts downwards
 pub const WORD_START: usize   = 0; // data area counts up from the bottom (builtins, words, variables etc.)
-pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
+pub const ADDRESS_MASK: usize = 0x00FFFFFFFFFFFFFF; // to get rid of flags
 
 /// The primary data structure for the Forth engine
 ///
@@ -36,13 +34,12 @@ pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
 pub struct Kernel {
     heap: [i64; DATA_SIZE],
     strings: [u8; STRING_SIZE], // storage for strings
-    builtins: Vec<BuiltInFn>,     // the dictionary of builtins
-    stack_ptr: usize,             // top of the linear space stack
-    return_ptr: usize,            // top of the return stack
-    string_ptr: usize,            // pointer to the next free string space
-    //pub return_stack: Vec<i64>,     // for do loops etc.
+    builtins: Vec<BuiltInFn>,   // the dictionary of builtins
+    stack_ptr: usize,           // top of the linear space stack
+    return_ptr: usize,          // top of the return stack
+    string_ptr: usize,          // pointer to the next free string space
+                                //pub return_stack: Vec<i64>,     // for do loops etc.
 }
-
 
 impl Kernel {
     pub fn new() -> Kernel {
@@ -53,13 +50,12 @@ impl Kernel {
             stack_ptr: STACK_START,
             return_ptr: RET_START,
             string_ptr: 0,
-
         };
         kernel
     }
 
     /// reset() clears the stacks.
-    /// 
+    ///
     pub fn reset(&mut self) {
         // Reset the stack pointers
         self.stack_ptr = STACK_START;
@@ -75,7 +71,7 @@ impl Kernel {
 
     /// set_var stores a new value to a cell on the heap using its address
     ///     This is used to set variables, constants, and other data stored in the heap.
-    /// 
+    ///
     pub fn set(&mut self, addr: usize, val: i64) {
         self.heap[addr] = val;
     }
@@ -97,7 +93,10 @@ impl Kernel {
     #[inline(always)]
     pub fn push(&mut self, val: i64) {
         if self.stack_ptr <= 0 {
-            panic!("Stack corruption detected: cannot push, stack_ptr ({}) <= 0", self.stack_ptr);
+            panic!(
+                "Stack corruption detected: cannot push, stack_ptr ({}) <= 0",
+                self.stack_ptr
+            );
         }
         self.stack_ptr -= 1;
         self.heap[self.stack_ptr] = val;
@@ -106,7 +105,10 @@ impl Kernel {
     #[inline(always)]
     pub fn pop(&mut self) -> i64 {
         if self.stack_ptr >= STACK_START {
-            panic!("Stack corruption detected: cannot pop, stack_ptr ({}) >= STACK_START ({})", self.stack_ptr, STACK_START);
+            panic!(
+                "Stack corruption detected: cannot pop, stack_ptr ({}) >= STACK_START ({})",
+                self.stack_ptr, STACK_START
+            );
         }
         let r = self.heap[self.stack_ptr];
         self.stack_ptr += 1;
@@ -131,40 +133,46 @@ impl Kernel {
     #[inline(always)]
     pub fn stack_len(&self) -> usize {
         if self.stack_ptr > STACK_START {
-            panic!("Stack corruption detected: stack_ptr ({}) > STACK_START ({})", self.stack_ptr, STACK_START);
+            panic!(
+                "Stack corruption detected: stack_ptr ({}) > STACK_START ({})",
+                self.stack_ptr, STACK_START
+            );
         }
         STACK_START - self.stack_ptr
     }
 
     /// stack_check checks if there are enough items on the stack for an operation
     #[inline(always)]
-    pub fn stack_check(&self, needed: usize, word: &str) -> bool{
+    pub fn stack_check(&self, needed: usize, word: &str) -> bool {
         let available = STACK_START - self.stack_ptr;
         if available < needed {
-            panic!("{}: Stack underflow: need {}, have {}", word, needed, available);
+            panic!(
+                "{}: Stack underflow: need {}, have {}",
+                word, needed, available
+            );
         }
         true
     }
 
     /* #[inline(always)]
-    pub fn push_r(&mut self, val: i64) {
-        self.heap[self.return_ptr] = val;
-        self.return_ptr += 1;
-    }
+     pub fn push_r(&mut self, val: i64) {
+         self.heap[self.return_ptr] = val;
+         self.return_ptr += 1;
+     }
+
+     #[inline(always)]
+     pub fn pop_r(&mut self) -> i64 {
+         self.return_ptr -= 1;
+         self.heap[self.return_ptr]
+     }
 
     #[inline(always)]
-    pub fn pop_r(&mut self) -> i64 {
-        self.return_ptr -= 1;
-        self.heap[self.return_ptr]
-    }
-
-   #[inline(always)]
-    pub fn stack_check_r(&self, needed: usize, word: &str) -> bool{
-        if self.return_ptr < needed {
-            panic!("{}: Return stack underflow: need {}, have {}", word, needed, self.return_ptr);
-        }
-        true
-    } */
+     pub fn stack_check_r(&self, needed: usize, word: &str) -> bool{
+         if self.return_ptr < needed {
+             panic!("{}: Return stack underflow: need {}, have {}", word, needed, self.return_ptr);
+         }
+         true
+     } */
 
     pub fn pop2_push1<F>(&mut self, word: &str, f: F)
     where
@@ -174,8 +182,7 @@ impl Kernel {
             let j = self.pop();
             let k = self.pop();
             self.push(f(k, j));
-        }
-        else {
+        } else {
             panic!("{}: Stack underflow in pop2_push1", word);
         }
     }
@@ -198,7 +205,7 @@ impl Kernel {
     /// string_new writes a new string into the next empty space, updating the free space pointer
     /// /// This function assumes that the string is counted, i.e. the first byte is the length of the string.
     /// /// Returns the address of the new string in the string space.
-    /// 
+    ///
     pub fn string_new(&mut self, string: &str) -> usize {
         // place a new str into string space and update the free pointer string_ptr
         let mut ptr = self.heap[self.string_ptr] as usize;
@@ -270,51 +277,51 @@ impl Kernel {
         }
         true
     }
-    
+
     /// Return the length of a counted string
     /// This is the first byte of the string, so it is very fast
-    /// 
+    ///
     pub fn string_length(&self, addr: usize) -> usize {
         self.strings[addr] as usize
-    }  
+    }
 
     /// Get a read-only string slice. Assumes a non-counted string.
     /// Used for detailed parsing of strings
-    /// 
+    ///
     pub fn string_slice(&self, addr: usize, len: usize) -> &[u8] {
         &self.strings[addr..addr + len]
     }
 
     /// byte_get returns a byte from a string address
     /// /// This is used to access individual characters in a string.
-    /// 
+    ///
     pub fn byte_get(&self, addr: usize) -> u8 {
         if addr >= STRING_SIZE {
             panic!("byte_get: index out of bounds");
         }
-        self.strings[addr] 
+        self.strings[addr]
     }
 
     /// byte_set sets a byte in a string address
     /// /// This is used to modify individual characters in string space.
-    /// 
+    ///
     pub fn byte_set(&mut self, addr: usize, value: u8) {
         if addr >= STRING_SIZE {
             panic!("byte_set: index out of bounds");
         }
         self.strings[addr] = value;
-    }   
+    }
 
     /// add_builtin adds a new builtin function to the kernel's list
     /// /// Returns the index of the new builtin in the list
-    /// 
+    ///
     pub fn add_builtin(&mut self, builtin: BuiltInFn) -> usize {
         self.builtins.push(builtin);
         self.builtins.len() - 1
     }
 
     /// get_builtin returns a reference to a builtin function by its index
-    /// 
+    ///
     pub fn get_builtin(&self, index: usize) -> &BuiltInFn {
         &self.builtins[index]
     }
@@ -339,7 +346,7 @@ impl Kernel {
 
 //////////////////////////////////////////////
 /// TESTS
-/// 
+///
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,8 +384,8 @@ mod tests {
     #[test]
     fn test_string_copy_counted() {
         let mut k = Kernel::new();
-        k.string_save("forth", 50);              // counted string at 50
-        k.string_copy(50, 60, 5, true);          // copy to 60, counted
+        k.string_save("forth", 50); // counted string at 50
+        k.string_copy(50, 60, 5, true); // copy to 60, counted
         assert_eq!(k.string_get(60), "forth");
     }
 
@@ -386,7 +393,7 @@ mod tests {
     fn test_string_copy_uncounted() {
         let mut k = Kernel::new();
         k.string_set(100, "abcde");
-        k.string_copy(101, 200, 5, false);       // copy raw content (skip count)
+        k.string_copy(101, 200, 5, false); // copy raw content (skip count)
         assert_eq!(k.string_get(200), "abcde");
     }
 
@@ -424,7 +431,7 @@ mod tests {
     #[should_panic(expected = "byte_get: index out of bounds")]
     fn test_byte_get_oob_panics() {
         let k = Kernel::new();
-        let _ = k.byte_get(STRING_SIZE);  // out of bounds
+        let _ = k.byte_get(STRING_SIZE); // out of bounds
     }
 
     #[test]
