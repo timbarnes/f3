@@ -203,7 +203,7 @@ variable word-counter
     dup here @ >            if ."       Free space "                 exit then
     dup @ 0 <               if ."            Value "                 exit then
     dup dup builtin?        if ."         Builtin: "    dump-builtin exit else drop then
-    dup dup immediate?      if ." *Immediate* NFA: "      dump-immed exit else drop then
+    dup dup immediate?      if ." *Immediate* NFA: " inverse dump-immed t-reset exit else drop then
     \ Non-deterministic (heuristic) cases.
     \
     \ A range of integer values used by the system as tokens, that *might* be tokens
@@ -216,13 +216,13 @@ variable word-counter
     dup dup def-call?       if ." Definition call: "       dump-word exit else drop then
     dup dup var-call?       if ."    Var/Const ref "       dump-word exit else drop then
     dup bp?                 if ."     Back Pointer " cr              exit then
-    dup dup nfa?            if ."             NFA: "          @ type exit else drop then
+    dup dup nfa?            if ."             NFA: " @ inverse type t-reset exit else drop then
     dup compiled-value?     if ."   Compiled value "                 exit then
     @ dump-segment
     ;
 
 : dump-header
-    ." ADDRESS CHAR -------------HEX ------------DECIMAL ------------KIND VALUE" cr
+    dim ." ADDRESS CHAR -------------HEX ------------DECIMAL ------------KIND VALUE" t-reset cr
     ;
 \ : dump-val ."  some value " .s ;
 \ Output a single cell's information
@@ -247,7 +247,7 @@ variable word-counter
 \ dump-here dumps the top n cells. Useful for seeing recent dictionary entries.
 : dump-here     ( n -- )
     dup here @ 1 - swap - swap dump
-    ." **************** HERE ********** TOP OF HEAP *********************" cr
+    dim ." **************** HERE ********** TOP OF HEAP *********************" t-reset cr
     here @ 2 dump ;
 
 : dh 25 dump-here ;

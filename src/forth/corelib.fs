@@ -437,7 +437,7 @@
 
 : strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
                                                 
-include src/forth/debug.fs
 include src/forth/terminal.fs
+include src/forth/debug.fs
 include src/forth/editor.fs
 include src/forth/sequences.fs	

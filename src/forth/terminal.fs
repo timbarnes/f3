@@ -103,3 +103,75 @@
 : erase-chars
     esc ." [" 0 .r ." K" ;
 
+\ Color support
+
+\ Emit CSI prefix (Control Sequence Introducer)
+: csi ( -- ) esc ." [" ;
+
+\ Generic SGR (Select Graphic Rendition) sequence
+: sgr ( n -- ) csi 0 .r ." m" ;
+
+\ Reset all attributes
+: t-reset   ( -- ) 0 sgr ;
+
+\ -------- Text styles --------
+: bold      ( -- ) 1 sgr ;
+: dim       ( -- ) 2 sgr ;
+: italic    ( -- ) 3 sgr ;
+: underline ( -- ) 4 sgr ;
+: inverse   ( -- ) 7 sgr ;
+: strike    ( -- ) 9 sgr ;
+
+\ -------- Foreground colors --------
+: black     ( -- ) 30 sgr ;
+: red       ( -- ) 31 sgr ;
+: green     ( -- ) 32 sgr ;
+: yellow    ( -- ) 33 sgr ;
+: blue      ( -- ) 34 sgr ;
+: magenta   ( -- ) 35 sgr ;
+: cyan      ( -- ) 36 sgr ;
+: white     ( -- ) 37 sgr ;
+
+\ -------- Bright foregrounds --------
+: br-black   ( -- ) 90 sgr ;
+: br-red     ( -- ) 91 sgr ;
+: br-green   ( -- ) 92 sgr ;
+: br-yellow  ( -- ) 93 sgr ;
+: br-blue    ( -- ) 94 sgr ;
+: br-magenta ( -- ) 95 sgr ;
+: br-cyan    ( -- ) 96 sgr ;
+: br-white   ( -- ) 97 sgr ;
+
+\ -------- Background colors --------
+: bg-black   ( -- ) 40 sgr ;
+: bg-red     ( -- ) 41 sgr ;
+: bg-green   ( -- ) 42 sgr ;
+: bg-yellow  ( -- ) 43 sgr ;
+: bg-blue    ( -- ) 44 sgr ;
+: bg-magenta ( -- ) 45 sgr ;
+: bg-cyan    ( -- ) 46 sgr ;
+: bg-white   ( -- ) 47 sgr ;
+
+\ -------- Bright backgrounds --------
+: bg-br-black   ( -- ) 100 sgr ;
+: bg-br-red     ( -- ) 101 sgr ;
+: bg-br-green   ( -- ) 102 sgr ;
+: bg-br-yellow  ( -- ) 103 sgr ;
+: bg-br-blue    ( -- ) 104 sgr ;
+: bg-br-magenta ( -- ) 105 sgr ;
+: bg-br-cyan    ( -- ) 106 sgr ;
+: bg-br-white   ( -- ) 107 sgr ;
+
+\ -------- 256-color support --------
+: fg256 ( n -- )  \ 0–255
+  csi ." 38;5;" . ." m" ;
+
+: bg256 ( n -- )  \ 0–255
+  csi ." 48;5;" . ." m" ;
+
+\ -------- True color (RGB) --------
+: fg-rgb ( r g b -- )
+  csi ." 38;2;" 0 .r ." ;" 0 .r ." ;" 0 .r ." m" ;
+
+: bg-rgb ( r g b -- )
+  csi ." 48;2;" 0 .r ." ;" 0 .r ." ;" 0 .r ." m" ;
