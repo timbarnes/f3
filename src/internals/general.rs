@@ -231,7 +231,7 @@ impl ForthRuntime {
         if self.kernel.stack_check(2, "s-copy") {
             let dest = self.kernel.pop() as usize;
             let source = self.kernel.pop() as usize;
-            let length = self.kernel.byte_get(source) + 1; // +1 for the length byte
+            let length = self.kernel.byte_get(source);
             self.kernel.string_copy(source, dest, length as usize, true);
         }
     }

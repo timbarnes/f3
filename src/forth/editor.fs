@@ -25,6 +25,8 @@
 
 variable ed-char-count        \ the number of characters in the buffer
 variable ed-cursor-position   \ location for edit and move functions
+variable ed-hist-buf          \ text buffer for previous command
+variable ed-hist-tmp          \ text buffer for swap;
 
 : delta-to-end
     ed-char-count @ ed-cursor-position @ - ;
@@ -47,6 +49,11 @@ variable ed-cursor-position   \ location for edit and move functions
     0 ed-char-count !
     0 ed-cursor-position !
     tmp @ 1 +
+    \ Set up for history;
+    tmp @ 132 c!            \ Fake the length of the buffer
+    tmp @ s-create          \ Make a new string
+    ed-hist-buf !           \ Store its address
+
     ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\
@@ -58,24 +65,24 @@ variable ed-cursor-position   \ location for edit and move functions
     ;
 
 \ Redraw the characters in the buffer at the current cursor position
-\ : ed-draw-buffer ( s_addr -- s_addr )
-\     ed-char-count @
-\     dup 0 > if 
-\         \ cr ." ed-draw-buffer " cr
-\         incr-for for dup i - c@ emit next drop
-\     then
-\     ;
+: ed-draw-buffer ( s_addr -- s_addr )
+    ed-char-count @
+    dup 0 > if 
+        \ cr ." ed-draw-buffer " cr
+        incr-for for dup i - c@ emit next drop
+    then
+    ;
 
 \ Repaint the line
-\ : ed-repaint    ( s_addr -- s_addr )
-\     cr ." Repainting " cr
-\     line-clear
-\     CR (emit)
-\     ed-prompt
-\     ed-draw-buffer
-\     ed-char-count @ ed-cursor-position @ -
-\     dup 0 > if cursor-back else drop then
-\     ;
+: ed-repaint    ( s_addr -- s_addr )
+    line-clear
+    CR (emit)
+    ed-prompt
+    ed-draw-buffer
+    ed-char-count @ ed-cursor-position @ -
+    dup 0 > if cursor-back else drop then
+    flush
+    ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Buffer utilities
@@ -168,6 +175,11 @@ variable ed-cursor-position   \ location for edit and move functions
     endcase
     ;
 
+\ Copy the current line to the history buffer
+: ed-save-hist ( -- )
+    tmp @ ed-hist-buf @ s-copy
+    ;
+    
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Editing functions - these are the operations directly bound to keys
 
@@ -192,6 +204,7 @@ variable ed-cursor-position   \ location for edit and move functions
     ed-char-count @
     swap 1 - c!                 \ store the character count
     raw-mode-off cr
+    ed-save-hist
     ;
 
 \ Delete a character if one or more have been entered
@@ -261,6 +274,18 @@ variable ed-cursor-position   \ location for edit and move functions
     delta-to-end erase-chars flush
     ;
 
+\ ^P: Swap current input buffer with history buffer and redraw the line
+: ed-history ( char -- )
+    \ The current string is in TMP
+    \ We'll use PAD as a temporary buffer
+    \ The history buffer is stored in a variable `ed-hist-buf`
+    tmp @ ed-hist-tmp @ s-copy
+    ed-hist-buf @ tmp @ s-copy
+    ed-hist-tmp @ ed-hist-buf @ s-copy
+    tmp @ c@ dup ed-char-count ! ed-cursor-position !
+    drop ed-repaint
+    ;
+
 : get-line ( -- )
     raw-mode-on ( enable raw mode for direct key input )
     ed-init
@@ -282,8 +307,8 @@ variable ed-cursor-position   \ location for edit and move functions
             ^E  of ed-line-end    endof  \ Move to the end of the line
             ^F  of ed-forward     endof  \ Move forward one character
             ^K  of ed-del-to-eol  endof  \ Delete to end of line
-            \ default case stores the character and increments the counter
-            ed-insert
+            ^P  of ed-history     endof  \ Swap current buffer with history
+            ed-insert                    \ default: stores the character and increments the counter
         endcase
     again
     ; 

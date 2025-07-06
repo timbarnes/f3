@@ -18,6 +18,10 @@
 : constant ( n -- ) create 100002 , ,      \ v constant <name> creates a constant with value v
     (close) ;  
 
+: string ( n -- )
+    create 100004 ,
+    s-create dup 0 swap c! , (close) ;
+    
 \ Boolean constants. In fact any non-zero value is interpreted as true, but -1 is traditional.
 
 0 constant FALSE
@@ -301,6 +305,7 @@
 : type ( s -- )                                 \ Print from the string pointer on the stack
                     ADDRESS_MASK and            \ Wipe out any flags
                     dup c@ swap 1+ swap         \ Get the length to drive the for loop
+                    dup 0= if exit then
                     tell ;
 
 : rtell ( s l w -- )                            \ Right justify a string of length l in a field of w characters
@@ -440,4 +445,4 @@
 include src/forth/terminal.fs
 include src/forth/debug.fs
 include src/forth/editor.fs
-include src/forth/sequences.fs	
+include src/forth/sequences.fs
