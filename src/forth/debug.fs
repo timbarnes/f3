@@ -5,7 +5,7 @@
 variable word-counter
 
 : .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
-                    dup dup 1+ 4 u.r space 1+ @ 13 ltype 
+                    dup dup 1+ dim 4 u.r t-reset space 1+ @ 13 ltype 
                     1 word-counter +! 
                     word-counter @ 8 mod
                     if space else cr then @ ;   
