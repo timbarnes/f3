@@ -34,6 +34,14 @@ impl ForthRuntime {
         self.kernel.pop2_push1("/", |a, b| a / b);
     }
 
+    pub fn f_lshift(&mut self) {
+        self.kernel.pop2_push1("lshift", |a, b| a << b);
+    }
+
+    pub fn f_rshift(&mut self) {
+        self.kernel.pop2_push1("rshift", |a, b| a >> b);
+    }
+
     pub fn f_mod(&mut self) {
         self.kernel.pop2_push1("mod", |a, b| a % b);
     }

@@ -373,20 +373,20 @@ impl ForthRuntime {
             "mod ( j k -- j/k ) Push j%k on the stack",
         );
         self.add_builtin(
+            "lshift",
+            ForthRuntime::f_lshift,
+            "shift ( j k -- j<<k ) Push j << k on the stack",
+        );
+        self.add_builtin(
+            "rshift",
+            ForthRuntime::f_rshift,
+            "rshift ( j k -- j>>k ) Push j >> k on the stack",
+        );
+        self.add_builtin(
             "<",
             ForthRuntime::f_less,
             "( j k -- j/k ) If j < k push true else false",
         );
-        // self.add_builtin(
-        //     "true",
-        //     ForthRuntime::f_true,
-        //     "true ( -- -1 ) Push the canonical true value on the stack.",
-        // );
-        // self.add_builtin(
-        //     "false",
-        //     ForthRuntime::f_false,
-        //     "false ( -- 0 ) Push the canonical false value on the stack",
-        // );
         self.add_builtin(
             "=",
             ForthRuntime::f_equal,

@@ -1,4 +1,4 @@
-: parse pad @ swap parse-to ; 
+: parse pad @ swap parse-to ;
 
 : \ 1 parse drop drop ; immediate
 
@@ -11,17 +11,17 @@
 
 : (close) ( -- )                      \ terminate a definition, writing a back pointer and updating context, last, and here
         last @ 1 - here @ !           \ write the new back pointer
-        here @ 1 + here !             \ update HERE 
+        here @ 1 + here !             \ update HERE
         last @ context !              \ update CONTEXT
         ;
 
 : constant ( n -- ) create 100002 , ,      \ v constant <name> creates a constant with value v
-    (close) ;  
+    (close) ;
 
 : string ( n -- )
     create 100004 ,
     s-create dup 0 swap c! , (close) ;
-    
+
 \ Boolean constants. In fact any non-zero value is interpreted as true, but -1 is traditional.
 
 0 constant FALSE
@@ -52,8 +52,8 @@
 
 \ Flags and masks used to identify special words and extract addresses
 72057594037927935 constant ADDRESS_MASK                      \ wipes any flags
-2305843009213693952 constant BUILTIN_FLAG
-4611686018427387904 constant IMMEDIATE_FLAG
+1 61 lshift constant BUILTIN_FLAG
+1 62 lshift constant IMMEDIATE_FLAG
 
 \ ASCII symbols that are useful for text processing
 10  constant '\n'
@@ -76,16 +76,16 @@
  1 constant W/O
 
 \ char <character> takes the first character of the next token and puts its ASCII value on the stack
-: char 
+: char
     32 parse drop 1 + c@ ;
 
 \ This version is for use inside a definition. It compiles the value into the definition as a literal.
-: [char] 
-    32 parse drop 1 + c@ LITERAL , , ; immediate 
+: [char]
+    32 parse drop 1 + c@ LITERAL , , ; immediate
 
 \ variable <name> creates a variable, initialized to zero
-: variable ( -- ) create VARIABLE , 0 ,   
-    (close) ;  
+: variable ( -- ) create VARIABLE , 0 ,
+    (close) ;
 
 : decimal 10 base ! ;
 : hex 16 base ! ;
@@ -125,7 +125,7 @@
 
 \ include is for interactive use. It gets a file path from the user and loads it.
 : include   ( -- )
-                    tmp @ 32 parse-to 
+                    tmp @ 32 parse-to
                     drop include-file drop ;        \ include-file only needs the address
 
 : [ FALSE state ! ; immediate                       \ Turns compile mode off
@@ -146,7 +146,7 @@
 : else   BRANCH , here @ 0 , swap _patch-here ; immediate
 : then   _patch-here ; immediate
 
-      
+
 : ' (') dup @ dup DEFINITION = if drop else nip then ;
 
 : [']               LITERAL , ' , ; immediate             \ compiles a word's cfa into a definition as a literal
@@ -154,7 +154,7 @@
 : cfa>nfa           1 - ;                                 \ converts an cfa to an nfa
 : nfa>cfa           1 + ;                                 \ converts an nfa to a cfa
 : bp>nfa            1 + ;                                 \ from preceding back pointer to nfa
-: bp>cfa            2 + ; 
+: bp>cfa            2 + ;
 
 : 1- ( n -- n-1 )   1 - ;
 : 1+ ( n -- n+1 )   1 + ;
@@ -173,7 +173,7 @@
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Memory allocation
-\   
+\
 \ If n > 0, reserve n cells of data space. If n < 0, release |n| cells. If n is zero, no action is taken.
 \            Allot updates `here`, but does not create a back pointer.
 \
@@ -194,7 +194,7 @@
 : max ( m n -- m | n ) 2dup > if drop else nip then ;
 : abs ( n -- n | -n ) dup 0 < if -1 * then ;
 : range ( n l h -- b ) \ Returns TRUE if n is in the range of l to h inclusive
-    1 + swap 1 - 
+    1 + swap 1 -
     2 pick < 2 roll 2 roll < and ;
 
 \ Control structures
@@ -204,7 +204,7 @@
                     here @ MARK_WHILE >c
                     999 ,                ; immediate
 : repeat ( -- )     c> drop                             \ pop while branch placeholder address
-                    BRANCH ,                            \ unconditional branch to the beginning of the loop 
+                    BRANCH ,                            \ unconditional branch to the beginning of the loop
                     here @ over - 1 + swap !            \ patch forward offset at WHILE's placeholder
                     c> drop                             \ pop begin address
                     here @ - ,           ; immediate    \ save negative offset to BEGIN                          \ emit negative offset
@@ -213,9 +213,9 @@
                     ['] >r ,             ; immediate
 : next ( -- )       c>  drop                            \ get FOR addr
                     ['] r> ,                            \ compile saving the loop index
-                    LITERAL , 1 , 
+                    LITERAL , 1 ,
                     ['] - ,                             \ compile decrementing the index
-                    ['] dup , 
+                    ['] dup ,
                     ['] 0= ,                            \ compile dup and 0 test
                     BRANCH0 ,                           \ compile branch0 backwards
                     here @ - ,                          \ patch the backwards branch0
@@ -239,20 +239,20 @@
     ['] = ,                 \ compile the test
     BRANCH0 , 999 ,         \ compile the branch. If the key doesn't match, we will skip
     here @ MARK_OF >c       \ push a marker
-    ; 
+    ;
     immediate
 
 : endof     ( -- )          \ the "then" part
     BRANCH ,            \ compile the branch
     here @ MARK_OF >c       \ push a second marker for this clause
-    888 , 
+    888 ,
     ;
     immediate
 
 : endcase   ( -- )          \ patch the branches, exiting when the MARK_CASE is found
     begin
         c> MARK_CASE =          \ is the first marker a CASE marker?
-        if 
+        if
             ['] r> ,            \ pop the key off the return stack
             ['] drop ,          \ dump the key
             drop                \ the address
@@ -260,7 +260,7 @@
         else                    \ it's an 'endof' marker, so patch jump to the end. patch_addr is on the stack
             dup dup             \ save extra copies of the address for the second patch operation
             here @ swap -
-            swap  
+            swap
             !                   \ store the patch
             c>                  \ get the corresponding 'of' marker
             drop 1 -            \ we could test the type...
@@ -296,10 +296,10 @@
 
 : tell ( s l -- )                               \ like type, but length is provided: useful for substrings
                     swap ADDRESS_MASK and
-                    swap 2dup + rot drop swap 
-                    for 
-                        dup i - c@ emit 
-                    next 
+                    swap 2dup + rot drop swap
+                    for
+                        dup i - c@ emit
+                    next
                         drop ;
 
 : type ( s -- )                                 \ Print from the string pointer on the stack
@@ -309,17 +309,17 @@
                     tell ;
 
 : rtell ( s l w -- )                            \ Right justify a string of length l in a field of w characters
-                    over - 1 max 
+                    over - 1 max
                     spaces tell ;
 
 : ltell ( s l w -- ) 2dup swap -
                     nip rot rot
                     tell spaces ;
 
-: rtype ( s w -- )  swap ADDRESS_MASK and dup c@ 
+: rtype ( s w -- )  swap ADDRESS_MASK and dup c@
                     rot swap - spaces type ;
 
-: ltype             swap ADDRESS_MASK and dup c@ 
+: ltype             swap ADDRESS_MASK and dup c@
                     rot swap - swap type spaces ;
 
 : .tmp              tmp @ type ;                               \ Print the tmp buffer
@@ -352,7 +352,7 @@
 
 : /mod              2dup mod rot rot / ;
 
-: .d ( n -- )       dup 10 < 
+: .d ( n -- )       dup 10 <
                     if '0' else 10 - 'A' then
                     + emit ;    \ print a single digit
 
@@ -362,7 +362,7 @@
                     ?dup if recurse then .d ;
 
 : uwidth ( u -- n ) \ returns the number of digits in an unsigned number
-                    base @ / 
+                    base @ /
                     ?dup if recurse 1+ else  1 then ;
 
 : u.r ( u width -- )
@@ -370,8 +370,8 @@
                     spaces u. ;
 
 : .r ( n width -- )
-                    swap dup 0< 
-                    if 
+                    swap dup 0<
+                    if
                         negate 1 swap rot 1-
                     else
                         0 swap rot
@@ -425,12 +425,12 @@
 
 : forget ( <name> )                             \ delete <name> and any words since
                     trace-off step-off          \ we're messing with the dictionary, so we don't want to run FIND
-                    (') dup  
-                    if 
+                    (') dup
+                    if
                         1- dup dup here ! @ s-here !            \ move to nfa and set HERE and S-HERE
                         1- @ 1+ dup context ! last !            \ go back a link and set CONTEXT and LAST
                     else
-                        drop 
+                        drop
                     then ;
 
 \ : ?stack depth 0= if abort" Stack underflow" then ;
@@ -441,7 +441,7 @@
                     #tib @ >in @ < if FALSE else key TRUE then ; \ otherwise push FALSE
 
 : strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
-                                                
+
 include src/forth/terminal.fs
 include src/forth/debug.fs
 include src/forth/editor.fs

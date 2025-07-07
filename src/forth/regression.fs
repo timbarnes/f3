@@ -13,21 +13,21 @@ variable test-num 0 test-num !
 ( If the desired result is equal to the top of the stack, the test passes. )
 ( Relies on a variable test-num that indicates the number of the test. )
 
-: test-none ( .. -- ) 
+: test-none ( .. -- )
     depth 1 test-num +!
     test-num ?
     0= if ."  Passed " else ."        ******** Failed ******** " test-num @ .s then cr ;
 
-: test-single ( m n.. -- b ) 
+: test-single ( m n.. -- b )
     1 test-num +!
     test-num ?
     = if ."  Passed " else ."        ******** Failed ******** "  test-num @ .s then cr ;
 
-: test-dual ( j k n.. -- b ) 
+: test-dual ( j k n.. -- b )
     1 test-num +!
-    rot = 
-    rot rot = 
-    and 
+    rot =
+    rot rot =
+    and
     test-num ?
     if ."  Passed " else ."        ******** Failed ******** " test-num @ .s then cr ;
 : test-results depth 0= if ." All tests passed!" else ." The following tests failed: " .s clear then ;
@@ -84,6 +84,8 @@ variable test-num 0 test-num !
 -10 5 15 - test-single
 -20 2 -10 * test-single
 4 12 3 / test-single
+65535 1 16 lshift test-single
+4 32 3 rshift test-single
 
 ."         Logic" cr
 -1 TRUE test-single
@@ -138,12 +140,12 @@ FALSE 16 12 15 range test-single
 
 : loop-test for i next ;
 
-: nested-loop-test 
-    for 
-        3 for 
+: nested-loop-test
+    for
+        3 for
             i . j .
-            next i . 
-        i 
+            next i .
+        i
     next ;
 
 : test-loop  ( -- n )
@@ -169,7 +171,7 @@ FALSE 16 12 15 range test-single
 4 2 4 nested-loop-test - - test-dual
 3 3 3 loop-test + test-dual
 3 3 4 test-until + + test-dual
-12345 test-loop test-single 
+12345 test-loop test-single
 111 1 test-case test-single
 333 3 test-case test-single
 444 99 test-case test-single
@@ -185,27 +187,27 @@ cr
 ."        Application tests" cr
 
 : _fac ( r n -- r )   \ Helper function that does most of the work.
-                    dup if 
-                        tuck * swap 1 - recurse 
-                    else 
-                        drop 
+                    dup if
+                        tuck * swap 1 - recurse
+                    else
+                        drop
                     then ;
 : fac ( n -- n! )   \ Calculates factorial of a non-negative integer. No checks for stack or calculation overflow.
-                    dup if 
+                    dup if
                         1 swap _fac  \ Calls the previous definition - this is not recursion
-                    else 
-                        drop 1 
+                    else
+                        drop 1
                     then ;
 
-: fib  ( n -- )     dup 0= if exit then 
-                    dup 1 = if exit then 
-                    1 - dup recurse 
+: fib  ( n -- )     dup 0= if exit then
+                    dup 1 = if exit then
+                    1 - dup recurse
                     swap 1 - recurse + ;
 
 1 0 fac test-single
 1 1 fac test-single
 6 3 fac test-single
-479001600 12 fac test-single 
+479001600 12 fac test-single
 4181 19 fib test-single
 
 ."        Run tests "
