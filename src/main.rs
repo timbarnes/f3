@@ -1,9 +1,9 @@
 // f3 main program
 // Version 0.1
-// 
+//
 // Boots the interpreter, loads the core and any specified files, and runs the Forth interpreter loop.
 // The boot process is separated from the run process to allow for better error handling and recovery.
-// Errors during boot will not start the interpreter loop, while errors during execution will 
+// Errors during boot will not start the interpreter loop, while errors during execution will
 // reset the interpreter to the prompt, clearing the data stack and return stack.
 
 mod internals {
@@ -19,19 +19,18 @@ mod internals {
     //pub mod tui;
 }
 mod config;
-mod runtime;
 mod kernel;
+mod runtime;
 
 use config::{Config, DEFAULT_CORE, VERSION};
-use runtime::ForthRuntime;
 use kernel::STACK_START;
+use runtime::ForthRuntime;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const WELCOME_MESSAGE: &str = "Welcome to f3.";
 const EXIT_MESSAGE: &str = "Finished";
 
 fn boot_forth(config: &Config) -> ForthRuntime {
-
     fn load_file(interpreter: &mut ForthRuntime, file_name: &str) {
         let addr = interpreter.kernel.get(interpreter.tmp_ptr) as usize;
         //println!("Loading file: {}", file_name);
@@ -43,7 +42,7 @@ fn boot_forth(config: &Config) -> ForthRuntime {
         interpreter.f_include_file();
         //println!("DEBUG: stack_ptr after f_include_file: {}", interpreter.kernel.get_stack_ptr());
         // Don't assert here as the stack might legitimately have content from the file
-    }   
+    }
 
     let mut forth = ForthRuntime::new();
 
@@ -74,9 +73,15 @@ fn boot_forth(config: &Config) -> ForthRuntime {
                 // println!("Failed to load user file: {}", file);
             }
         }
-        
+
         // Assert that stack pointer is correct after file loading
-        assert_eq!(forth.kernel.get_stack_ptr(), STACK_START, "Stack pointer should be {} after file loading, but is {}", STACK_START, forth.kernel.get_stack_ptr());
+        assert_eq!(
+            forth.kernel.get_stack_ptr(),
+            STACK_START,
+            "Stack pointer should be {} after file loading, but is {}",
+            STACK_START,
+            forth.kernel.get_stack_ptr()
+        );
     }));
 
     if boot_result.is_err() {
@@ -91,11 +96,11 @@ fn run_forth(forth: &mut ForthRuntime) {
 
     // --- Interactive Loop Phase ---
     loop {
-        let result = catch_unwind(AssertUnwindSafe(|| {   
+        let result = catch_unwind(AssertUnwindSafe(|| {
             forth.f_dot_s();
             forth.set_abort_flag(false);
             // println!("Entering f_quit");
-            forth.f_quit();  // main interpreter loop
+            forth.f_quit(); // main interpreter loop
         }));
 
         match result {
@@ -104,7 +109,7 @@ fn run_forth(forth: &mut ForthRuntime) {
                 break;
             }
             Err(err) => {
-            eprintln!("⚠️  Error during execution. Resetting interpreter to prompt.");
+                eprintln!("⚠️  Error during execution. Resetting interpreter to prompt.");
 
                 if let Some(msg) = err.downcast_ref::<&str>() {
                     eprintln!("panic message: {}", msg);
@@ -117,7 +122,7 @@ fn run_forth(forth: &mut ForthRuntime) {
                 // Print the backtrace if RUST_BACKTRACE is set
                 // Optionally re-raise to get Rust's full backtrace output
                 std::panic::resume_unwind(err);
-            }       
+            }
         }
     }
 }

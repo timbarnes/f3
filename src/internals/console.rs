@@ -1,50 +1,49 @@
+use crate::internals::files::{FType, FileHandle, FileMode};
+use crate::internals::messages::Msg;
 /// Input-output words
 use crate::kernel::BUF_SIZE;
-use crate::internals::messages::Msg;
-use crate::internals::files::{FileHandle, FType, FileMode};
-use crate::runtime::{ForthRuntime, FALSE, TRUE, FILEMODE_RO};
+use crate::runtime::{ForthRuntime, FALSE, FILEMODE_RO, TRUE};
 use std::cmp::min;
-use std::io::{self, Write, BufRead};
+use std::io::{self, BufRead, Write};
 use std::process::Command;
 
-
-    /// file I/O and system call
-    /// 
-    /// Most activity uses STDIN and STDOUT, but the system can also process source code
-    /// from files (typically ending in .fs.
-    /// 
-    /// Additionally basic general file I/O is supported with file-open, file-close, read-line, write-line
-    /// and utilities file-size and file-position capturing file size and position within the file.
-    /// 
-    /// File modes can be r/w or r/o, and are set with constants passed to open-file.
-    /// 
-    /// Forth needs an i64 / usize as a file reference. This is achieved by creating a vector of file handles.
-    /// Forth accesses files via an index into the vector.
+/// file I/O and system call
+///
+/// Most activity uses STDIN and STDOUT, but the system can also process source code
+/// from files (typically ending in .fs.
+///
+/// Additionally basic general file I/O is supported with file-open, file-close, read-line, write-line
+/// and utilities file-size and file-position capturing file size and position within the file.
+///
+/// File modes can be r/w or r/o, and are set with constants passed to open-file.
+///
+/// Forth needs an i64 / usize as a file reference. This is achieved by creating a vector of file handles.
+/// Forth accesses files via an index into the vector.
 
 impl ForthRuntime {
     /// (system) ( s -- ) Execute a shell command from the string on the stack (Unix-like operating systems)
-    /// 
-pub fn f_system_p(&mut self) {
-    if self.kernel.stack_check(1, "(system)") {
-        let addr = self.kernel.pop() as usize;
-        let cmd_string = self.kernel.string_get(addr);
-        let mut args = cmd_string.split_ascii_whitespace();
-        //println!("args: {:?}", args);
-        let mut cmd: Command;
-        let c = args.next();
-        match c {
-            Some(c) =>  cmd = Command::new(c),
-            None => return,
+    ///
+    pub fn f_system_p(&mut self) {
+        if self.kernel.stack_check(1, "(system)") {
+            let addr = self.kernel.pop() as usize;
+            let cmd_string = self.kernel.string_get(addr);
+            let mut args = cmd_string.split_ascii_whitespace();
+            //println!("args: {:?}", args);
+            let mut cmd: Command;
+            let c = args.next();
+            match c {
+                Some(c) => cmd = Command::new(c),
+                None => return,
+            }
+            for arg in args {
+                println!("Adding {}", arg);
+                cmd.arg(arg);
+            }
+            let output = cmd.output().expect("(system) failed to execute command");
+            io::stdout().write_all(&output.stdout).unwrap();
+            io::stderr().write_all(&output.stderr).unwrap();
         }
-        for arg in args {
-            println!("Adding {}", arg);
-            cmd.arg(arg);
-        }
-        let output = cmd.output().expect("(system) failed to execute command");
-        io::stdout().write_all(&output.stdout).unwrap();
-        io::stderr().write_all(&output.stderr).unwrap();
-   }
-}
+    }
 
     /// key ( -- c | 0 ) get a character and push on the stack, or zero if none available
     pub fn f_key(&mut self) {
@@ -63,14 +62,14 @@ pub fn f_system_p(&mut self) {
 
     /// key? ( -- b ) Checks to see if a character is ready to be read.
     ///     Only works properly in raw mode. In cooked mode it waits until EOL.
-    /// 
+    ///
     pub fn f_key_q(&mut self) {
         let result = crate::internals::files::key_available();
         if result {
             self.kernel.push(TRUE);
         } else {
             self.kernel.push(FALSE);
-        }   
+        }
     }
 
     /// accept ( b u -- b u ) Read up to u characters, storing them at string address b and returning the actual length.
@@ -114,7 +113,7 @@ pub fn f_system_p(&mut self) {
     }
 
     /// QUERY ( -- ) Load a new line of text into the TIB
-    ///     
+    ///
     pub fn f_query(&mut self) {
         let addr = self.kernel.get(self.tib_ptr);
         self.kernel.push(addr);
@@ -135,7 +134,9 @@ pub fn f_system_p(&mut self) {
         if self.kernel.stack_check(1, "(emit)") {
             let c = self.kernel.pop() as u8 as char;
             //print!("{}", c as u8 as char);
-            io::stdout().write_all(c.encode_utf8(&mut [0; 4]).as_bytes()).unwrap();
+            io::stdout()
+                .write_all(c.encode_utf8(&mut [0; 4]).as_bytes())
+                .unwrap();
         }
     }
 
@@ -169,7 +170,7 @@ pub fn f_system_p(&mut self) {
             let addr = self.kernel.pop() as usize;
             let file_name = self.kernel.string_get(addr);
             let mode = FILEMODE_RO; // Read-only mode for included files
-            let handle = self.u_open_file( &file_name, mode as i64);
+            let handle = self.u_open_file(&file_name, mode as i64);
             match handle {
                 Some(handle) => {
                     self.reader.push(handle);
@@ -194,24 +195,23 @@ pub fn f_system_p(&mut self) {
                 Some(handle) => {
                     self.files.push(handle);
                     self.kernel.push(self.files.len() as i64 - 1); // Push the index as a file-id
-                    self.kernel.push(0);                    // 0 means success in this case
+                    self.kernel.push(0); // 0 means success in this case
                 }
                 None => {
                     self.kernel.push(0);
-                    self.kernel.push(-1);        // Signals an error condition
+                    self.kernel.push(-1); // Signals an error condition
                 }
             }
         }
-
     }
     /// u_open-file  Open the named file with file access mode mode.
-    ///    Returns a file handle and 0 if successful. 
+    ///    Returns a file handle and 0 if successful.
     pub fn u_open_file(&mut self, name: &str, mode: i64) -> Option<FileHandle> {
         let full_path = std::fs::canonicalize(name);
         let mode = match mode {
             -1 => FileMode::RW,
-             1 => FileMode::WO,
-             _ => FileMode::RO
+            1 => FileMode::WO,
+            _ => FileMode::RO,
         };
         match full_path {
             Ok(full_path) => {
@@ -221,11 +221,8 @@ pub fn f_system_p(&mut self) {
                         return Some(fh);
                     }
                     None => {
-                        self.msg.error(
-                            "open-file",
-                            "Failed to create new reader",
-                            None::<bool>,
-                        );
+                        self.msg
+                            .error("open-file", "Failed to create new reader", None::<bool>);
                     }
                 }
             }
@@ -235,14 +232,14 @@ pub fn f_system_p(&mut self) {
             }
         }
         None
-   }
+    }
 
     ///  close-file ( file-id -- ior ) Close a file, returning the I/O status code.
     ///     In rust, we just need it to go out of scope, so delete it from the vector
     pub fn f_close_file(&mut self) {
         if self.kernel.stack_check(1, "close-file") {
             let file_id = self.kernel.pop() as usize;
-            if file_id < self.files.len() { 
+            if file_id < self.files.len() {
                 self.files.remove(file_id);
                 self.kernel.push(0);
             }
@@ -271,15 +268,18 @@ pub fn f_system_p(&mut self) {
                                 } else {
                                     let addr = self.kernel.get(self.tmp_ptr) as usize;
                                     self.kernel.string_save(&result, addr);
-                                    self.kernel.push(r as i64);  // Chars read
+                                    self.kernel.push(r as i64); // Chars read
                                     self.kernel.push(TRUE);
                                     self.kernel.push(0);
                                 }
                             }
-                            Err(e) => self.msg.error("read-line", e.to_string().as_str(), None::<bool>),
+                            Err(e) => {
+                                self.msg
+                                    .error("read-line", e.to_string().as_str(), None::<bool>)
+                            }
                         }
                     }
-                    _ => {}//self.msg.error("read-line", "No source found", Some(&self.files[file_id].source)),
+                    _ => {} //self.msg.error("read-line", "No source found", Some(&self.files[file_id].source)),
                 }
             }
         }
@@ -297,7 +297,8 @@ pub fn f_system_p(&mut self) {
                 // write the string to the file
                 match self.files[file_id].source {
                     FType::File(ref mut f) => {
-                        f.write_all(&string.as_bytes()).expect("Error writing to file");
+                        f.write_all(&string.as_bytes())
+                            .expect("Error writing to file");
                     }
                     _ => {}
                 }
@@ -312,7 +313,8 @@ pub fn f_system_p(&mut self) {
             if file_id < self.files.len() {
                 self.kernel.push(self.files[file_id].file_size() as i64);
             } else {
-                self.msg.error("file-size", "No such file-id", Some(file_id));
+                self.msg
+                    .error("file-size", "No such file-id", Some(file_id));
             }
         }
     }
@@ -324,10 +326,9 @@ pub fn f_system_p(&mut self) {
             if file_id < self.files.len() {
                 self.kernel.push(self.files[file_id].file_position() as i64);
             } else {
-                self.msg.error("file-position", "No such file-id", Some(file_id));
+                self.msg
+                    .error("file-position", "No such file-id", Some(file_id));
             }
         }
-
     }
-    
 }

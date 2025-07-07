@@ -1,23 +1,22 @@
+use crate::kernel::{DATA_SIZE, RET_START};
 /// Inner Interpreters
 ///
 /// Core functions to execute specific types of objects
 ///
 use crate::runtime::{
-    ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, 
-        BUILTIN, BUILTIN_FLAG, CONSTANT, DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE
+    ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN, BUILTIN_FLAG,
+    CONSTANT, DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE,
 };
-use crate::kernel::{RET_START, DATA_SIZE};
-
 
 impl ForthRuntime {
     /// Executes the builtin at the next address in DATA
     ///
     ///    [ index of i_builtin ] [ index of builtin ] in a compiled word
     ///
- pub fn builtin(&mut self, code: usize) {
-    let func = &self.kernel.get_builtin(code);
-    (func.code)(self); // call the function pointer directly
- }
+    pub fn builtin(&mut self, code: usize) {
+        let func = &self.kernel.get_builtin(code);
+        (func.code)(self); // call the function pointer directly
+    }
 
     /// Places the address of the adjacent variable on the stack
     ///
@@ -83,7 +82,11 @@ impl ForthRuntime {
                 self.kernel.set_return_ptr(RET_START); // clear the return stack
                 return; // we've completed the last exit or encountered an error
             }
-            let code = if pc < DATA_SIZE { self.kernel.get(pc) } else { pc as i64 };
+            let code = if pc < DATA_SIZE {
+                self.kernel.get(pc)
+            } else {
+                pc as i64
+            };
             self.debug_step(pc, call_depth);
             match code {
                 BUILTIN => {
@@ -155,7 +158,6 @@ impl ForthRuntime {
                     self.f_r_from();
                     pc = self.kernel.pop() as usize;
                     call_depth -= 1;
-
                 }
                 BREAK => {
                     // Breaks out of a word by popping the PC from the return stack
@@ -167,7 +169,7 @@ impl ForthRuntime {
                     pc += 1;
                 }
                 _ => {
-                   // we have a word address
+                    // we have a word address
                     // see if it's a builtin:
                     let builtin_flag = code as usize & BUILTIN_FLAG;
                     let address = code as usize & ADDRESS_MASK;
@@ -204,5 +206,4 @@ impl ForthRuntime {
         self.f_r_from();
         // pc = self.kernel.pop() as usize;
     }
-
 }

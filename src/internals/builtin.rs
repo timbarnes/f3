@@ -22,7 +22,7 @@ impl BuiltInFn {
 
 /////////////////////////////////////////////
 /// TESTS
-/// 
+///
 #[cfg(test)]
 
 mod tests {
@@ -37,12 +37,13 @@ mod tests {
             rt.kernel.push(44);
         }
         fn get_val(rt: &mut ForthRuntime) -> i64 {
-            let builtin_fn = BuiltInFn::new("test".to_string(),
+            let builtin_fn = BuiltInFn::new(
+                "test".to_string(),
                 num_fn,
-                "This is a test function".to_string()
-            ); 
-            (builtin_fn.code)(rt);      // Call the function pointer
-            rt.kernel.pop()             // Get the value pushed by the function
+                "This is a test function".to_string(),
+            );
+            (builtin_fn.code)(rt); // Call the function pointer
+            rt.kernel.pop() // Get the value pushed by the function
         }
         let name = "test".to_string();
         let doc = "This is a test function".to_string();

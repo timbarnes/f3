@@ -5,25 +5,25 @@
 variable word-counter
 
 : .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
-                    dup dup 1+ dim 4 u.r t-reset space 1+ @ 13 ltype 
-                    1 word-counter +! 
+                    dup dup 1+ dim 4 u.r t-reset space 1+ @ 13 ltype
+                    1 word-counter +!
                     word-counter @ 8 mod
-                    if space else cr then @ ;   
+                    if space else cr then @ ;
 
 : words ( -- )
                     0 word-counter !
                     here @ 1- @                                 \ Get the starting point: the top back pointer
                     begin                                       \ loops through the words in the dictionary
                         .word dup not                           \ print a word and test the next pointer
-                    until 
-                        drop cr ;   
+                    until
+                        drop cr ;
 
-: print-word ( xt -- ) 
+: print-word ( xt -- )
                     1- @ 13 ltype ;                 \ print a word name, given the xt as produced by '
 
 
 \ Memory Dump Utility
-\ Attempts to print useful information from the dictionary / heap for debugging purposes. 
+\ Attempts to print useful information from the dictionary / heap for debugging purposes.
 \
 \ dump      ( addr count -- ) prints count records, starting from addr
 \ dump-here ( count -- )      prints count records below HERE, plus two above
@@ -33,7 +33,7 @@ variable word-counter
 
 \ Output functions
 
-: dump-help 
+: dump-help
     ." dump ( addr cells -- addr ) dumps heap data." cr
     ." dump-here ( cells -- )      dumps the top of the heap" cr
     ." Opcode reference: "
@@ -49,20 +49,20 @@ variable word-counter
 
 : dump-dec   ( val -- val ) dup @ 20 .r ;
 
-: dump-char  ( val -- val ) 
+: dump-char  ( val -- val )
     dup
-    space ''' emit 
-    emit 
-    ''' emit 
-    space space 
+    space ''' emit
+    emit
+    ''' emit
+    space space
     128 mod dup 32 126 range not if space then drop ;
 
 \ Emit a 20 character substring from the string address in the current cell
 \ This is usually not useful, and is a last resort if no other identification has been made.
 : dump-segment
         18 spaces
-        '|' emit 
-        dup 20 + 
+        '|' emit
+        dup 20 +
         20 for dup i - c@ emit
            next
         '|' emit drop ;
@@ -82,20 +82,20 @@ variable word-counter
     dup EXIT       = if ." EXIT                 " exit then
     dup BREAK      = if ." BREAK                " exit then
     dup EXEC       = if ." EXEC                 " exit then
-    ." *UNKNOWN* " drop ;   
+    ." *UNKNOWN* " drop ;
 
 : dump-word ( addr -- )             \ Print the name of the word with compile reference at addr
     @ 1 - @ type
     ;
 
 : dump-builtin ( addr -- )
-    @ ADDRESS_MASK and 
-    dup 2 .r 
-    ." : " builtin-name type 
+    @ ADDRESS_MASK and
+    dup 2 .r
+    ." : " builtin-name type
     ;
 
 : dump-immed ( addr -- )            \ Output an immediate word's name
-    @ ADDRESS_MASK and type
+    @ ADDRESS_MASK and 12 ltype
     ;
 
 \ Predicates to identify cell types
@@ -131,8 +131,8 @@ variable word-counter
     \ Five types: builtin, definition, constant, and variable ;
     dup builtin?
     swap dup builtin-name?
-    swap dup definition-name? 
-    swap dup variable-name? 
+    swap dup definition-name?
+    swap dup variable-name?
     swap dup constant-name?
     swap array-name?
     or or or or or
@@ -145,7 +145,7 @@ variable word-counter
     else
         1 +
         dup dup builtin? swap 1 - _nfa? and
-        swap @ dup DEFINITION = 
+        swap @ dup DEFINITION =
         swap dup ARRAY =
         swap dup VARIABLE =
         swap CONSTANT =
@@ -177,24 +177,24 @@ variable word-counter
 
 : var-value? ( addr -- bool )        \ Identifies a variable's storage cell
     1 - @ VARIABLE =    ;
-    
+
 : const-value? ( addr -- bool )        \ Identifies a constant's storage cell
     1 - @ CONSTANT =    ;
-    
+
 : def-call?  ( addr -- )           \ Identifies a compiled call to a Forth definition
-    @ @ DEFINITION = 
+    @ @ DEFINITION =
     ;
 
 : var-call?  ( addr -- )            \ Identifies a compiled reference to a variable
-    @ @ 
+    @ @
     dup VARIABLE =
-    swap CONSTANT = 
+    swap CONSTANT =
     or
     ;
 
 \ The master controller that dispatches to a display function
 \ Analysis proceeds from the most specific to the most general cases.
-\ 
+\
 : dump-val ( addr -- )
     space
     \ Deterministic cases
@@ -203,7 +203,7 @@ variable word-counter
     dup here @ >            if ."       Free space "                 exit then
     dup @ 0 <               if ."            Value "                 exit then
     dup dup builtin?        if ."         Builtin: "    dump-builtin exit else drop then
-    dup dup immediate?      if ." *Immediate* NFA: " inverse dump-immed t-reset exit else drop then
+    dup dup immediate?      if inverse ." *Immediate* NFA: " dump-immed t-reset exit else drop then
     \ Non-deterministic (heuristic) cases.
     \
     \ A range of integer values used by the system as tokens, that *might* be tokens
@@ -227,21 +227,21 @@ variable word-counter
 \ : dump-val ."  some value " .s ;
 \ Output a single cell's information
 : dump-cell
-        dup 
+        dup
         dump-addr @
         dump-char
         dump-hex
         dump-dec
         dump-val
-        cr drop 
+        cr drop
     ;
 
 \ Display the contents of a number of cells
 : dump       ( addr cells -- addr )
     dump-header
-    incr-for for dup i - 
+    incr-for for dup i -
         dump-cell
-    next 
+    next
     drop drop ;
 
 \ dump-here dumps the top n cells. Useful for seeing recent dictionary entries.
@@ -260,11 +260,11 @@ variable word-counter
 \
 : debug? debuglevel 4 = ;
 
-: d. debug?     ( n -- n ) 
+: d. debug?     ( n -- n )
     if dup . then ;
 
-: d.cr debug?   ( -- ) 
+: d.cr debug?   ( -- )
     if cr then ;
 
-: d.s debug?    ( -- ) 
+: d.s debug?    ( -- )
     if .s then ;

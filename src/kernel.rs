@@ -9,13 +9,13 @@
 use crate::internals::builtin::BuiltInFn;
 
 // DATA AREA constants
-pub const DATA_SIZE: usize    = 10000;
-pub const STRING_SIZE: usize  = 10000;
-pub const BUF_SIZE: usize     = 132;
-pub const ALLOC_START: usize  = DATA_SIZE / 2;
-pub const STACK_START: usize  = ALLOC_START - 1; // stack counts up
-pub const RET_START: usize    = DATA_SIZE - 1; // return stack counts downwards
-pub const WORD_START: usize   = 0; // data area counts up from the bottom (builtins, words, variables etc.)
+pub const DATA_SIZE: usize = 10000;
+pub const STRING_SIZE: usize = 10000;
+pub const BUF_SIZE: usize = 132;
+pub const ALLOC_START: usize = DATA_SIZE / 2;
+pub const STACK_START: usize = ALLOC_START - 1; // stack counts up
+pub const RET_START: usize = DATA_SIZE - 1; // return stack counts downwards
+pub const WORD_START: usize = 0; // data area counts up from the bottom (builtins, words, variables etc.)
 pub const ADDRESS_MASK: usize = 0x00FFFFFFFFFFFFFF; // to get rid of flags
 
 /// The primary data structure for the Forth engine
@@ -220,7 +220,7 @@ impl Kernel {
     }
 
     /// copy a string slice into string space adding a count byte
-    ///    
+    ///
     pub fn string_save(&mut self, from: &str, to: usize) {
         self.strings[to] = from.len() as u8; // count byte
         for (i, c) in from.chars().enumerate() {

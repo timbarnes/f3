@@ -1,19 +1,18 @@
 //////////////////////////////////////////////////////////////////
+use crate::internals::builtin::BuiltInFn;
+use crate::internals::files::{FType, FileHandle, FileMode}; // Import FileHandle and FType for file handling
+use crate::internals::messages::Msg;
+use crate::internals::terminal;
 /// runtime.rs
-/// 
+///
 /// Forth Runtime Engine
-/// 
+///
 /// This module defines the ForthRuntime struct, which contains the state of the Forth interpreter.
 /// // It includes the kernel, stack pointers, and various other state variables.
 /// // It also provides methods for initializing the runtime (cold_start).
 ///
-
-use crate::kernel::{Kernel, WORD_START, BUF_SIZE};
-use crate::internals::builtin::BuiltInFn;
-use crate::internals::messages::Msg;
-use crate::internals::files::{FileHandle, FType, FileMode}; // Import FileHandle and FType for file handling
+use crate::kernel::{Kernel, BUF_SIZE, WORD_START};
 use std::time::Instant;
-use crate::internals::terminal;
 
 // STRING AREA constants
 pub const TIB_START: usize = 0; // Text input buffer, used by readers
@@ -22,68 +21,67 @@ pub const TMP_START: usize = PAD_START + BUF_SIZE; // Temporary buffer, used for
 pub const STR_START: usize = TMP_START + BUF_SIZE; // Free space for additional strings
 
 // Indices into builtins to drive execution of each data type
-pub const BUILTIN: i64    = 100000;
-pub const VARIABLE: i64   = 100001;
-pub const CONSTANT: i64   = 100002;
-pub const LITERAL: i64    = 100003;
-pub const STRLIT: i64     = 100004;
+pub const BUILTIN: i64 = 100000;
+pub const VARIABLE: i64 = 100001;
+pub const CONSTANT: i64 = 100002;
+pub const LITERAL: i64 = 100003;
+pub const STRLIT: i64 = 100004;
 pub const DEFINITION: i64 = 100005; // a Forth word
-pub const BRANCH: i64     = 100006;
-pub const BRANCH0: i64    = 100007;
-pub const ABORT: i64      = 100008; // break and reset
-pub const EXIT: i64       = 100009; // returns from a word
-pub const BREAK: i64      = 100010; // breaks out of a word
-pub const EXEC: i64       = 100011; // calls the word with address on the stack
-pub const ARRAY: i64      = 100012;
+pub const BRANCH: i64 = 100006;
+pub const BRANCH0: i64 = 100007;
+pub const ABORT: i64 = 100008; // break and reset
+pub const EXIT: i64 = 100009; // returns from a word
+pub const BREAK: i64 = 100010; // breaks out of a word
+pub const EXEC: i64 = 100011; // calls the word with address on the stack
+pub const ARRAY: i64 = 100012;
 
 pub const MARK_BEGIN: i64 = 200000; // marks the beginning of a control structure
 pub const MARK_WHILE: i64 = 200001; // marks the beginning of a WHILE control structure
-pub const MARK_FOR: i64   = 200002; // marks the beginning of a FOR control structure
-pub const MARK_CASE: i64  = 200003; // marks the beginning of a CASE control structure
-pub const MARK_OF: i64    = 200004; // marks the beginning of an OF control structure
+pub const MARK_FOR: i64 = 200002; // marks the beginning of a FOR control structure
+pub const MARK_CASE: i64 = 200003; // marks the beginning of a CASE control structure
+pub const MARK_OF: i64 = 200004; // marks the beginning of an OF control structure
 
 // GENERAL constants
 pub const TRUE: i64 = -1; // forth convention for true and false
 pub const FALSE: i64 = 0;
-pub const IMMEDIATE_FLAG: usize = 0x4000000000000000;  // the immediate flag bit
-pub const BUILTIN_FLAG: usize   = 0x2000000000000000;  // the builtin flag bit
-pub const ADDRESS_MASK: usize   = 0x00FFFFFFFFFFFFFF;  // to get rid of flags
+pub const IMMEDIATE_FLAG: usize = 0x4000000000000000; // the immediate flag bit
+pub const BUILTIN_FLAG: usize = 0x2000000000000000; // the builtin flag bit
+pub const ADDRESS_MASK: usize = 0x00FFFFFFFFFFFFFF; // to get rid of flags
 pub const FILEMODE_RO: i64 = 0; // Read-only file mode
 
 #[derive(Debug)]
 pub enum ControlMarker {
-    Begin(usize),       // address of begin
-    While(usize),       // unresolved BRANCH0 location
-    For(usize),         // address of FOR loop
-    Case(usize),        // address of CASE
-    Of(usize),          // address of OF
+    Begin(usize), // address of begin
+    While(usize), // unresolved BRANCH0 location
+    For(usize),   // address of FOR loop
+    Case(usize),  // address of CASE
+    Of(usize),    // address of OF
 }
 
 pub struct ForthRuntime {
-    pub kernel: Kernel,               // the kernel that contains the Forth runtime
+    pub kernel: Kernel, // the kernel that contains the Forth runtime
     pub control_stack: Vec<ControlMarker>, // stack for control structures like IF, BEGIN, WHILE
-    pub here_ptr: usize,              // first free cell at top of dictionary
-    pub context_ptr: usize,           // nfa of most recent word
-    pub base_ptr: usize,              // for numeric I/O
-    pub pad_ptr: usize,               // string buffer for parser
-    pub tmp_ptr: usize,               // temporary string buffer
-    pub last_ptr: usize,              // points to name of top word
-    pub hld_ptr: usize,               // for numeric string work
-    pub state_ptr: usize,             // true if compiling a word
-    pub abort_ptr: usize,             // true if abort has been called
-    pub tib_ptr: usize,               // TIB
+    pub here_ptr: usize, // first free cell at top of dictionary
+    pub context_ptr: usize, // nfa of most recent word
+    pub base_ptr: usize, // for numeric I/O
+    pub pad_ptr: usize, // string buffer for parser
+    pub tmp_ptr: usize, // temporary string buffer
+    pub last_ptr: usize, // points to name of top word
+    pub hld_ptr: usize, // for numeric string work
+    pub state_ptr: usize, // true if compiling a word
+    pub abort_ptr: usize, // true if abort has been called
+    pub tib_ptr: usize, // TIB
     pub tib_size_ptr: usize,
     pub tib_in_ptr: usize,
-    pub exit_flag: bool,              // set when the "bye" word is executed.
+    pub exit_flag: bool, // set when the "bye" word is executed.
     pub msg: Msg,
-    pub reader: Vec<FileHandle>,      // allows for nested file processing
-    pub files: Vec<FileHandle>,       // keeps track of open files
-    pub show_stack: bool,             // show the stack at the completion of a line of interaction
-    pub stepper_ptr: usize,           // indicates trace, step, or continuous execution
-    pub step_depth_ptr: usize,        // number of levels deep to step or trace
-    pub timer: Instant,               // for timing things
+    pub reader: Vec<FileHandle>, // allows for nested file processing
+    pub files: Vec<FileHandle>,  // keeps track of open files
+    pub show_stack: bool,        // show the stack at the completion of a line of interaction
+    pub stepper_ptr: usize,      // indicates trace, step, or continuous execution
+    pub step_depth_ptr: usize,   // number of levels deep to step or trace
+    pub timer: Instant,          // for timing things
 }
-
 
 impl ForthRuntime {
     pub fn new() -> ForthRuntime {
@@ -116,20 +114,20 @@ impl ForthRuntime {
             file_mode: FileMode::RO,
             file_size: 0,
             file_position: 0,
-        }; 
+        };
         runtime.reader.push(fh); // Set fh as the active reader
         runtime
     }
 
     /// Return the current value of the HERE pointer.
-    /// 
+    ///
     pub fn here(&mut self) -> usize {
         self.kernel.get(self.here_ptr) as usize // Get the current HERE pointer
-    } 
+    }
 
     /// Emit a value into the current definition (at HERE) and increment HERE.
     /// Functionally equivalent to push() and comma().
-    /// 
+    ///
     pub fn emit_cell(&mut self, value: i64) {
         let addr = self.here();
         self.kernel.set(addr, value);
@@ -137,50 +135,50 @@ impl ForthRuntime {
     }
 
     fn f_to_c(&mut self) {
-        let tag = self.kernel.pop();      // e.g. 1 = Begin, 2 = While, etc.
-        let addr = self.kernel.pop() as usize;      // Optionally, could take another item from stack
+        let tag = self.kernel.pop(); // e.g. 1 = Begin, 2 = While, etc.
+        let addr = self.kernel.pop() as usize; // Optionally, could take another item from stack
         let marker = match tag {
             MARK_BEGIN => ControlMarker::Begin(addr),
             MARK_WHILE => ControlMarker::While(addr),
-            MARK_FOR   => ControlMarker::For(addr),
-            MARK_CASE  => ControlMarker::Case(addr), 
-            MARK_OF    => ControlMarker::Of(addr), 
-            _          => panic!(">c: unknown control tag {}", tag),
+            MARK_FOR => ControlMarker::For(addr),
+            MARK_CASE => ControlMarker::Case(addr),
+            MARK_OF => ControlMarker::Of(addr),
+            _ => panic!(">c: unknown control tag {}", tag),
         };
         //println!(">c pushing {:?}", marker);
         self.control_stack.push(marker);
     }
 
-fn f_from_c(&mut self) {
-    match self.control_stack.pop() {
-        Some(ControlMarker::Begin(addr)) => {
-            //println!("c> popping Begin({addr})");
-            self.kernel.push(addr as i64);
-            self.kernel.push(MARK_BEGIN);
+    fn f_from_c(&mut self) {
+        match self.control_stack.pop() {
+            Some(ControlMarker::Begin(addr)) => {
+                //println!("c> popping Begin({addr})");
+                self.kernel.push(addr as i64);
+                self.kernel.push(MARK_BEGIN);
+            }
+            Some(ControlMarker::While(addr)) => {
+                //println!("c> popping While({addr})");
+                self.kernel.push(addr as i64);
+                self.kernel.push(MARK_WHILE);
+            }
+            Some(ControlMarker::For(addr)) => {
+                //println!("c> popping For({addr})");
+                self.kernel.push(addr as i64);
+                self.kernel.push(MARK_FOR);
+            }
+            Some(ControlMarker::Case(addr)) => {
+                //println!("c> popping Case({addr})");
+                self.kernel.push(addr as i64);
+                self.kernel.push(MARK_CASE);
+            }
+            Some(ControlMarker::Of(addr)) => {
+                //println!("c> popping Of({addr})");
+                self.kernel.push(addr as i64);
+                self.kernel.push(MARK_OF);
+            }
+            None => self.msg.error("c>", "control stack underflow", None::<()>),
         }
-        Some(ControlMarker::While(addr)) => {
-            //println!("c> popping While({addr})");
-            self.kernel.push(addr as i64);
-            self.kernel.push(MARK_WHILE);
-        }
-        Some(ControlMarker::For(addr)) => {
-            //println!("c> popping For({addr})");
-            self.kernel.push(addr as i64);
-            self.kernel.push(MARK_FOR);
-        }
-        Some(ControlMarker::Case(addr)) => {
-            //println!("c> popping Case({addr})");
-            self.kernel.push(addr as i64);
-            self.kernel.push(MARK_CASE);
-        }
-        Some(ControlMarker::Of(addr)) => {
-            //println!("c> popping Of({addr})");
-            self.kernel.push(addr as i64);
-            self.kernel.push(MARK_OF);
-        }
-        None => self.msg.error("c>", "control stack underflow", None::<()>),
     }
-}
 
     /// cold_start is where the interpreter begins, installing some variables and the builtin functions.
     pub fn cold_start(&mut self) {
@@ -225,12 +223,12 @@ fn f_from_c(&mut self) {
 
     /// f_clear resets the stack and return stack pointers to their initial values
     ///
-     pub fn f_clear(&mut self) {
+    pub fn f_clear(&mut self) {
         // println!("Clearing interpreter state");
         self.kernel.reset(); // Reset the kernel state
-   }
+    }
 
-       /// make-variable creates a variable, returning the address of the variable's value
+    /// make-variable creates a variable, returning the address of the variable's value
     fn make_variable(&mut self, name: &str) -> usize {
         let code_ptr = self.make_word(&name, &[VARIABLE, 0]); // install the name
         code_ptr + 1 // the location of the variable's value
@@ -285,9 +283,9 @@ fn f_from_c(&mut self) {
         self.kernel.set(3, VARIABLE);
         self.kernel.set(4, (STR_START + 7) as i64); // update the value of S-HERE
         self.kernel.set(5, 1); // back pointer
-                          // hand craft HERE, because it's needed by make_word
+                               // hand craft HERE, because it's needed by make_word
         let name_pointer = self.kernel.string_new("here");
-        self.kernel.set(6,name_pointer as i64);
+        self.kernel.set(6, name_pointer as i64);
         self.kernel.set(7, VARIABLE);
         self.kernel.set(8, 10); // the value of HERE
         self.kernel.set(9, 5); // back pointer
@@ -295,7 +293,7 @@ fn f_from_c(&mut self) {
 
         // hand craft CONTEXT, because it's needed by make_word
         let str_addr = self.kernel.string_new("context");
-        self.kernel.set(10,  str_addr as i64);
+        self.kernel.set(10, str_addr as i64);
         self.kernel.set(11, VARIABLE);
         self.kernel.set(12, 10);
         self.kernel.set(13, 9); // back pointer
@@ -303,13 +301,13 @@ fn f_from_c(&mut self) {
         self.kernel.set(self.here_ptr, 14);
 
         self.pad_ptr = self.make_variable("pad");
-        self.kernel.set(self.pad_ptr,PAD_START as i64);
+        self.kernel.set(self.pad_ptr, PAD_START as i64);
         self.base_ptr = self.make_variable("base");
         self.kernel.set(self.base_ptr, 10); // decimal
         self.tmp_ptr = self.make_variable("tmp");
         self.kernel.set(self.tmp_ptr, TMP_START as i64);
         self.tib_ptr = self.make_variable("'tib");
-        self.kernel.set(self.tib_ptr,TIB_START as i64);
+        self.kernel.set(self.tib_ptr, TIB_START as i64);
         self.tib_size_ptr = self.make_variable("#tib");
         self.kernel.set(self.tib_size_ptr, 0); // means there's nothing in the TIB yet
         self.tib_in_ptr = self.make_variable(">in");
@@ -335,23 +333,45 @@ fn f_from_c(&mut self) {
     ///     function pointer directly in user space, but it would require ugly casting (if it's even possible).
     ///     Also, calling a function via an address in data space is going to cause a crash if the data space
     ///     pointer is incorrect.
-    /// 
-    ///     The function returns a pointer to the cfa of the builtin, which is the index of the function 
+    ///
+    ///     The function returns a pointer to the cfa of the builtin, which is the index of the function
     ///     pointer for the code, combined with the BUILTIN_MASK to indicate that this is a builtin function.
     ///
-    fn add_builtin(&mut self, name: &str, code: fn(&mut ForthRuntime), doc: &str) -> usize{
-        let index = self.kernel.add_builtin(BuiltInFn::new(name.to_string(), code, doc.to_string()));
+    fn add_builtin(&mut self, name: &str, code: fn(&mut ForthRuntime), doc: &str) -> usize {
+        let index =
+            self.kernel
+                .add_builtin(BuiltInFn::new(name.to_string(), code, doc.to_string()));
         let cfa = index | BUILTIN_FLAG;
         self.make_word(name, &[cfa as i64])
-}
+    }
     /// Set up all the words that are implemented in Rust
     ///     Each one gets a standard dictionary reference, and a slot in the builtins data structure.
     fn compile_builtins(&mut self) {
-        self.add_builtin("+", ForthRuntime::f_plus, "+ ( j k -- j+k ) Push j+k on the stack");
-        self.add_builtin("-", ForthRuntime::f_minus, "- ( j k -- j+k ) Push j-k on the stack");
-        self.add_builtin("*", ForthRuntime::f_times, "* ( j k -- j-k ) Push  -k on the stack");
-        self.add_builtin("/", ForthRuntime::f_divide, "/ ( j k -- j/k ) Push j/k on the stack");
-        self.add_builtin("mod", ForthRuntime::f_mod, "mod ( j k -- j/k ) Push j%k on the stack");
+        self.add_builtin(
+            "+",
+            ForthRuntime::f_plus,
+            "+ ( j k -- j+k ) Push j+k on the stack",
+        );
+        self.add_builtin(
+            "-",
+            ForthRuntime::f_minus,
+            "- ( j k -- j+k ) Push j-k on the stack",
+        );
+        self.add_builtin(
+            "*",
+            ForthRuntime::f_times,
+            "* ( j k -- j-k ) Push  -k on the stack",
+        );
+        self.add_builtin(
+            "/",
+            ForthRuntime::f_divide,
+            "/ ( j k -- j/k ) Push j/k on the stack",
+        );
+        self.add_builtin(
+            "mod",
+            ForthRuntime::f_mod,
+            "mod ( j k -- j/k ) Push j%k on the stack",
+        );
         self.add_builtin(
             "<",
             ForthRuntime::f_less,
@@ -407,9 +427,17 @@ fn f_from_c(&mut self) {
             ForthRuntime::f_flush,
             "flush: forces pending output to appear on the terminal",
         );
-        self.add_builtin("clear", ForthRuntime::f_clear, "clear: resets the stack to empty");
+        self.add_builtin(
+            "clear",
+            ForthRuntime::f_clear,
+            "clear: resets the stack to empty",
+        );
         self.add_builtin(":", ForthRuntime::f_colon, ": starts a new definition");
-        self.add_builtin("bye", ForthRuntime::f_bye, "bye: exits to the operating system");
+        self.add_builtin(
+            "bye",
+            ForthRuntime::f_bye,
+            "bye: exits to the operating system",
+        );
         self.add_builtin(
             "dup",
             ForthRuntime::f_dup,
@@ -455,10 +483,26 @@ fn f_from_c(&mut self) {
             ForthRuntime::f_or,
             "or ( a b -- a | b ) Pop a and b, returning the logical or",
         );
-        self.add_builtin("@", ForthRuntime::f_get, "@: ( a -- v ) Pushes variable a's value");
-        self.add_builtin("!", ForthRuntime::f_store, "!: ( v a -- ) stores v at address a");
-        self.add_builtin("i", ForthRuntime::f_i, "Pushes the current FOR - NEXT loop index");
-        self.add_builtin("j", ForthRuntime::f_j, "Pushes the second-level (outer) loop index");
+        self.add_builtin(
+            "@",
+            ForthRuntime::f_get,
+            "@: ( a -- v ) Pushes variable a's value",
+        );
+        self.add_builtin(
+            "!",
+            ForthRuntime::f_store,
+            "!: ( v a -- ) stores v at address a",
+        );
+        self.add_builtin(
+            "i",
+            ForthRuntime::f_i,
+            "Pushes the current FOR - NEXT loop index",
+        );
+        self.add_builtin(
+            "j",
+            ForthRuntime::f_j,
+            "Pushes the second-level (outer) loop index",
+        );
         self.add_builtin(
             "abort",
             ForthRuntime::f_abort,
@@ -479,10 +523,10 @@ fn f_from_c(&mut self) {
             ForthRuntime::f_key_q,
             "key? ( -- b ) returns TRUE if a character is available, otherwise false",
         );
-       self.add_builtin(
+        self.add_builtin(
             "include-file",
             ForthRuntime::f_include_file,
-            "include-file ( a -- ) Taking the TOS as a pointer to 
+            "include-file ( a -- ) Taking the TOS as a pointer to
         a filename (string), load a file of source code",
         );
         self.add_builtin("dbg", ForthRuntime::f_dbg, "");
@@ -540,7 +584,7 @@ fn f_from_c(&mut self) {
         self.add_builtin(
             "find",
             ForthRuntime::f_find,
-            "FIND (s -- a | F ) Search the dictionary for the token indexed through s. 
+            "FIND (s -- a | F ) Search the dictionary for the token indexed through s.
         Return it's address or FALSE if not found",
         );
         self.add_builtin(
@@ -577,7 +621,7 @@ fn f_from_c(&mut self) {
         self.add_builtin(
             "s-move",
             ForthRuntime::f_smove,
-            "pack$ ( src n dest -- ) copies a counted string to a new location",
+            "s-move ( src n dest -- ) copies a counted string to a new location",
         );
         self.add_builtin(
             "eval",
@@ -588,7 +632,7 @@ fn f_from_c(&mut self) {
             ",",
             ForthRuntime::f_comma,
             ", ( n -- ) copies the top of the stack to the top of the dictionary",
-        ); 
+        );
         self.add_builtin(
             ";",
             ForthRuntime::f_semicolon,
@@ -601,7 +645,11 @@ fn f_from_c(&mut self) {
             ForthRuntime::f_immediate_q,
             "immed? ( cfa -- T | F ) Determines if a word is immediate",
         );
-        self.add_builtin("see", ForthRuntime::f_see, "see <name> decompiles and prints a word");
+        self.add_builtin(
+            "see",
+            ForthRuntime::f_see,
+            "see <name> decompiles and prints a word",
+        );
         self.add_builtin(
             "s-create",
             ForthRuntime::f_s_create,
@@ -635,25 +683,58 @@ fn f_from_c(&mut self) {
         );
         self.add_builtin("open-file", ForthRuntime::f_open_file, "open-file ( s u fam -- file-id ior ) Open the file named at s, length u, with file access mode fam.
         Returns a file handle and 0 if successful.");
-        self.add_builtin("close-file", ForthRuntime::f_close_file, "close-file ( file-id -- ior ) Close a file, returning the I/O status code.");
+        self.add_builtin(
+            "close-file",
+            ForthRuntime::f_close_file,
+            "close-file ( file-id -- ior ) Close a file, returning the I/O status code.",
+        );
         self.add_builtin("read-line", ForthRuntime::f_read_line, "read-line ( s u file-id -- u flag ior ) Read up to u characters from a file.
         Returns the number of characters read, a flag indicating success or failure, and an i/o result code.
         Starts from FILE_POSITION, and updates FILE_POSITION on completion.");
         self.add_builtin("write-line", ForthRuntime::f_write_line, "write-line ( s u file-id -- ior ) Write u characters from s to a file, returning an i/o result code.");
         self.add_builtin("file-position", ForthRuntime::f_file_position, "file-position ( file-id -- u ior ) Returns the current file position and an i/o result");
         self.add_builtin("file-size", ForthRuntime::f_file_size, "file-size ( file-id -- u ior ) Returns the size in characters of the file, plus an i/o result code");
-        self.add_builtin("(system)", ForthRuntime::f_system_p, "(system) ( s -- ) Execute a shell command, using string s.
-        Output is channeled to stdout");
-        self.add_builtin("ms", ForthRuntime::f_ms, "sleep ( ms -- ) Puts the current thread to sleep for ms milliseconds");
-        self.add_builtin("raw-mode-on", ForthRuntime::f_raw_mode_on, "raw-mode-on ( -- ) Enable raw terminal mode");
-        self.add_builtin("raw-mode-off", ForthRuntime::f_raw_mode_off, "raw-mode-off ( -- ) Disable raw terminal mode");
-        self.add_builtin("raw-mode?", ForthRuntime::f_raw_mode_q, "raw-mode? ( -- f ) Returns true if in raw mode");
-        self.add_builtin(">c", ForthRuntime::f_to_c,
-         ">c ( tag -- ) Push a control marker onto the control stack");
-        self.add_builtin("c>", ForthRuntime::f_from_c,
-         ">c ( -- tag ) Pop a control marker from the control stack and push its address");
-        self.add_builtin("builtin-name", ForthRuntime::f_builtin_name,
-            "builtin-name ( index -- s_addr ) Returns the name of the builtin at the index");
+        self.add_builtin(
+            "(system)",
+            ForthRuntime::f_system_p,
+            "(system) ( s -- ) Execute a shell command, using string s.
+        Output is channeled to stdout",
+        );
+        self.add_builtin(
+            "ms",
+            ForthRuntime::f_ms,
+            "sleep ( ms -- ) Puts the current thread to sleep for ms milliseconds",
+        );
+        self.add_builtin(
+            "raw-mode-on",
+            ForthRuntime::f_raw_mode_on,
+            "raw-mode-on ( -- ) Enable raw terminal mode",
+        );
+        self.add_builtin(
+            "raw-mode-off",
+            ForthRuntime::f_raw_mode_off,
+            "raw-mode-off ( -- ) Disable raw terminal mode",
+        );
+        self.add_builtin(
+            "raw-mode?",
+            ForthRuntime::f_raw_mode_q,
+            "raw-mode? ( -- f ) Returns true if in raw mode",
+        );
+        self.add_builtin(
+            ">c",
+            ForthRuntime::f_to_c,
+            ">c ( tag -- ) Push a control marker onto the control stack",
+        );
+        self.add_builtin(
+            "c>",
+            ForthRuntime::f_from_c,
+            ">c ( -- tag ) Pop a control marker from the control stack and push its address",
+        );
+        self.add_builtin(
+            "builtin-name",
+            ForthRuntime::f_builtin_name,
+            "builtin-name ( index -- s_addr ) Returns the name of the builtin at the index",
+        );
     }
 
     /// set_abort_flag allows the abort condition to be made globally visible
@@ -706,7 +787,7 @@ fn f_from_c(&mut self) {
 
 /////////////////////////
 /// TESTS
-/// 
+///
 
 #[cfg(test)]
 mod tests {
@@ -729,8 +810,8 @@ mod tests {
 
         assert_eq!(runtime.kernel.get(0), 0); // stack pointer
         assert_eq!(runtime.kernel.get(1), 0); // return pointer
-        // assert_eq!(runtime.here_ptr, WORD_START);
-        // assert_eq!(runtime.context_ptr, 0);
+                                              // assert_eq!(runtime.here_ptr, WORD_START);
+                                              // assert_eq!(runtime.context_ptr, 0);
         assert!(!runtime.exit_flag);
     }
 
@@ -740,7 +821,6 @@ mod tests {
         runtime.cold_start();
         assert_eq!(runtime.kernel.get(runtime.state_ptr), FALSE);
     }
-
 
     #[test]
     fn test_make_word() {
@@ -801,7 +881,6 @@ mod tests {
         assert!(runtime.kernel.get(runtime.base_ptr) == 10); // decimal base
     }
 
-
     #[test]
     fn test_compile_builtins() {
         let mut runtime = ForthRuntime::new();
@@ -811,7 +890,6 @@ mod tests {
         assert_eq!(runtime.kernel.get_builtin(5).name, "<".to_string());
         assert_eq!(runtime.kernel.get_builtin(0).name, "+".to_string());
     }
-
 
     #[test]
     fn test_get_compile_mode() {
@@ -872,7 +950,6 @@ mod tests {
         runtime.f_clear();
         assert_eq!(runtime.kernel.stack_len(), 0); // stack should be cleared
     }
-
 
     #[test]
     fn test_f_abort() {

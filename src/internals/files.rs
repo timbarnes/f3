@@ -1,14 +1,13 @@
 ////////////////////////////
+use crossterm::event::{poll, read, Event, KeyCode, KeyEvent};
 /// File: src/files.rs
-/// 
+///
 /// This module provides functionality for reading and writing files,
 ///      Read tokens from a file or stdin, one line at a time.
 ///      Return one space-delimited token at a time.
 ///      Cache the remainder of the line.
-
 use std::fs::File;
-use std::io::{self, BufReader, BufRead, Read};
-use crossterm::event::{poll, read, Event, KeyEvent, KeyCode};
+use std::io::{self, BufRead, BufReader, Read};
 use std::time::Duration;
 
 use crate::internals::messages::{DebugLevel, Msg};
@@ -20,26 +19,30 @@ pub fn key_available() -> bool {
 
 #[derive(Debug, PartialEq)]
 pub enum FileMode {
-    RW,     // -1 => Read-write
-    RO,     //  0 => Read-only
-    WO,     //  1 => Write-only
+    RW, // -1 => Read-write
+    RO, //  0 => Read-only
+    WO, //  1 => Write-only
 }
 
 pub enum FType {
-    Stdin,                          // Standard input
+    Stdin, // Standard input
     File(File),
-    BReader(BufReader<File>),       // Buffered reader for file input
+    BReader(BufReader<File>), // Buffered reader for file input
 }
 
 pub struct FileHandle {
-    pub source: FType,               // Stdin, File, or BufReader
+    pub source: FType, // Stdin, File, or BufReader
     pub file_mode: FileMode,
     pub file_size: usize,
     pub file_position: usize,
 }
 
 impl FileHandle {
-    pub fn new_file(file_path: Option<&std::path::PathBuf>, msg_handler: Msg, mode: FileMode) -> Option<FileHandle> {
+    pub fn new_file(
+        file_path: Option<&std::path::PathBuf>,
+        msg_handler: Msg,
+        mode: FileMode,
+    ) -> Option<FileHandle> {
         // Initialize a tokenizer.
         let mut message_handler = Msg::new();
         message_handler.set_level(DebugLevel::Warning);
@@ -47,43 +50,32 @@ impl FileHandle {
             Some(file_path) => {
                 let file = File::open(file_path);
                 match file {
-                    Ok(file) => {
-                        match mode {
-                            FileMode::RO => 
-                                Some(FileHandle {
-                                    source: FType::BReader(BufReader::new(file)),
-                                    file_mode: FileMode::RO,
-                                    file_size: 0,
-                                    file_position: 0,        
-                                }),
-                            FileMode::RW | FileMode::WO => {
-                                Some(FileHandle {
-                                    source: FType::File(file),
-                                    file_mode: mode,
-                                    file_size: 0,
-                                    file_position: 0,
-                                })
-                            }
-                        }
-                    }
+                    Ok(file) => match mode {
+                        FileMode::RO => Some(FileHandle {
+                            source: FType::BReader(BufReader::new(file)),
+                            file_mode: FileMode::RO,
+                            file_size: 0,
+                            file_position: 0,
+                        }),
+                        FileMode::RW | FileMode::WO => Some(FileHandle {
+                            source: FType::File(file),
+                            file_mode: mode,
+                            file_size: 0,
+                            file_position: 0,
+                        }),
+                    },
                     Err(_) => {
-                        msg_handler.error(
-                            "Reader::new",
-                            "Unable to open file",
-                            Some(file_path),
-                        );
+                        msg_handler.error("Reader::new", "Unable to open file", Some(file_path));
                         return None;
                     }
                 }
             }
-            None => {
-                Some(FileHandle {
-                    source: FType::Stdin,
-                    file_mode: FileMode::RO,
-                    file_size: 0,
-                    file_position: 0,
-                })
-            }
+            None => Some(FileHandle {
+                source: FType::Stdin,
+                file_mode: FileMode::RO,
+                file_size: 0,
+                file_position: 0,
+            }),
         }
     }
 
@@ -121,7 +113,7 @@ impl FileHandle {
                                 KeyCode::Enter => Some('\n'),
                                 KeyCode::Backspace => Some(8 as char), // ASCII backspace
                                 KeyCode::Delete => Some(127 as char),  // ASCII delete
-                                _ => None, // Ignore other keys
+                                _ => None,                             // Ignore other keys
                             }
                         }
                         _ => None, // Ignore non-key events
@@ -180,7 +172,7 @@ impl FileHandle {
 
 //////////////////////////////////////////
 /// TESTS
-/// 
+///
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,7 +198,8 @@ mod tests {
     }
 
     #[test]
-    fn test_read_char() { // This test requires interactive input
+    fn test_read_char() {
+        // This test requires interactive input
         let mut handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
         println!("Please enter a character:");
         let ch = handle.read_char();
@@ -226,7 +219,7 @@ mod tests {
         assert_eq!(handle.file_size(), 0);
     }
 
-    #[test] 
+    #[test]
     fn test_file_mode() {
         let mut handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
         assert_eq!(handle.file_mode(), &FileMode::RO);
