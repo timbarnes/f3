@@ -157,6 +157,23 @@ micros  | ( -- n ) | Places the number of microseconds since `now` was called on
 ms | ( n -- ) | Sleep for `n` milliseconds
 sec | ( n -- ) | Sleep for `n` seconds
 
+## Sequences
+
+By default, Forth provides no data structures beyond the atomic cell, and strings. `sequences.fs` defines arrays, stacks, and (TBD) queues and deques. They are fixed in size, and are allocated in the dictionary.
+
+Typical usage might be `100 array my-array`, which will create a 100 element array, or `10 stack my-stack`, which creates a 10 element stack.
+The implementation involves storing a name, which returns the address of the first parameter, a size value, two pointers (used for stacks, queues and deques), and space for the number of elements in the declaration. Operations include:
+
+WORD | SIGNATURE | NOTES
+array | ( n -- addr ) | Create an array of `n` elements using the name provided after `array`. Returns the address of the size value.
+ac@ | ( addr -- n ) | Returns the number of elements in the array
+a@ | ( i addr -- v ) | Returns the value of cell `i` in the array at `addr`.
+a! | ( n i addr -- ) | Stores the value `n` in the array at index `i`.
+stack | ( n -- addr ) | Create a stack of `n` elements using the name provided after `stack`. Returns the address of the size value.
+sc@ | ( addr -- n ) | Returns the number of elements in the stack.
+>s | ( n addr -- ) | Push `n` on the stack at `addr`.
+s> | ( addr -- n ) | Pop the top value off the stack at `addr`.
+
 ## Debugging
 
 A single stepper and trace capability allows for viewing interpreted functions as they execute. When active, it prints the program counter address, a visual indication of the depth of the return stack by indentation, the contents of the stack, and the word being executed.
@@ -177,3 +194,15 @@ trace-on | ( -- ) | Turns on tracing.
 trace-off | ( -- ) | Turns off tracing.
 trace-all | ( -- ) | Sets trace level to 100
 stepper-depth | VARIABLE | Trace / step depth, which can be set manually, or by the use of the `i` and `o` commands within the stepper.
+
+In addition to the debugger, `dump` commands are provided to inspect memory. `dump` attempts to understand what it's looking at, and provides information accordingly. There are also some debug print statements that only print if `debuglevel` is set to 4. The following functions are available:
+
+WORD | SIGNATURE | NOTES
+dump | ( addr cells -- ) | Dump `cells` cells, starting at the provided address.
+dmp | ( addr -- ) | Dump 25 cells from the provided address.
+dh | ( -- ) | Dump the top 25 cells from the dictionary. Useful for debugging new definitions and data structures.
+dump-here ( n -- ) | Dump the top n cells.
+dump-help ( -- ) | Prints a help string listing available commands.
+dump-strings | ( s_addr -- ) | Dump n strings starting from the first string after s_addr.
+dump-stringspace | ( -- ) | Dump string buffers and all strings
+dump-buffer | ( s_addr -- ) | Dump one of the string buffers (typically TIB, PAD, or TMP).
