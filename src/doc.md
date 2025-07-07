@@ -14,7 +14,7 @@ Because strings are stored separately, the names of words are captured in a sing
 
 Three string buffers are provided as follows:
 * TIB - the text input buffer is the location where input is loaded for parsing, a line at a time.
-* PAD - a working area where each token is placed after parsing. 
+* PAD - a working area where each token is placed after parsing.
 * TMP - a second working area where strings are staged before either being printed or embedded in a definition. or string variable.
 
 The dictionary is a linked list, implemented directly in the data array, using back pointers to string words together like this:
@@ -28,14 +28,14 @@ So for example, a word defined as follows: `: double 2 * ;` would be stored like
 
 n | n+1 | n+2 | n+3 | n+4 | n+5 | | |
 | --- | --- | --- | --- |--- | --- | --- | --- |
-| back-pointer | points to "double" in string space | DEFINITION | LITERAL | 2 | address of * | EXIT | back pointer | ... 
+| back-pointer | points to "double" in string space | DEFINITION | LITERAL | 2 | address of * | EXIT | back pointer | ...
 | points to the previous definition | also has "immediate" flag as required | indicates this is a `:` (colon) definition | indicates the next value should be pushed on the stack | the value to push on the stack | address includes a flag indicating `*` is a builtin | acts like a return, ending execution of this word | contains n (address of the next pointer back)
 
 The builtin flag disinguishes between a builtin function accessed through the jump table, and a word defined in Forth. This lets the interpreter know to look in the builtin array for a function pointer, rather than looking in data space for a definition.
 
 This system I believe is roughly equivalent to indirect threading, which allows a simple state-machine like function to step through a definition, executing words in sequence on the basis of their code addresses. When a new word is entered, the interpreter pushes a return address on the return stack. At the end of the execution of a word (or when the `exit` word is called explicitly), the return stack is popped and the program counter updated accordingly.
 
-The definitions include their names, because the compiler is incremental. When a new word is defined in terms of other words, `find` is called to search back through the dictionary. Once found, we compile the address of the word, rather than the name. So interpretation is a matter of following address links, and all name searching is done at compile time. 
+The definitions include their names, because the compiler is incremental. When a new word is defined in terms of other words, `find` is called to search back through the dictionary. Once found, we compile the address of the word, rather than the name. So interpretation is a matter of following address links, and all name searching is done at compile time.
 
 The inclusion of the names in the dictionary also supports the `see` operation, which decompiles user definitions, and provides basic documentation for builtin functions. Note that the decompiled version of a function is not identical to the original source code, because control structures (for example) generate branch code and insert that into the definition. This is one of Forth's superpowers. The engine only provides `BRANCH` and `BRANCH0` primitives. All the higher level control structures are implemented in Forth. The source code for these is in `corelib.fs`.
 
@@ -70,7 +70,7 @@ tmp | Address of a second temporary string buffer used by string functions to st
 s-here | The location of the top of string space, where new strings will be added.
 context | Holds the address of the most recent word's name field
 last | Holds the address of the name field of the word being defined.
-| base | Radix for numberic I/O. Defaults to 10.    
+| base | Radix for numberic I/O. Defaults to 10.
 state | Set to TRUE if compile mode is active, otherwise FALSE.
 stepper | Controls the stepper / debugger. 0 => off, 1 => trace, -1 => single step.                                                                     |
 
@@ -107,7 +107,7 @@ rtell | ( s u w -- ) | Print a string of length u right justified in a field w c
 | r/w           | ( -- )         | Set file mode to read/write, for file operations.                                          |
 | r/o           | ( -- )         | Set file mode to read only, for file operations.                                           |
 w/o | ( -- ) | Set file mode to write-only, for file operations.
-open-file | ( s u fam -- file-id ior ) | Open the file named at `s`, string length `u`, with file access mode `fam`. The file-id is an index into a vector of open files, within which the information for the file is kept. This can be accessed by other operations like `file-size` and `file-position`. ior is an i/o system result provided by the operating system. 0 means success. 
+open-file | ( s u fam -- file-id ior ) | Open the file named at `s`, string length `u`, with file access mode `fam`. The file-id is an index into a vector of open files, within which the information for the file is kept. This can be accessed by other operations like `file-size` and `file-position`. ior is an i/o system result provided by the operating system. 0 means success.
 close-file | ( file-id -- ior ) | Close the file associated with file-id, returning a code indicating success or failure.
 read-line | ( s u file-id -- u flag ior ) | Read up to `u` characters from a file, stopping at the first linefeed, or at the max length `u`. Returns the number of characters read, a flag indicating success or failure, and an io result code.
 write-line | ( s u file-id -- ior ) | Write `u` characters from `s` to a file, returning an i/o result code `ior`.
@@ -117,7 +117,7 @@ write-line | ( s u file-id -- ior ) | Write `u` characters from `s` to a file, r
 | WORD       | SIGNATURE                 | NOTES                                                                                                                                                                                                                                 |
 | ---------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 words |  ( -- ) | Prints a list of all dictionary entries, whether words, builtins, variables or constants. Each word is preceded by its address in the dictionary for debugging purposes.
-see | \<word> | The Forth decompiler. If \<word> is a builtin, see provides the documentation for that word. If it's a user-defined word, see provides the source code as compiled. This is often different from the original source code, because control structures are compiled down to lower level branch functions, and are not represented in their original form. 
+see | \<word> | The Forth decompiler. If \<word> is a builtin, see provides the documentation for that word. If it's a user-defined word, see provides the source code as compiled. This is often different from the original source code, because control structures are compiled down to lower level branch functions, and are not represented in their original form.
 abort | ( -- ) | Ends execution of the current word, clears the stack, and returns to the interpreter's top level
 abort"  | \<message>" | Print the message and call abort
 | quit       | ( -- )                    | Interpreter outer loop: gets a line of input, processes it. Calls `query` and `eval` to do the work.                                                                                                                                  |
@@ -126,9 +126,9 @@ abort"  | \<message>" | Print the message and call abort
 | \\         | ( -- )                    | Inline comment. Causes the remainder of the line to be ignored.                                                                                                                                                                       |
 | (          | ( -- )                    | Text from the left paren to its maching closing paren is ignored. Used for documenting stack signatures in word definitions.                                                                                                          |
 | parse      | ( c -- b u )              | Gets a token from `PAD` delimited by `c`. Returns `PAD` address and count.                                                                                                                                                            |
-| (parse)    | ( b u c -- b u delta )    | Find a `c`-delimited token in the string buffer at `b`, of length `u`. Return the pointer to the buffer, the length of the token, and the offset from the start of the buffer to the start of the token.
-[char] | ( -- c )                             | Place the first character of the next token on the stack. Consumes the entire token.
-| find       | ( s -- cfa T \| s FALSE ) | Search the dictionary for the token with string at s. Used by $interpret and $compile to identify the current token.                                                                                                                  |
+| (parse)    | ( b u c -- b u delta )    | Find a `c`-delimited token in the string buffer at `b`, of length `u`. Return the pointer to the buffer, the length of the token, and the offset from the start of the buffer to the start of the token. |
+| [char] | ( -- c )                             | Place the first character of the next token on the stack. Consumes the entire token.
+| find       | ( s -- cfa T \| s FALSE ) | Search the dictionary for the token with string at s. Used by `$interpret` and `$compile` to identify the current token.                                                                                                                  |
 | ' \<name>  | ( -- cfa \| FALSE )       | Looks for the (postfix) name in the dictionary. Returns its code field address if found, otherwise FALSE (= 0). If the word is not found, it displays an error message.                                                               |
 | unique?    | ( s -- s )                | Checks to see if the given string is already defined. If so, returns quietly; otherwise returns `FALSE`.                                                                                                                              |
 | :          | ( -- )                    | Sets compile mode to start a definition                                                                                                                                                                                               |
@@ -138,13 +138,13 @@ abort"  | \<message>" | Print the message and call abort
 | literal    | ( n -- )                  | Takes a number from the stack and compiles it into the current definition.                                                                                                                                                            |
 | $interpret | ( s -- )                  | Called from `eval` to interpret the string at s, either as a word or a number. If neither, `abort`.                                                                                                                                   |
 | $compile   | ( s -- )                  | Called from `eval` to compile the string at s as a word or number. If neither, `abort`.        |
-, (comma) | ( v -- ) | Compiles the value on the stack into the dictionary and updates `here`.
-create \<name> | ( -- ) | Takes a postfix name, and creates a new name field in the dictionary
-immediate | ( -- ) | Marks the most recent definition as immediate by setting a flag on the name field. Immediate words are executed even when compile mode is set. They are most often used to compile control structures that need some level of computation at compile time.
-immed? ( cfa -- T | F ) | Tests the word with code field address on the stack, and returns TRUE if it's an immediate word, otherwise FALSE.
-[compile] | \<name> | Delays the compilation of an immediate word. Typically used in the definition of control structures and compiler customization.
-forget-last | ( -- ) | Delete the last definition from the dictionary. 
-forget | \<name> | Delete word `<name>` and any words defined more recently than `<name>`.
+| , (comma)  | ( v -- ) | Compiles the value on the stack into the dictionary and updates `here`. |
+| create \<name> | ( -- ) | Takes a postfix name, and creates a new name field in the dictionary |
+| immediate | ( -- ) | Marks the most recent definition as immediate by setting a flag on the name field. Immediate words are executed even when compile mode is set. They are most often used to compile control structures that need some level of computation at compile time. |
+| immed? ( cfa -- T | F ) | Tests the word with code field address on the stack, and returns TRUE if it's an immediate word, otherwise FALSE. |
+| [compile] | \<name> | Delays the compilation of an immediate word. Typically used in the definition of control structures and compiler customization. |
+| forget-last | ( -- ) | Delete the last definition from the dictionary. |
+| forget | \<name> | Delete word `<name>` and any words defined more recently than `<name>`. |
 
 ## Timing and Delay
 To time a function, precede it with `now` and follow it with `millis` or `micros`, which will place the elapsed time on the stack.
@@ -165,6 +165,7 @@ Typical usage might be `100 array my-array`, which will create a 100 element arr
 The implementation involves storing a name, which returns the address of the first parameter, a size value, two pointers (used for stacks, queues and deques), and space for the number of elements in the declaration. Operations include:
 
 WORD | SIGNATURE | NOTES
+--- | --- | ---
 array | ( n -- addr ) | Create an array of `n` elements using the name provided after `array`. Returns the address of the size value.
 ac@ | ( addr -- n ) | Returns the number of elements in the array
 a@ | ( i addr -- v ) | Returns the value of cell `i` in the array at `addr`.
