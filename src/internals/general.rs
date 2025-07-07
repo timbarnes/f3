@@ -253,6 +253,21 @@ impl ForthRuntime {
         }
     }
 
+    /// f_smove ( source len dest -- dest ) builds a new counted string from an existing counted string.
+    ///     Used by CREATE
+    ///
+    pub fn f_smove(&mut self) {
+        let dest = self.kernel.pop() as usize;
+        let length = self.kernel.pop() as usize;
+        let source = self.kernel.pop() as usize;
+        // assuming both are counted, we begin with the count byte. Length should match the source count byte
+        self.kernel.string_copy(source, dest, length, true);
+        // for i in 0..=length {
+        //     self.kernel.strings[dest + i] = self.kernel.strings[source + i];
+        // }
+        self.kernel.push(dest as i64);
+    }
+
     /// f_now ( -- ) Start a timer
     pub fn f_now(&mut self) {
         self.timer = Instant::now();

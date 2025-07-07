@@ -1,9 +1,11 @@
 // Compiler and Interpreter
 
-use crate::runtime::{BUILTIN_FLAG, FALSE, IMMEDIATE_FLAG, TRUE};
 use crate::internals::general::u_is_integer;
-use crate::runtime::{ForthRuntime, ADDRESS_MASK, ABORT, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN, CONSTANT, DEFINITION, 
-    EXIT, EXEC, LITERAL, STRLIT, VARIABLE};
+use crate::runtime::{
+    ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN, CONSTANT,
+    DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE,
+};
+use crate::runtime::{BUILTIN_FLAG, FALSE, IMMEDIATE_FLAG, TRUE};
 
 impl ForthRuntime {
     /// immediate ( -- ) sets the immediate flag on the most recently defined word
@@ -22,14 +24,14 @@ impl ForthRuntime {
     pub fn f_immediate_q(&mut self) {
         if self.kernel.stack_check(1, "immediate?") {
             let cfa = self.kernel.pop() as usize;
-            
+
             // Clear the BUILTIN_MASK to get the actual address for indexing
             let clean_cfa = cfa & ADDRESS_MASK;
-            
+
             // Get the NFA (Name Field Address) which is always cfa - 1
             let name_ptr = self.kernel.get(clean_cfa - 1) as usize;
             let immed = name_ptr & IMMEDIATE_FLAG;
-            
+
             let result = if immed == 0 { FALSE } else { TRUE };
             self.kernel.push(result);
         }
@@ -59,9 +61,9 @@ impl ForthRuntime {
 
     /// EXECUTE ( cfa -- ) interpret a word with addr on the stack
     /// stack value is the address of an inner interpreter
-    /// 
+    ///
 
-     pub fn f_execute(&mut self) {
+    pub fn f_execute(&mut self) {
         if self.kernel.stack_check(1, "execute") {
             // call the appropriate inner interpreter
             let xt = self.kernel.pop();
@@ -69,25 +71,25 @@ impl ForthRuntime {
             let opcode = self.kernel.get(xt as usize & ADDRESS_MASK) as i64;
             // println!("f_execute: opcode = {opcode} xt = {xt}");
             match opcode {
-                BUILTIN    => self.msg.error("f_execute", "BUILTIN found", Some(xt)), //self.i_builtin(),
-                VARIABLE   => self.i_variable(),
-                CONSTANT   => self.i_constant(),
-                LITERAL    => self.i_literal(),
-                STRLIT     => self.i_strlit(),
+                BUILTIN => self.msg.error("f_execute", "BUILTIN found", Some(xt)), //self.i_builtin(),
+                VARIABLE => self.i_variable(),
+                CONSTANT => self.i_constant(),
+                LITERAL => self.i_literal(),
+                STRLIT => self.i_strlit(),
                 DEFINITION => self.i_definition(),
-                BRANCH     => self.i_branch(),
-                BRANCH0    => self.i_branch0(),
-                ABORT      => self.i_abort(),
-                EXIT       => self.i_exit(),
-                BREAK      => self.i_exit(),
-		        ARRAY	   => self.i_array(),
+                BRANCH => self.i_branch(),
+                BRANCH0 => self.i_branch0(),
+                ABORT => self.i_abort(),
+                EXIT => self.i_exit(),
+                BREAK => self.i_exit(),
+                ARRAY => self.i_array(),
                 _ => {
                     self.kernel.pop();
                     let cfa = self.kernel.get(xt as usize) as usize & ADDRESS_MASK;
                     self.builtin(cfa);
                 }
             }
-        } 
+        }
     }
 
     /// EVAL ( -- ) Interprets a line of tokens from the Text Input Buffer (TIB
@@ -235,7 +237,7 @@ impl ForthRuntime {
         let val = self.kernel.pop();
         self.kernel.set(addr, val);
         self.kernel.incr(self.here_ptr); // increment HERE pointer to first free cell
-   }
+    }
 
     /// f_literal ( n -- ) compile a literal number with it's inner interpreter code pointer
     ///     Numbers are represented in compiled functions with two words: the LITERAL constant, and the value
@@ -300,8 +302,10 @@ impl ForthRuntime {
             if buf_len > 0 {
                 // get a read-only &slice from kernel.strings, starting at in_p
                 // and ending at in_p + buf_len
-                let buffer = self.kernel.string_slice(in_p as usize, buf_len as usize + 1); 
-                // println!("f_parse_p: buffer = {:?}", buffer); 
+                let buffer = self
+                    .kernel
+                    .string_slice(in_p as usize, buf_len as usize + 1);
+                // println!("f_parse_p: buffer = {:?}", buffer);
                 // traverse the string, dropping leading delim characters
                 // in_p points *into* a string, so no count field
                 let end = buf_len as usize;
@@ -316,7 +320,7 @@ impl ForthRuntime {
                 }
                 self.kernel.push(in_p);
                 self.kernel.push((j - i) as i64); // length of the token
-                self.kernel.push(i as i64); 
+                self.kernel.push(i as i64);
             } else {
                 // nothing left to read
                 self.kernel.push(in_p);
@@ -338,7 +342,7 @@ impl ForthRuntime {
             let dest = self.kernel.pop();
             // println!("f_parse_to: delim = {delim}, dest = {dest}");
             if delim == 1 {
-                self.kernel.set(self.tib_in_ptr,1);
+                self.kernel.set(self.tib_in_ptr, 1);
                 self.kernel.set(self.tib_size_ptr, 0);
                 let val = self.kernel.get(self.tib_ptr);
                 self.kernel.push(val);
@@ -346,7 +350,7 @@ impl ForthRuntime {
                 return;
             } else {
                 let addr = self.kernel.get(self.tib_ptr) + self.kernel.get(self.tib_in_ptr);
-                self.kernel.push(addr);  // Starting address in the string
+                self.kernel.push(addr); // Starting address in the string
                 let val = self.kernel.get(self.tib_size_ptr) - self.kernel.get(self.tib_in_ptr) + 1;
                 self.kernel.push(val); // bytes available
                 self.kernel.push(delim);
@@ -421,20 +425,6 @@ impl ForthRuntime {
         let here = self.kernel.get(self.here_ptr) as usize;
         self.kernel.set(self.last_ptr, here as i64); // save the last pointer
         self.kernel.incr(self.here_ptr);
-    }
-    /// f_pack_d ( source len dest -- dest ) builds a new counted string from an existing counted string.
-    ///     Used by CREATE
-    ///
-    pub fn f_smove(&mut self) {
-        let dest = self.kernel.pop() as usize;
-        let length = self.kernel.pop() as usize;
-        let source = self.kernel.pop() as usize;
-        // assuming both are counted, we begin with the count byte. Length should match the source count byte
-        self.kernel.string_copy(source, dest, length, true);
-        // for i in 0..=length {
-        //     self.kernel.strings[dest + i] = self.kernel.strings[source + i];
-        // }
-        self.kernel.push(dest as i64);
     }
 
     /// see <name> ( -- ) prints the definition of a word
@@ -525,12 +515,8 @@ impl ForthRuntime {
                     }
                     CONSTANT => {
                         let addr = self.kernel.get(cfa as usize - 1) as usize;
-                        println!(
-                            "Constant: {} = {}",
-                            addr,
-                            self.kernel.get(cfa as usize + 1),
-                        );
-                    },
+                        println!("Constant: {} = {}", addr, self.kernel.get(cfa as usize + 1),);
+                    }
                     VARIABLE => {
                         let addr = self.kernel.get(cfa as usize - 1) as usize;
                         println!(
@@ -538,7 +524,7 @@ impl ForthRuntime {
                             self.kernel.string_get(addr),
                             self.kernel.get(cfa as usize + 1),
                         )
-                    },
+                    }
                     _ => self.msg.error("see", "Unrecognized type", None::<bool>),
                 }
             }
@@ -577,14 +563,14 @@ impl ForthRuntime {
 mod tests {
     // use super::*;
 
-//     #[test]
-//     fn test_run_forth_word_dup_and_mul() {
-//         let mut rt = ForthRuntime::new();
-//         rt.cold_start(); // Initialize the Forth system and builtins
-//         rt.kernel.push(7);
-//         rt.run_forth_word("dup");
-//         rt.run_forth_word("*");
-//         let result = rt.kernel.pop();
-//         assert_eq!(result, 49);
-//     }
+    //     #[test]
+    //     fn test_run_forth_word_dup_and_mul() {
+    //         let mut rt = ForthRuntime::new();
+    //         rt.cold_start(); // Initialize the Forth system and builtins
+    //         rt.kernel.push(7);
+    //         rt.run_forth_word("dup");
+    //         rt.run_forth_word("*");
+    //         let result = rt.kernel.pop();
+    //         assert_eq!(result, 49);
+    //     }
 }
