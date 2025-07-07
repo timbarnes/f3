@@ -167,6 +167,7 @@
 : rdrop ( -- )      r> drop ;                           \ Pop a return address off the stack
 : exit ( -- )       BREAK , ; immediate                 \ Pop out of the current definition and reset the Program Counter
 : >                 swap < ;
+: <=                1 + < ;
 : <> ( n -- n )     = 0= ;
 : 0>                0 > ;
 : 0<>               0= 0= ;

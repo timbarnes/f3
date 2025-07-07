@@ -187,23 +187,24 @@ The single stepper responds to single character commands (followed by Enter):
 * `o` => step out (decrease stepper-depth)
 * `?` or `h` => print help information
 
-WORD | SIGNATURE | NOTES
---- | --- | ---
-step-on | ( -- ) | Turns on single stepping with stepper-depth set to 1.
-step-off | ( -- ) | Turns off single stepping.
-trace-on | ( -- ) | Turns on tracing.
-trace-off | ( -- ) | Turns off tracing.
-trace-all | ( -- ) | Sets trace level to 100
-stepper-depth | VARIABLE | Trace / step depth, which can be set manually, or by the use of the `i` and `o` commands within the stepper.
+| WORD | SIGNATURE | NOTES |
+| --- | --- | --- |
+| step-on | ( -- ) | Turns on single stepping with stepper-depth set to 1. |
+| Nstep-off | ( -- ) | Turns off single stepping. |
+| trace-on | ( -- ) | Turns on tracing. |
+| trace-off | ( -- ) | Turns off tracing. |
+| trace-all | ( -- ) | Sets trace level t 100 |
+| stepper-depth | VARIABLE | Trace / step depth, which can be set manually, or by the use of the `i` and `o` commands within the stepper. |
 
 In addition to the debugger, `dump` commands are provided to inspect memory. `dump` attempts to understand what it's looking at, and provides information accordingly. There are also some debug print statements that only print if `debuglevel` is set to 4. The following functions are available:
 
-WORD | SIGNATURE | NOTES
-dump | ( addr cells -- ) | Dump `cells` cells, starting at the provided address.
-dmp | ( addr -- ) | Dump 25 cells from the provided address.
-dh | ( -- ) | Dump the top 25 cells from the dictionary. Useful for debugging new definitions and data structures.
-dump-here ( n -- ) | Dump the top n cells.
-dump-help ( -- ) | Prints a help string listing available commands.
-dump-strings | ( s_addr -- ) | Dump n strings starting from the first string after s_addr.
-dump-stringspace | ( -- ) | Dump string buffers and all strings
-dump-buffer | ( s_addr -- ) | Dump one of the string buffers (typically TIB, PAD, or TMP).
+| WORD | SIGNATURE | NOTES |
+| --- | --- | --- |
+| dump | ( addr cells -- ) | Dump `cells` cells, starting at the provided address. |
+| dmp | ( addr -- ) | Dump 25 cells from the provided address. |
+| dh | ( -- ) | Dump the top 25 cells from the dictionary. Useful for debugging new definitions and data structures. |
+| dump-here | ( n -- ) | Dump the top n cells. |
+| dump-help | ( -- ) | Prints a help string listing available commands. |
+| dump-strings | ( s_addr -- ) | Dump n strings starting from the first string after s_addr. |
+| dump-stringspace | ( -- ) | Dump string buffers and all strings |
+| dump-buffer | ( s_addr -- ) | Dump one of the string buffers (typically TIB, PAD, or TMP). |

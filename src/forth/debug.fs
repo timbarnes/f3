@@ -43,7 +43,21 @@ variable word-counter
 
 \ Move the address to the next counted string
 : next-string ( s_addr -- s_addr )
-    c@ + 1+
+    dup c@ + 1+
+    ;
+
+396 constant STRING_START
+
+\ Walk strings until above s_addr
+: find-start ( s_addr -- s_addr )
+    STRING_START
+    begin
+        2dup <= if
+            swap drop
+            exit
+        then
+        next-string
+    again
     ;
 
 \ Dump a counted string, given a starting address
@@ -51,13 +65,16 @@ variable word-counter
     dup 5 .r ." /" dup c@ 3 .r ." : "
     dup type cr drop ;
 
-\ Dump strings from a starting point, stopping when there are no more (count is zero)
-: dump-strings ( s_addr -- )
-    begin
-        s-here @ over < if drop exit then           \ We've run out of strings
-        dup dump-string
-        dup next-string
-    again
+\ Dump up to n strings from a starting poinnt
+: dump-strings ( s_addr n -- )
+    swap find-start swap
+    for
+        dup s-here @ over < if
+            drop drop drop exit
+        then           \ We've run out of strings
+        dump-string
+        next-string
+    next
     ;
 
 \ Print all string space
