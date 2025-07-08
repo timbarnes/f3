@@ -10,22 +10,24 @@ variable see-ind-depth
 : do-indent ( -- )
     see-indent @ spaces ;
 
+: see-val ( addr -- )
+    dup cfa>nfa @ type
+    ." , value = "
+    dup cfa>val @ . cr
+    ;
+
 \ Type-specific displayers
 
 \ Print a variable from the address of its token
 : see-var ( addr -- addr )
     ." variable "
-    dup 1- @ type
-    ." , value = "
-    dup 1+ @ . cr
+    see-val
     ;
 
 \ Print a constant from the address of its token
 : see-const ( addr -- addr )
     ." constant "
-    dup 1- @ type
-    ." , value = "
-    dup 1+ @ . cr
+    see-val
     ;
 
 \ Display the values from the array, ten per line

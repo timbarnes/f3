@@ -116,16 +116,15 @@
 : (s") ( -- s u )   tmp @ '"' parse-to ; immediate  \ Parses a double-quoted string into tmp, returning the address and length
 : s" ( -- s u ")    tmp @ '"' parse-to ;            \ Places a double-quoted string in tmp
 
-( File reader functions )
+\ File reader functions
 
 \ included gets the file path already in TMP and loads it, leaving a success flag
-
 : included  ( -- bool )
                     tmp @ include-file ; \ include-file uses a string pointer on the stack to load a file
 
 \ include is for interactive use. It gets a file path from the user and loads it.
 : include   ( -- )
-                    tmp @ 32 parse-to
+                    tmp @ BL parse-to
                     drop include-file drop ;        \ include-file only needs the address
 
 : [ FALSE state ! ; immediate                       \ Turns compile mode off
@@ -146,15 +145,21 @@
 : else   BRANCH , here @ 0 , swap _patch-here ; immediate
 : then   _patch-here ; immediate
 
+\ Finding the address of defined words
 
 : ' (') dup @ dup DEFINITION = if drop else nip then ;
 
 : [']               LITERAL , ' , ; immediate             \ compiles a word's cfa into a definition as a literal
 
+\ Movement within a word definition
+
 : cfa>nfa           1 - ;                                 \ converts an cfa to an nfa
+: cfa>val           1 + ;                                 \ from cfa to first parameter cell
 : nfa>cfa           1 + ;                                 \ converts an nfa to a cfa
 : bp>nfa            1 + ;                                 \ from preceding back pointer to nfa
 : bp>cfa            2 + ;
+
+\ Arithmetic and logical operations
 
 : 1- ( n -- n-1 )   1 - ;
 : 1+ ( n -- n+1 )   1 + ;
@@ -177,7 +182,6 @@
 \
 \ If n > 0, reserve n cells of data space. If n < 0, release |n| cells. If n is zero, no action is taken.
 \            Allot updates `here`, but does not create a back pointer.
-\
 : allot ( n -- )
    dup 0= if
      drop exit
@@ -201,6 +205,7 @@
 \ Control structures
 
 : begin ( -- )      here @ MARK_BEGIN >c ; immediate
+
 : while ( -- )      BRANCH0 ,
                     here @ MARK_WHILE >c
                     999 ,                ; immediate
@@ -212,6 +217,7 @@
 
 : for               here @ MARK_FOR >c
                     ['] >r ,             ; immediate
+
 : next ( -- )       c>  drop                            \ get FOR addr
                     ['] r> ,                            \ compile saving the loop index
                     LITERAL , 1 ,
@@ -224,6 +230,7 @@
 
 : until             c> drop BRANCH0 ,
                     here @ - ,           ; immediate
+
 : again             c> drop BRANCH ,
                     here @ - ,           ; immediate
 
@@ -274,9 +281,8 @@
 
 \ Takes a typical descending for - next loop, and simplifies reversing the direction of the loop variable
 \     usage is : word incr-for for dup i - ... next .. ;
-
 : incr-for ( m n -- m m+n n )
-                    over over + swap ;
+    over over + swap ;
 
 \ system executes a command in the shell. The shell is exited afterwards.
 \   This means that commands like 'cd' are not persistent.
@@ -286,6 +292,8 @@
 : sec ( n -- )      1000 * ms ;  \ sleep for n seconds
 
 : abort" STRLIT , s" .s drop s-create , ['] type , ['] abort , ; immediate \ abort with a message. Use inside another word.
+
+\ Printing words
 
 : emit ( c -- )     \ print a character if in the printable range
                     128 mod dup 31 > if (emit) else drop then ;
@@ -349,7 +357,7 @@
                         flush key drop
                     then ; immediate
 
-\ mumeric functions
+\ Numeric print words
 
 : /mod              2dup mod rot rot / ;
 
@@ -392,8 +400,6 @@
 \ Dictionary traversal functions
 \   Takes an execution address on the stack, and execs it on every word, via its preceding back pointer
 \   The word being executed must consume the address: it's signature is ( bp xt -- ).
-
-
 
 \ : print-name ( bp -- )
 \                     dup 1+ @ 13 ltype ;
