@@ -75,16 +75,16 @@ variable test-num 0 test-num !
 71 test-[char] test-single
 
 ." ' and flags and mask " cr
-2305843009213693969 ' dup test-single
-17 2305843009213693969 ADDRESS_MASK and test-single
-2305843009213693952 2305843009213693969 BUILTIN_FLAG and test-single
+2305843009213693971 ' dup test-single
+19 2305843009213693971 ADDRESS_MASK and test-single
+2305843009213693952 2305843009213693971 BUILTIN_FLAG and test-single
 
 ."         Arithmetic" cr
 5 1 4 + test-single
 -10 5 15 - test-single
 -20 2 -10 * test-single
 4 12 3 / test-single
-65535 1 16 lshift test-single
+65536 1 16 lshift test-single
 4 32 3 rshift test-single
 
 ."         Logic" cr
@@ -109,7 +109,7 @@ TRUE 12 12 15 range test-single
 TRUE 14 12 15 range test-single
 TRUE 15 12 15 range test-single
 TRUE -5 -7 -3 range test-single
-FALSE 14 12 15 range test-single
+FALSE 16 12 15 range test-single
 FALSE 16 12 15 range test-single
 
 ."         Bitwise" cr
