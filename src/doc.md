@@ -1,6 +1,6 @@
-# f2 Documentation
+# f3 Documentation
 
-f2 is written and tested on MacOS, but does not use any MacOS-specific calls, so it should compile on Linux and Windows.
+f3 is written and tested on MacOS, but does not use any MacOS-specific calls, so it should compile on Linux and Windows.
 The implementation is a combination of Rust and Forth - the core capabilities are implemented in Rust, including the memory model, the compiler and interpreter, and a range of basic operations like arithmetic and stack operations. The Rust binary is just over 1Mb in size.
 
 The data space is an array of i64, which stores all the words, contains the return and calculation stacks, and has space for additional data storage as needed.
@@ -27,9 +27,9 @@ The dictionary is a linked list, implemented directly in the data array, using b
 
 So for example, a word defined as follows: `: double 2 * ;` would be stored like this:
 
-| n                                 | n+1                                   | n+2                                        | n+3                                                    | n+4                            | n+5                                                 |                                                   |                                               |
-| --------------------------------- | ------------------------------------- | ------------------------------------------ | ------------------------------------------------------ | ------------------------------ | --------------------------------------------------- | ------------------------------------------------- | --------------------------------------------- | --- |
-| back-pointer                      | points to "double" in string space    | DEFINITION                                 | LITERAL                                                | 2                              | address of \*                                       | EXIT                                              | back pointer                                  | ... |
+| n   | n+1       | n+2  | n+3       | n+4          | n+5            |          |     |
+| --- | --- | --- | ---- | --------- | ------------ | -------------- | -------- | --- |
+| back-pointer   | points to "double" in string space    | DEFINITION      | LITERAL      | 2     | address of \*       | EXIT      | back pointer     | ... |
 | points to the previous definition | also has "immediate" flag as required | indicates this is a `:` (colon) definition | indicates the next value should be pushed on the stack | the value to push on the stack | address includes a flag indicating `*` is a builtin | acts like a return, ending execution of this word | contains n (address of the next pointer back) |
 
 The builtin flag disinguishes between a builtin function accessed through the jump table, and a word defined in Forth. This lets the interpreter know to look in the builtin array for a function pointer, rather than looking in data space for a definition.
@@ -57,7 +57,7 @@ The current regression test suite is quite simplistic. It only examines stack re
 
 # Builtin Words
 
-This is not intended to be full documentation, but a reference to the stack behavior and basic functions of some important words to help with debugging. f2 supports most of the standard stack and arithmetic words.
+This is not intended to be full documentation, but a reference to the stack behavior and basic functions of some important words to help with debugging. f3 supports most of the standard stack and arithmetic words.
 
 ## System Variables
 
@@ -86,7 +86,7 @@ This is not intended to be full documentation, but a reference to the stack beha
 ## I/O
 
 | WORD          | SIGNATURE                     | NOTES                                                                                                                                                                                                                                                                                                                                             |
-| ------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ------------- | ----------------------------- | ----------------------------------------------------------------------- |
 | query         | ( -- )                        | Read a line of Forth from the terminal. Store in TIB and set #TIB and >IN variables                                                                                                                                                                                                                                                               |
 | accept        | ( b u -- b u )                | Read up to u characters, placing them in b. Return the number of characters actually read.                                                                                                                                                                                                                                                        |
 | emit          | ( c -- )                      | Print a character, if it's in the printable range from space to 0x7F.                                                                                                                                                                                                                                                                             |
@@ -169,11 +169,11 @@ The implementation involves storing a name, which returns the address of the fir
 
 | WORD  | SIGNATURE       | NOTES                                                                                                         |
 | ----- | --------------- | ------------------------------------------------------------------------------------------------------------- |
-| array | ( n -- addr )   | Create an array of `n` elements using the name provided after `array`. Returns the address of the size value. |
+| array <name> | ( n -- addr )   | Create an array of `n` elements using the name provided after `array`. Returns the address of the size value. |
 | ac@   | ( addr -- n )   | Returns the number of elements in the array                                                                   |
 | a@    | ( i addr -- v ) | Returns the value of cell `i` in the array at `addr`.                                                         |
 | a!    | ( n i addr -- ) | Stores the value `n` in the array at index `i`.                                                               |
-| stack | ( n -- addr )   | Create a stack of `n` elements using the name provided after `stack`. Returns the address of the size value.  |
+| stack <name> | ( n -- addr )   | Create a stack of `n` elements using the name provided after `stack`. Returns the address of the size value.  |
 | sc@   | ( addr -- n )   | Returns the number of elements in the stack.                                                                  |
 | >s    | ( n addr -- )   | Push `n` on the stack at `addr`.                                                                              |
 | s>    | ( addr -- n )   | Pop the top value off the stack at `addr`.                                                                    |
