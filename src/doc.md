@@ -27,7 +27,7 @@ The dictionary is a linked list, implemented directly in the data array, using b
 
 So for example, a word defined as follows: `: double 2 * ;` would be stored like this:
 
-| n   | n+1       | n+2  | n+3       | n+4          | n+5            |          |     |
+| n   | n+1       | n+2  | n+3       | n+4          | n+5            |  n+6        |  n+7   | |
 | --- | --- | --- | ---- | --------- | ------------ | -------------- | -------- | --- |
 | back-pointer   | points to "double" in string space    | DEFINITION      | LITERAL      | 2     | address of \*       | EXIT      | back pointer     | ... |
 | points to the previous definition | also has "immediate" flag as required | indicates this is a `:` (colon) definition | indicates the next value should be pushed on the stack | the value to push on the stack | address includes a flag indicating `*` is a builtin | acts like a return, ending execution of this word | contains n (address of the next pointer back) |
