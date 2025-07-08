@@ -1,49 +1,86 @@
 \ Extra definitions, code under development
 
-\ String Dump capability
-\ dump-stringspace
+\ Replacement for `see', in Forth
+\ With pretty-print
+
+variable see-indent
+variable see-ind-depth
+4 see-ind-depth !               \ default indent is 4
+
+: do-indent ( -- )
+    see-indent @ spaces ;
+
+\ Type-specific displayers
+
+\ Print a variable from the address of its token
+: see-var ( addr -- addr )
+    ." variable "
+    dup 1- @ type
+    ." , value = "
+    dup 1+ @ . cr
+    ;
+
+\ Print a constant from the address of its token
+: see-const ( addr -- addr )
+    ." constant "
+    dup 1- @ type
+    ." , value = "
+    dup 1+ @ . cr
+    ;
+
+\ Display the values from the array, ten per line
+: show-array ( addr -- addr )
+    ." array-contents..."
+    ;
+
+\ Print an array from the address of its token
+: see-array ( addr -- addr )
+    ." array "
+    dup 1- @ type
+    ." , length = "
+    dup dup 1+ @ . cr
+    show-array cr
+    ;
+
+\ Walk through a definition, printing the contents
+\   Definition name is on its own line
+\   Subsequent words follow on a single line except for branches
+\   Following odd branches we indent
+\   Following even branches we outdent
+\   This will be approximate only...
 \
-
-132 constant buf-len
-
-\ Dump a string buffer from the beginning, for <count> characters
-: dump-buffer ( s_addr -- )    \ Dump contents of a string input buffer
-    ." Buffer at " dup 0 .r ." , length " dup c@ 0 .r ." : "
-    buf-len incr-for
-    for dup i - c@ emit next
-    drop cr
-    26 spaces
-    c@ for
-        '-' emit
-    next cr
-    ;
-
-\ Move the address to the next counted string
-: next-string ( s_addr -- s_addr )
-    c@ + 1+
-    ;
-
-\ Dump a counted string, given a starting address
-: dump-string ( s_addr -- )
-    dup 5 .r ." /" dup c@ . ." : "
-    dup type cr drop ;
-
-\ Dump strings from a starting point, stopping when there are no more (count is zero)
-: dump-strings ( s_addr -- )
+: see-def ( addr -- addr )
+    ." : " dup 1- @ type cr
+    see-ind-depth @ see-indent +!
     begin
-        s-here @ over < if drop exit then           \ We've run out of strings
-        dup dump-string
-        dup next-string
+        1+           \ increment the address
+        dup @
+        case
+            EXIT of cr ." ;" cr exit endof
+            LITERAL of 1+ @ . space endof
+            BRANCH of 1+ @ ." branch:" . space endof
+            BRANCH0 of 1+ @ ." branch0:" . space endof
+            ." (other). "
+        endcase
     again
     ;
 
-\ Print all string space
-: dump-stringspace ( -- )
-    ." TIB: " cr
-    0 dump-buffer    \ TIB
-    ." PAD " cr
-    pad @ dump-buffer
-    ." TMP " cr
-    tmp @ dump-buffer
-    tmp @ 132 + dump-strings
+
+\ Main word, takes a postfix word name
+: see2 ( -- )
+    (')                     \ Returns the address of the token, nfa is 1 previous
+    0= if
+        ." Not found" cr exit  \ The word was not found
+        then
+    1-                      \ Point to the nfa
+    dup BUILTIN_FLAG and if
+        ADDRESS_MASK and
+        ." Builtin: " builtin-name type exit
+    then
+        case
+            VARIABLE of see-var endof
+            CONSTANT of see-const endof
+            ARRAY of see-array endof
+            DEFINITION of see-def endof
+        endcase
     ;
