@@ -169,11 +169,11 @@ The implementation involves storing a name, which returns the address of the fir
 
 | WORD  | SIGNATURE       | NOTES                                                                                                         |
 | ----- | --------------- | ------------------------------------------------------------------------------------------------------------- |
-| array <name> | ( n -- addr )   | Create an array of `n` elements using the name provided after `array`. Returns the address of the size value. |
+| array \<name> | ( n -- addr )   | Create an array of `n` elements using the name provided after `array`. Returns the address of the size value. |
 | ac@   | ( addr -- n )   | Returns the number of elements in the array                                                                   |
 | a@    | ( i addr -- v ) | Returns the value of cell `i` in the array at `addr`.                                                         |
 | a!    | ( n i addr -- ) | Stores the value `n` in the array at index `i`.                                                               |
-| stack <name> | ( n -- addr )   | Create a stack of `n` elements using the name provided after `stack`. Returns the address of the size value.  |
+| stack \<name> | ( n -- addr )   | Create a stack of `n` elements using the name provided after `stack`. Returns the address of the size value.  |
 | sc@   | ( addr -- n )   | Returns the number of elements in the stack.                                                                  |
 | >s    | ( n addr -- )   | Push `n` on the stack at `addr`.                                                                              |
 | s>    | ( addr -- n )   | Pop the top value off the stack at `addr`.                                                                    |
