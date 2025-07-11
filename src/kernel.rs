@@ -54,6 +54,11 @@ impl Kernel {
         kernel
     }
 
+    #[inline(always)]
+    pub fn addr_check(&self, addr: usize) -> bool {
+        addr < DATA_SIZE
+    }
+
     /// reset() clears the stacks.
     ///
     pub fn reset(&mut self) {
@@ -65,6 +70,7 @@ impl Kernel {
     /// get returns the value of a cell on the heap using its address
     ///      This is used to access variables, constants, and other data stored in the heap.
     ///
+    #[inline(always)]
     pub fn get(&mut self, addr: usize) -> i64 {
         self.heap[addr]
     }
@@ -80,6 +86,7 @@ impl Kernel {
         self.heap[addr] += 1;
     }
 
+    #[inline(always)]
     pub fn decr(&mut self, addr: usize) {
         self.heap[addr] -= 1;
     }
@@ -154,25 +161,39 @@ impl Kernel {
         true
     }
 
-    /* #[inline(always)]
-     pub fn push_r(&mut self, val: i64) {
-         self.heap[self.return_ptr] = val;
-         self.return_ptr += 1;
-     }
-
-     #[inline(always)]
-     pub fn pop_r(&mut self) -> i64 {
-         self.return_ptr -= 1;
-         self.heap[self.return_ptr]
-     }
+    pub fn print_return_stack(&mut self) {
+        print!("Return-stack pointer = {}:", self.return_ptr);
+        print!("{{ ");
+        for i in (self.return_ptr..DATA_SIZE - 1).rev() {
+            print!("{} ", self.heap[i])
+        }
+        print!("}} ");
+    }
 
     #[inline(always)]
-     pub fn stack_check_r(&self, needed: usize, word: &str) -> bool{
-         if self.return_ptr < needed {
-             panic!("{}: Return stack underflow: need {}, have {}", word, needed, self.return_ptr);
-         }
-         true
-     } */
+    pub fn push_r(&mut self, val: i64) {
+        self.return_ptr -= 1;
+        self.heap[self.return_ptr] = val;
+    }
+
+    #[inline(always)]
+    pub fn pop_r(&mut self) -> i64 {
+        let val = self.heap[self.return_ptr];
+        self.return_ptr += 1;
+        val
+    }
+
+    #[inline(always)]
+    pub fn stack_check_r(&self, needed: usize, word: &str) -> bool {
+        let depth = DATA_SIZE - self.return_ptr - 1;
+        if DATA_SIZE - self.return_ptr - 1 < needed {
+            panic!(
+                "{}: Return stack underflow: need {}, have {}",
+                word, needed, depth
+            );
+        }
+        true
+    }
 
     pub fn pop2_push1<F>(&mut self, word: &str, f: F)
     where

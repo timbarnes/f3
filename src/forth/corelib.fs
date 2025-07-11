@@ -185,7 +185,7 @@
 : 2rdrop ( -- )     rdrop rdrop ;
 : 2>r ( m n -- )    >r >r ;
 : 2r> ( -- n m )    r> r> ;
-: 2r@ ( -- n m )    r> r> 2dup 2>r ;
+: 2r@ ( -- n m )    r> r> 2dup >r >r ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Memory allocation

@@ -152,7 +152,7 @@ impl ForthRuntime {
     pub fn f_get(&mut self) {
         if self.kernel.stack_check(1, "@") {
             let addr = self.kernel.pop() as usize;
-            if addr < DATA_SIZE {
+            if self.kernel.addr_check(addr) {
                 let val = self.kernel.get(addr);
                 self.kernel.push(val);
             } else {
@@ -182,17 +182,17 @@ impl ForthRuntime {
     pub fn f_to_r(&mut self) {
         if self.kernel.stack_check(1, ">r") {
             let val = self.kernel.pop();
-            self.kernel.set_return_ptr(self.kernel.get_return_ptr() - 1);
-            self.kernel.set(self.kernel.get_return_ptr(), val);
+            self.kernel.push_r(val);
         }
     }
 
     /// r> ( -- n ) Pops the return stack, pushing the value to the calculation stack
     ///
     pub fn f_r_from(&mut self) {
-        let val = self.kernel.get(self.kernel.get_return_ptr());
-        self.kernel.push(val);
-        self.kernel.set_return_ptr(self.kernel.get_return_ptr() + 1);
+        if self.kernel.stack_check_r(1, "r>") {
+            let val = self.kernel.pop_r();
+            self.kernel.push(val);
+        }
     }
 
     /// r@ ( -- n ) Gets the top value from the return stack, pushing the value to the calculation stack
@@ -200,6 +200,10 @@ impl ForthRuntime {
     pub fn f_r_get(&mut self) {
         let val = self.kernel.get(self.kernel.get_return_ptr());
         self.kernel.push(val);
+    }
+
+    pub fn f_dot_rs(&mut self) {
+        self.kernel.print_return_stack();
     }
 
     /// i ( -- n ) Pushes the current loop index to the calculation stack

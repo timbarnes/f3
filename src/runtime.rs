@@ -551,6 +551,11 @@ impl ForthRuntime {
             "r@ ( -- n ) Push the value on the top of the return stack to the calculation stack",
         );
         self.add_builtin(
+            ".rs",
+            ForthRuntime::f_dot_rs,
+            ".rs ( -- ) Print the return stack",
+        );
+        self.add_builtin(
             "immediate",
             ForthRuntime::f_immediate,
             "immediate sets the immediate flag on the most recently defined word",
