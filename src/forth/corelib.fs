@@ -165,17 +165,27 @@
 : 1+ ( n -- n+1 )   1 + ;
 : negate ( n -- -n ) 0 swap - ;
 : not               0= ;
-: pop ( a -- )      drop ;
-: 2dup ( a b -- a b a b ) over over ;
-: 2drop ( a b -- )  drop drop ;
-: ?dup              dup 0= if else dup then ;
-: rdrop ( -- )      r> drop ;                           \ Pop a return address off the stack
 : exit ( -- )       BREAK , ; immediate                 \ Pop out of the current definition and reset the Program Counter
 : >                 swap < ;
 : <=                1 + < ;
 : <> ( n -- n )     = 0= ;
 : 0>                0 > ;
 : 0<>               0= 0= ;
+
+\ Stack operations
+
+: pop ( a -- )      drop ;
+: 2dup ( a b -- a b a b ) over over ;
+: 2drop ( a b -- )  drop drop ;
+: ?dup              dup 0= if else dup then ;
+
+\ Return stack operations
+
+: rdrop  ( -- )     r> drop ;
+: 2rdrop ( -- )     rdrop rdrop ;
+: 2>r ( m n -- )    >r >r ;
+: 2r> ( -- n m )    r> r> ;
+: 2r@ ( -- n m )    r> r> 2dup 2>r ;
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Memory allocation
@@ -193,6 +203,10 @@
      then
    ;
 
+\ Used to convert to specify cells in Forths that have byte or other addressing modes (e.g. 8 bit processors with 16-bit addresses)
+\           Not required, but included for completeness.
+: cells ;
+
 \ Numeric operations
 
 : min ( m n -- m | n ) 2dup < if drop else nip then ;
@@ -201,14 +215,6 @@
 : range ( n l h -- b ) \ Returns TRUE if n is in the range of l to h inclusive
     1 + swap 1 -
     2 pick < 2 roll 2 roll < and ;
-
-\ Return stack operations in addition to the builtins: >r, r> and r@
-
-: rdrop     r> drop ;
-: 2rdrop    rdrop rdrop ;
-: 2>r       >r >r ;
-: 2r>       r> r> ;
-: 2r@       r> r> 2dup 2>r ;
 
 \ Control structures
 
