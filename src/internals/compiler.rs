@@ -255,10 +255,13 @@ impl ForthRuntime {
         self.f_dup();
         self.f_find();
         let result = self.kernel.pop();
-        self.kernel.pop();
+        let s_addr = self.kernel.pop() as usize - 1 & ADDRESS_MASK;
         if result == TRUE {
-            self.msg
-                .warning("unique?", "Overwriting existing definition", None::<bool>);
+            self.msg.warning(
+                "unique?",
+                "Overwriting existing definition name at ",
+                Some(self.kernel.get(s_addr)),
+            );
         }
     }
 
