@@ -202,6 +202,14 @@
     1 + swap 1 -
     2 pick < 2 roll 2 roll < and ;
 
+\ Return stack operations in addition to the builtins: >r, r> and r@
+
+: rdrop     r> drop ;
+: 2rdrop    rdrop rdrop ;
+: 2>r       >r >r ;
+: 2r>       r> r> ;
+: 2r@       r> r> 2dup 2>r ;
+
 \ Control structures
 
 : begin ( -- )      here @ MARK_BEGIN >c ; immediate
@@ -233,6 +241,25 @@
 
 : again             c> drop BRANCH ,
                     here @ - ,           ; immediate
+
+\ \\\ Under development
+
+: do ( m n -- )     \ Start an iterative loop from m to n
+   ['] 2>r ,        \ Put both values on the return stack
+   here @ MARK_BEGIN >c
+   ; immediate
+
+: loop ( -- )       \ Close an iterative loop, incrementing and checking the loop variable
+    ['] 2r@ ,       \ Get the loop values, leaving them on the stack
+    ['] <           \ If in range...
+    BRANCH0 , 8 ,   \ Jump forward, over the increment and branch code
+    LITERAL , 1 ,   \ increment the loop variable
+    ['] r> ,
+    ['] + ,
+    ['] >r
+    c> drop
+    BRANCH , here @ swap - ,
+    ; immediate
 
 \ Case statement
 
