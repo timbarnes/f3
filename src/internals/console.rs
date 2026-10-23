@@ -7,18 +7,18 @@ use std::cmp::min;
 use std::io::{self, BufRead, Write};
 use std::process::Command;
 
-/// file I/O and system call
-///
-/// Most activity uses STDIN and STDOUT, but the system can also process source code
-/// from files (typically ending in .fs.
-///
-/// Additionally basic general file I/O is supported with file-open, file-close, read-line, write-line
-/// and utilities file-size and file-position capturing file size and position within the file.
-///
-/// File modes can be r/w or r/o, and are set with constants passed to open-file.
-///
-/// Forth needs an i64 / usize as a file reference. This is achieved by creating a vector of file handles.
-/// Forth accesses files via an index into the vector.
+// file I/O and system call
+//
+// Most activity uses STDIN and STDOUT, but the system can also process source code
+// from files (typically ending in .fs.
+//
+// Additionally basic general file I/O is supported with file-open, file-close, read-line, write-line
+// and utilities file-size and file-position capturing file size and position within the file.
+//
+// File modes can be r/w or r/o, and are set with constants passed to open-file.
+//
+// Forth needs an i64 / usize as a file reference. This is achieved by creating a vector of file handles.
+// Forth accesses files via an index into the vector.
 
 impl ForthRuntime {
     /// (system) ( s -- ) Execute a shell command from the string on the stack (Unix-like operating systems)
@@ -170,7 +170,7 @@ impl ForthRuntime {
             let addr = self.kernel.pop() as usize;
             let file_name = self.kernel.string_get(addr);
             let mode = FILEMODE_RO; // Read-only mode for included files
-            let handle = self.u_open_file(&file_name, mode as i64);
+            let handle = self.u_open_file(&file_name, mode);
             match handle {
                 Some(handle) => {
                     self.reader.push(handle);
@@ -256,30 +256,27 @@ impl ForthRuntime {
             let _chars = self.kernel.pop() as usize;
             if file_id < self.files.len() {
                 let mut result = String::new();
-                match self.files[file_id].source {
-                    FType::BReader(ref mut br) => {
-                        match br.read_line(&mut result) {
-                            Ok(r) => {
-                                if r == 0 {
-                                    // EOF
-                                    self.kernel.push(0);
-                                    self.kernel.push(FALSE);
-                                    self.kernel.push(-1);
-                                } else {
-                                    let addr = self.kernel.get(self.tmp_ptr) as usize;
-                                    self.kernel.string_save(&result, addr);
-                                    self.kernel.push(r as i64); // Chars read
-                                    self.kernel.push(TRUE);
-                                    self.kernel.push(0);
-                                }
-                            }
-                            Err(e) => {
-                                self.msg
-                                    .error("read-line", e.to_string().as_str(), None::<bool>)
+                if let FType::BReader(ref mut br) = self.files[file_id].source {
+                    match br.read_line(&mut result) {
+                        Ok(r) => {
+                            if r == 0 {
+                                // EOF
+                                self.kernel.push(0);
+                                self.kernel.push(FALSE);
+                                self.kernel.push(-1);
+                            } else {
+                                let addr = self.kernel.get(self.tmp_ptr) as usize;
+                                self.kernel.string_save(&result, addr);
+                                self.kernel.push(r as i64); // Chars read
+                                self.kernel.push(TRUE);
+                                self.kernel.push(0);
                             }
                         }
+                        Err(e) => {
+                            self.msg
+                                .error("read-line", e.to_string().as_str(), None::<bool>)
+                        }
                     }
-                    _ => {} //self.msg.error("read-line", "No source found", Some(&self.files[file_id].source)),
                 }
             }
         }
@@ -295,12 +292,9 @@ impl ForthRuntime {
             if file_id < self.files.len() {
                 let string = self.kernel.string_get(addr)[0..chars - 1].to_owned();
                 // write the string to the file
-                match self.files[file_id].source {
-                    FType::File(ref mut f) => {
-                        f.write_all(&string.as_bytes())
-                            .expect("Error writing to file");
-                    }
-                    _ => {}
+                if let FType::File(ref mut f) = self.files[file_id].source {
+                    f.write_all(string.as_bytes())
+                        .expect("Error writing to file");
                 }
             }
         }

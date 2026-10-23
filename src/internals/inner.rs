@@ -117,7 +117,7 @@ impl ForthRuntime {
                 }
                 STRLIT => {
                     pc += 1;
-                    let val = self.kernel.get(pc) as i64;
+                    let val = self.kernel.get(pc);
                     self.kernel.push(val); // the string address of the data
                     pc += 1;
                 }
@@ -131,7 +131,7 @@ impl ForthRuntime {
                     pc += 1;
                     let offset = self.kernel.get(pc);
                     if offset < 0 {
-                        pc -= offset.abs() as usize;
+                        pc -= offset.unsigned_abs() as usize;
                     } else {
                         pc += offset as usize;
                     }
@@ -141,7 +141,7 @@ impl ForthRuntime {
                     if self.kernel.pop() == 0 {
                         let offset = self.kernel.get(pc);
                         if offset < 0 {
-                            pc -= offset.abs() as usize;
+                            pc -= offset.unsigned_abs() as usize;
                         } else {
                             pc += offset as usize;
                         }

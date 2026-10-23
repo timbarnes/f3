@@ -52,7 +52,7 @@ fn boot_forth(config: &Config) -> ForthRuntime {
 
         if !config.no_core {
             for path in DEFAULT_CORE {
-                load_file(&mut forth, &path);
+                load_file(&mut forth, path);
                 let result = forth.kernel.pop();
                 // println!("DEBUG: After popping result for {}, stack_ptr: {}", path, forth.kernel.get_stack_ptr());
                 if result != 0 {
@@ -95,34 +95,28 @@ fn run_forth(forth: &mut ForthRuntime) {
     println!("{WELCOME_MESSAGE} Version {VERSION}");
 
     // --- Interactive Loop Phase ---
-    loop {
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            forth.f_dot_s();
-            forth.set_abort_flag(false);
-            // println!("Entering f_quit");
-            forth.f_quit(); // main interpreter loop
-        }));
+    // ponytail: any panic is still fatal (re-raised below); Phase 1 replaces this with recovery.
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        forth.f_dot_s();
+        forth.set_abort_flag(false);
+        forth.f_quit(); // main interpreter loop
+    }));
 
-        match result {
-            Ok(_) => {
-                println!("{EXIT_MESSAGE}");
-                break;
+    match result {
+        Ok(_) => println!("{EXIT_MESSAGE}"),
+        Err(err) => {
+            eprintln!("⚠️  Error during execution. Resetting interpreter to prompt.");
+
+            if let Some(msg) = err.downcast_ref::<&str>() {
+                eprintln!("panic message: {}", msg);
+            } else if let Some(msg) = err.downcast_ref::<String>() {
+                eprintln!("panic message: {}", msg);
+            } else {
+                eprintln!("panic payload is not a string.");
             }
-            Err(err) => {
-                eprintln!("⚠️  Error during execution. Resetting interpreter to prompt.");
 
-                if let Some(msg) = err.downcast_ref::<&str>() {
-                    eprintln!("panic message: {}", msg);
-                } else if let Some(msg) = err.downcast_ref::<String>() {
-                    eprintln!("panic message: {}", msg);
-                } else {
-                    eprintln!("panic payload is not a string.");
-                }
-
-                // Print the backtrace if RUST_BACKTRACE is set
-                // Optionally re-raise to get Rust's full backtrace output
-                std::panic::resume_unwind(err);
-            }
+            // Re-raise to get Rust's full backtrace output if RUST_BACKTRACE is set
+            std::panic::resume_unwind(err);
         }
     }
 }

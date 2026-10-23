@@ -61,14 +61,12 @@ impl ForthRuntime {
 
     /// EXECUTE ( cfa -- ) interpret a word with addr on the stack
     /// stack value is the address of an inner interpreter
-    ///
-
     pub fn f_execute(&mut self) {
         if self.kernel.stack_check(1, "execute") {
             // call the appropriate inner interpreter
             let xt = self.kernel.pop();
             self.kernel.push(xt + 1);
-            let opcode = self.kernel.get(xt as usize & ADDRESS_MASK) as i64;
+            let opcode = self.kernel.get(xt as usize & ADDRESS_MASK);
             // println!("f_execute: opcode = {opcode} xt = {xt}");
             match opcode {
                 BUILTIN => self.msg.error("f_execute", "BUILTIN found", Some(xt)), //self.i_builtin(),
@@ -220,7 +218,7 @@ impl ForthRuntime {
     pub fn f_number_q(&mut self) {
         let buf_addr = self.kernel.pop();
         let numtext = self.kernel.string_get(buf_addr as usize);
-        if u_is_integer(&numtext.as_str()) {
+        if u_is_integer(numtext.as_str()) {
             let result = numtext.parse().unwrap();
             self.kernel.push(result);
             self.kernel.push(TRUE);
@@ -255,7 +253,7 @@ impl ForthRuntime {
         self.f_dup();
         self.f_find();
         let result = self.kernel.pop();
-        let s_addr = self.kernel.pop() as usize - 1 & ADDRESS_MASK;
+        let s_addr = (self.kernel.pop() as usize - 1) & ADDRESS_MASK;
         if result == TRUE {
             self.msg.warning(
                 "unique?",
@@ -350,7 +348,6 @@ impl ForthRuntime {
                 let val = self.kernel.get(self.tib_ptr);
                 self.kernel.push(val);
                 self.kernel.push(0); // indicates nothing found, TIB is empty
-                return;
             } else {
                 let addr = self.kernel.get(self.tib_ptr) + self.kernel.get(self.tib_in_ptr);
                 self.kernel.push(addr); // Starting address in the string
@@ -446,7 +443,7 @@ impl ForthRuntime {
             if is_builtin != 0 {
                 println!(
                     "Builtin: {}",
-                    self.kernel.get_builtin(xt as usize & !BUILTIN_FLAG).doc
+                    self.kernel.get_builtin(xt & !BUILTIN_FLAG).doc
                 );
             } else {
                 // It's a definition of some kind
@@ -462,7 +459,7 @@ impl ForthRuntime {
                             // print!("(xt is {}) ", xt);
                             match xt {
                                 LITERAL => {
-                                    print!("{} ", self.kernel.get(index as usize + 1));
+                                    print!("{} ", self.kernel.get(index + 1));
                                     index += 1;
                                 }
                                 ARRAY => {
@@ -471,16 +468,16 @@ impl ForthRuntime {
                                 }
                                 STRLIT => {
                                     // println!("Found STRLIT {}:{}", xt, self.kernel.get(index as usize + 1));
-                                    let s_addr = self.kernel.get(index as usize + 1) as usize;
+                                    let s_addr = self.kernel.get(index + 1) as usize;
                                     print!("\" {}\" ", self.kernel.string_get(s_addr));
                                     index += 1;
                                 }
                                 BRANCH => {
-                                    print!("branch:{} ", self.kernel.get(index as usize + 1));
+                                    print!("branch:{} ", self.kernel.get(index + 1));
                                     index += 1;
                                 }
                                 BRANCH0 => {
-                                    print!("branch0:{} ", self.kernel.get(index as usize + 1));
+                                    print!("branch0:{} ", self.kernel.get(index + 1));
                                     index += 1;
                                 }
                                 ABORT => println!("abort "),

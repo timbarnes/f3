@@ -179,9 +179,16 @@ FALSE 16 12 15 range test-single
 
 ."        Raw mode tests " cr
 0 raw-mode? test-single
-raw-mode-on
--1 raw-mode? test-single
-raw-mode-off
+: raw-tests                 \ raw mode needs a terminal; skip when input is piped (e.g. cargo test)
+    raw-mode-on raw-mode? raw-mode-off
+    if
+        raw-mode-on
+        -1 raw-mode? test-single
+        raw-mode-off
+    else
+        ."        Skipped: no terminal" cr
+    then ;
+raw-tests
 cr
 
 ."        Application tests" cr

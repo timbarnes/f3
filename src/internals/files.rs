@@ -66,7 +66,7 @@ impl FileHandle {
                     },
                     Err(_) => {
                         msg_handler.error("Reader::new", "Unable to open file", Some(file_path));
-                        return None;
+                        None
                     }
                 }
             }
@@ -198,6 +198,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "needs interactive stdin"]
     fn test_read_char() {
         // This test requires interactive input
         let mut handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();

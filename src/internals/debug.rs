@@ -62,11 +62,7 @@ impl ForthRuntime {
             return;
         };
         let mut contents = self.kernel.get(pc) as usize;
-        let is_builtin = if contents & BUILTIN_FLAG != 0 {
-            true
-        } else {
-            false
-        };
+        let is_builtin = contents & BUILTIN_FLAG != 0;
         contents &= ADDRESS_MASK;
         let mut c = 's';
 
@@ -99,7 +95,7 @@ impl ForthRuntime {
             EXEC => println!(" -> EXEC"),
             _ => {
                 if is_builtin {
-                    println!(" {} ", &self.kernel.get_builtin(contents).name);
+                    println!(" {} ", self.kernel.get_builtin(contents).name);
                 } else {
                     // it's a word address: step-in about to occur
                     let val = self.kernel.get(contents - 1);
@@ -107,20 +103,17 @@ impl ForthRuntime {
                 }
             }
         }
-        match stepper_mode {
-            -1 => {
-                // step mode: get a character
-                print!("Step> ");
-                self.f_flush();
-                loop {
-                    self.f_key();
-                    c = self.kernel.pop() as u8 as char;
-                    if c != '\n' {
-                        break;
-                    }
+        if stepper_mode == -1 {
+            // step mode: get a character
+            print!("Step> ");
+            self.f_flush();
+            loop {
+                self.f_key();
+                c = self.kernel.pop() as u8 as char;
+                if c != '\n' {
+                    break;
                 }
             }
-            _ => {}
         }
         match c {
             't' => self.kernel.set(self.stepper_ptr, 1),

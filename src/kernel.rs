@@ -43,15 +43,15 @@ pub struct Kernel {
 
 impl Kernel {
     pub fn new() -> Kernel {
-        let kernel = Kernel {
+        
+        Kernel {
             heap: [0; DATA_SIZE],
             strings: [b' '; STRING_SIZE],
             builtins: Vec::new(),
             stack_ptr: STACK_START,
             return_ptr: RET_START,
             string_ptr: 0,
-        };
-        kernel
+        }
     }
 
     #[inline(always)]
@@ -99,9 +99,9 @@ impl Kernel {
     /// Safe stack accessors
     #[inline(always)]
     pub fn push(&mut self, val: i64) {
-        if self.stack_ptr <= 0 {
+        if self.stack_ptr == 0 {
             panic!(
-                "Stack corruption detected: cannot push, stack_ptr ({}) <= 0",
+                "Stack corruption detected: cannot push, stack_ptr ({}) == 0",
                 self.stack_ptr
             );
         }
@@ -214,7 +214,7 @@ impl Kernel {
     {
         if self.stack_check(1, word) {
             let x = self.pop();
-            self.push(f(x) as i64);
+            self.push(f(x));
         }
     }
 

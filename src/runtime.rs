@@ -193,11 +193,7 @@ impl ForthRuntime {
     ///     In this version, the STATE variable is used directly.
     ///
     pub fn get_compile_mode(&mut self) -> bool {
-        if self.kernel.get(self.state_ptr) == FALSE {
-            false
-        } else {
-            true
-        }
+        self.kernel.get(self.state_ptr) != FALSE
     }
 
     /// set_compile_mode turns on compilation mode
@@ -230,7 +226,7 @@ impl ForthRuntime {
 
     /// make-variable creates a variable, returning the address of the variable's value
     fn make_variable(&mut self, name: &str) -> usize {
-        let code_ptr = self.make_word(&name, &[VARIABLE, 0]); // install the name
+        let code_ptr = self.make_word(name, &[VARIABLE, 0]); // install the name
         code_ptr + 1 // the location of the variable's value
     }
 
@@ -246,14 +242,12 @@ impl ForthRuntime {
     ///     update HERE and LAST
     ///     return pointer to first parameter field - the code field pointer or cfa
     ///     This is used for making headers for words, variables, and constants.
-    ///
-
     fn make_word(&mut self, name: &str, args: &[i64]) -> usize {
         // println!("Making word: {}", name);
         let back = self.kernel.get(self.here_ptr) as usize - 1; // the top-of-stack back pointer's location
         let mut ptr = back + 1;
         let val = self.kernel.string_new(name) as i64;
-        self.kernel.set(ptr, val as i64);
+        self.kernel.set(ptr, val);
         for val in args {
             ptr += 1;
             self.kernel.set(ptr, *val);
@@ -752,11 +746,7 @@ impl ForthRuntime {
     ///
     pub fn get_abort_flag(&mut self) -> bool {
         let val = self.kernel.get(self.abort_ptr);
-        if val == FALSE {
-            false
-        } else {
-            true
-        }
+        val != FALSE
     }
 
     /// should_exit determines whether or not the user has executed BYE
@@ -791,8 +781,8 @@ impl ForthRuntime {
 }
 
 /////////////////////////
-/// TESTS
-///
+// TESTS
+//
 
 #[cfg(test)]
 mod tests {
@@ -867,7 +857,7 @@ mod tests {
         let addr = rt.add_builtin("add", sample_add, "Add two numbers");
         rt.kernel.push(10);
         rt.kernel.push(32);
-        let cfa = rt.kernel.get(addr as usize) as usize & ADDRESS_MASK;
+        let cfa = rt.kernel.get(addr) as usize & ADDRESS_MASK;
         rt.builtin(cfa);
 
         assert_eq!(rt.kernel.pop(), 42);
@@ -892,7 +882,7 @@ mod tests {
         runtime.cold_start();
 
         runtime.compile_builtins();
-        assert_eq!(runtime.kernel.get_builtin(5).name, "<".to_string());
+        assert_eq!(runtime.kernel.get_builtin(7).name, "<".to_string());
         assert_eq!(runtime.kernel.get_builtin(0).name, "+".to_string());
     }
 

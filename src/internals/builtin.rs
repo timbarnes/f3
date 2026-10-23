@@ -1,6 +1,6 @@
-/// Interpreter for builtins
-///
-/// Set up a table of builtin functions, with names and code
+//! Interpreter for builtins
+//!
+//! Set up a table of builtin functions, with names and code
 
 #[allow(dead_code)]
 use crate::runtime::ForthRuntime;
@@ -21,16 +21,14 @@ impl BuiltInFn {
 }
 
 /////////////////////////////////////////////
-/// TESTS
-///
+// TESTS
+//
 #[cfg(test)]
-
 mod tests {
     use super::*;
     use crate::runtime::ForthRuntime;
 
     #[test]
-
     fn test_builtin_fn_creation() {
         let mut rt = ForthRuntime::new();
         fn num_fn(rt: &mut ForthRuntime) {
@@ -51,7 +49,7 @@ mod tests {
         let builtin_fn = BuiltInFn::new(name, num_fn, doc);
         assert_eq!(builtin_fn.name, "test");
         assert_eq!(builtin_fn.doc, "This is a test function");
-        assert_eq!(builtin_fn.code as usize, num_fn as usize);
+        assert_eq!(builtin_fn.code as *const () as usize, num_fn as *const () as usize);
         assert_eq!(get_val(&mut rt), 44);
     }
 }
