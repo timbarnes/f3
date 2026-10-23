@@ -42,18 +42,18 @@ The inclusion of the names in the dictionary also supports the `see` operation, 
 
 ## Memory map
 
-The heap is 65,536 cells (`i64`), checked on every access:
+The heap is 1 MB, **byte-addressed**, with 8-byte cells (`1 cells` is 8) at aligned addresses. Every access is bounds-checked, and `@` or `!` at a misaligned address raises error −23. (Inside, the heap is stored as 8-byte words, so an aligned cell is a single load.)
 
 ```
 0 ......... HERE ->    DICT_LIMIT | <- data stack   sp0 | <- return stack   rp0
 [ system variables | dictionary ] [ 1024 cells        ] [ 1024 cells           ]
 ```
 
-- **The dictionary** grows up from cell 0. `,` and `allot` stop at `DICT_LIMIT` with "dictionary full".
+- **The dictionary** grows up from address 0. `,` and `allot` stop at `DICT_LIMIT` with "dictionary full". `allot` counts bytes, `,` aligns HERE to a cell first, and `align`/`aligned` round up to a cell.
+- **Each word** starts with a link field, as in fig-Forth: `[link][name][code field][parameters]`. The link holds the previous word's link address, and 0 ends the chain. `,` and `allot` simply append to the newest word.
 - **The data stack and the return stack** each have 1024 cells, and grow down. Overflow and underflow are errors.
-- **The stacks are addressable** from Forth: `sp@` is the address of the top item (the item `n` deep is at `sp@ + n`), and `sp0` is `sp@` when the stack is empty. `rp@` and `rp0` work the same for the return stack. `depth`, `pick`, `roll`, `clear`, `.s`, and `.rs` are written in Forth on top of these.
+- **The stacks are addressable** from Forth: `sp@` is the address of the top item (the item `n` deep is at `sp@ + n cells`), and `sp0` is `sp@` when the stack is empty. `rp@` and `rp0` work the same for the return stack. `depth`, `pick`, `roll`, `clear`, `.s`, and `.rs` are written in Forth on top of these.
 - **Strings live in a separate byte space** of 10,000 bytes. Strings are counted: the first byte is the length, so at most 255. `c@`, `c!`, and `cmove` address string space; `@` and `!` address the heap. The first three buffers are TIB (input line), PAD, and TMP, at 256 bytes each. `s-here` is the next free byte, and `s-allot ( n -- s )` reserves bytes.
-- **The back pointer** of the most recent finished word sits just below `dp`, and the next definition links to it. `,` and `allot` after a finished word write over it and move it up, so `variable buf 10 allot` gives `buf` 11 contiguous cells, and `create x 1 , 2 ,` gives `x` two. `here` always gives the next free cell: `dp @ 1-` after a finished word, and `dp @` inside a definition.
 
 ## Errors
 

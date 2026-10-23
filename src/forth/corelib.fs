@@ -1,6 +1,6 @@
 : immediate context @ dup @ IMMEDIATE_FLAG or swap ! ;
 : compile-only context @ dup @ COMPILE_ONLY_FLAG or swap ! ;
-: here dp @ last @ context @ = cell * + ;
+: here dp @ ;
 : pad 'pad @ ;
 : cells cell * ;
 : cell+ cell + ;
@@ -10,20 +10,17 @@
 
 \ The words above come first, because comments need them.
 \ cell (from the engine) is the number of address units per cell; cells cell+ cell- use it.
-\ here is the next free cell. dp points past the latest finished word's back pointer, which
-\ , and allot move up as they extend that word, so then here is dp - 1 (LAST = CONTEXT gives -1).
+\ here is the next free cell. Each word starts with a link field holding the previous word's link
+\ address, then its name field, code field and parameters (as in fig-Forth), so , and allot append.
 \ immediate and compile-only set a flag on the most recently defined word.
 \ The engine defines the opcodes (VARIABLE, LITERAL, BRANCH, ...), the flags (IMMEDIATE_FLAG, ...),
 \ ADDRESS_MASK, and the empty-stack addresses sp0 and rp0 as constants (runtime.rs insert_constants).
 
 1 dbg \ set debuglevel to warnings and errors
 
-\ here points to the slot where the new back pointer goes
-\ last and context point to the previous word's name field address
+\ last points to the name field of the word being defined; context to the newest finished word's
 
-: (close) ( -- )                      \ terminate a definition, writing a back pointer and updating context, last, and here
-        last @ cell- here !           \ write the new back pointer
-        here cell+ dp !             \ update HERE
+: (close) ( -- )                      \ finish a word made with (create): make it findable
         last @ context !              \ update CONTEXT
         ;
 
@@ -184,10 +181,10 @@
 : 2* ( n -- 2n )    1 lshift ;
 : u> ( u1 u2 -- f ) swap u< ;
 : within ( n lo hi -- f ) over - >r - r> u< ;         \ lo <= n < hi, also across the wrap
-: char+ ( c -- c' ) 1+ ;                              \ characters are bytes; chars, align, aligned do nothing
+: char+ ( c -- c' ) 1+ ;                              \ characters are bytes, so chars does nothing
 : chars ( n -- n ) ;
-: align ( -- ) ;
-: aligned ( a -- a ) ;
+: aligned ( a -- a' ) cell 1- + cell negate and ;     \ round up to the next cell boundary
+: align ( -- )      here aligned dp ! ;
 : count ( s -- c-addr u ) dup 1+ swap c@ ;           \ a counted string's characters and length
 
 \ String literals. s" gives ( c-addr u ), c" a counted string; both compile a literal inside a
@@ -400,20 +397,16 @@ variable 's-buf
 : +! ( n addr -- )  dup @ rot + swap ! ;
 : ?  ( addr -- )    @ . ;
 
-: forget-last ( -- )                            \ delete the most recent definitions
-                    dp @ cell- @ dup cell+ dp !   \ resets HERE to the previous back pointer
-                    @ cell+ dup context ! last !   \ resets CONTEXT and LAST
+: forget-last ( -- )                            \ delete the most recent definition
+                    context @ cell- dup dp !    \ HERE goes back to its link field
+                    @ cell+ dup context ! last ! \ CONTEXT and LAST go back to the previous word
                     ;
 
 : forget ( <name> )                             \ delete <name> and any words since
                     trace-off step-off          \ we're messing with the dictionary, so we don't want to run FIND
-                    (') dup
-                    if
-                        cell- dup dup dp ! @ s-here !            \ move to nfa and set HERE and S-HERE
-                        cell- @ cell+ dup context ! last !        \ go back a link and set CONTEXT and LAST
-                    else
-                        drop
-                    then ;
+                    (') 2 cells - dup dp !                   \ HERE goes back to the word's link field
+                    dup cell+ @ ADDRESS_MASK and s-here !   \ S-HERE back to its name
+                    @ cell+ dup context ! last ! ;          \ CONTEXT and LAST to the previous word
 
 \ : ?stack depth 0= if abort" Stack underflow" then ;
 

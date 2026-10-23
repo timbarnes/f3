@@ -89,6 +89,30 @@ Tests: 31 unit, 51 black-box, and 333 core tests, all passing at `CELL = 1`. The
 * **The header** keeps today's trailing-back-pointer layout for now. Only the addresses change size.
 * **Checkpoint:** all tests pass, the benchmarks are unchanged, and `core.fr` is still 597 of 638. (`C,` needs stage 2.)
 
+**Status: done (2026-10-23), with two changes to the plan.**
+
+1. **The classic header layout moved here from stage 3** (as stage 1a, still at `CELL = 1`).
+   * The reason: with byte addresses, `allot` can leave HERE unaligned. The trailing back pointer, which `,` and `allot` had to drag along, would then have to sit at a misaligned address, or `allot` would have to round, breaking ANS `here 1 allot`.
+   * Link-first headers remove the problem. And in f3's memory image the link cell was already where the previous word's back pointer had been; only the writer changed (`create` instead of `;`). So `find` didn't change at all.
+   * Gone: `word_closed`, the F30 shuffling in `emit_cell` and `allot`, `(close)`'s back-pointer write, and `here = dp @ 1-`. `forget`, `forget-last`, and `words` walk the links.
+   * Names are still pointers into string space; stage 3 makes them inline.
+2. **Alignment is checked only by `@` and `!`** (decision 3, narrowed).
+   * The engine's own accesses (pc, loop frames, stacks, header fields) always derive from aligned addresses, and checking them cost about 0.5 ns per loop iteration.
+   * `@` and `!` are where a wrong address from Forth code arrives, which is what the check is for. Misaligned engine accesses would still be bounds-checked.
+
+Stage 1b as built:
+* **The heap** is 1 MB, byte-addressed, with `CELL = 8`, stored as 8-byte words (an aligned cell is one load).
+* **`,`** aligns HERE first, `allot` counts bytes, and `align`/`aligned` are real.
+* **`RET_START`** had to become `DATA_SIZE - CELL` (it was `- 1`). The alignment check caught this immediately.
+
+Performance:
+* `fib(27)` is unchanged at 13–14 ms.
+* The tight loop microbenchmarks are slower by about 0.5 ns per iteration (the empty `for` loop is 19 → 23–24 ms), with code layout held constant using `-C llvm-args=-align-loops=64`.
+* Code layout alone moves these microbenchmarks by up to 15% (stage 0's own empty loop went from 19 to 23 ms just from that flag), so they are a poor guide on their own. The cost was accepted, and stages 2 and 3 re-measure.
+* Word storage, byte storage, and moving the error paths out of line were all tried; none recovered it.
+
+Tests: 31 unit, 51 black-box, and 333 core tests, all passing. core.fr stops at its first `C,` (and at `1 A-ADDR C!`, a heap address used as character memory), as expected until stage 2.
+
 ### Stage 2: merge string space into the heap (M, about 3 days)
 
 * **Remove `Kernel::strings`.** `c@`, `c!`, `cmove`, and every `string_*` and `bytes_*` helper address the heap.

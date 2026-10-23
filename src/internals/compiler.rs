@@ -292,22 +292,20 @@ impl ForthRuntime {
     }
 
     /// ; terminates a definition, writing the cfa for EXIT, and resetting to interpret mode
-    ///     It has to write the exit code word, and add a back pointer
-    ///     It also has to update HERE and CONTEXT.
+    ///     It writes the EXIT opcode, and makes the word findable by updating CONTEXT.
     ///     Finally it switches out of compile mode
     ///
     pub fn f_semicolon(&mut self) {
         self.emit_cell(EXIT);
-        let back = self.kernel.get(self.last_ptr); // get the current LAST pointer
-        self.emit_cell(back - CELL as i64); // write the back pointer
-        self.kernel.set(self.context_ptr, back); // adds the new definition to FIND
+        let latest = self.kernel.get(self.last_ptr);
+        self.kernel.set(self.context_ptr, latest); // adds the new definition to FIND
         self.set_compile_mode(false);
     }
 
     /// (create) <name> ( -- ) makes a new dictionary entry (a name field only), using a postfix name.
     ///     The standard CREATE, defined in corelib.fs, builds a complete word on top of this.
-    ///     References HERE, and assumes back pointer is in place already.
-    ///     Sets LAST and HERE; the word becomes visible (CONTEXT) when it is closed by ; or (close).
+    ///     Writes the link and name fields at HERE, and sets LAST; the word becomes visible
+    ///     (CONTEXT) when it is closed by ; or (close).
     ///
     pub fn f_create(&mut self) {
         let (addr, len) = self.parse_token(b' ', true);
@@ -341,9 +339,12 @@ impl ForthRuntime {
             last: self.kernel.get(self.last_ptr),
             context: self.kernel.get(self.context_ptr),
         });
+        // [link][name][code field ...]: the link field holds the previous word's link address
+        let previous = self.kernel.get(self.context_ptr) - CELL as i64;
+        self.emit_cell(previous);
         let nfa = self.kernel.string_new(name);
         let here = self.kernel.get(self.here_ptr);
-        self.kernel.set(self.last_ptr, here); // save the last pointer
+        self.kernel.set(self.last_ptr, here); // LAST: this word's name field
         self.emit_cell(nfa as i64); // the name field
     }
 }

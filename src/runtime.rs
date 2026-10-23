@@ -135,30 +135,15 @@ impl ForthRuntime {
 
     /// Emit a value into the current definition (at HERE) and increment HERE.
     /// Functionally equivalent to push() and comma().
-    ///     After a finished word, HERE-1 holds its back pointer, which the next definition links
-    ///     to: the value goes there and the back pointer moves up, so `variable x 1 , 2 ,`
-    ///     gives x three contiguous cells and the dictionary stays intact.
     ///
     pub fn emit_cell(&mut self, value: i64) {
-        let addr = self.here();
+        // cells are aligned: after a non-cell allot (or c, later), HERE moves up to the next cell
+        let addr = self.here().next_multiple_of(CELL);
         if addr >= DICT_LIMIT {
             throw_code(DICTIONARY_FULL, "dictionary full");
         }
-        if self.word_closed() {
-            let back = self.kernel.get(addr - CELL);
-            self.kernel.set(addr - CELL, value);
-            self.kernel.set(addr, back);
-        } else {
-            self.kernel.set(addr, value);
-        }
-        self.kernel.delta(self.here_ptr, CELL as i64);
-    }
-
-    /// word_closed is true when the latest word is finished (LAST = CONTEXT), so the cell at
-    ///     HERE-1 is its back pointer; false while a definition is being built.
-    ///
-    pub fn word_closed(&self) -> bool {
-        self.kernel.get(self.last_ptr) == self.kernel.get(self.context_ptr)
+        self.kernel.set(addr, value);
+        self.kernel.set(self.here_ptr, (addr + CELL) as i64);
     }
 
     /// cold_start is where the interpreter begins, installing some variables and the builtin functions.
@@ -167,7 +152,6 @@ impl ForthRuntime {
         self.insert_constants();
         self.compile_builtins();
         self.kernel.set(self.state_ptr, FALSE);
-        // LAST = CONTEXT means the latest word is finished (allot relies on this)
         let latest = self.kernel.get(self.context_ptr);
         self.kernel.set(self.last_ptr, latest);
     }
@@ -303,52 +287,47 @@ impl ForthRuntime {
     ///     return pointer to first parameter field - the code field pointer or cfa
     ///     This is used for making headers for words, variables, and constants.
     fn make_word(&mut self, name: &str, args: &[i64]) -> usize {
-        let back = self.kernel.get(self.here_ptr) as usize - CELL; // the top-of-stack back pointer's location
-        let mut ptr = back + CELL;
-        let val = self.kernel.string_new(name.as_bytes()) as i64;
-        self.kernel.set(ptr, val);
+        // [link][name][code field + args]: the link field holds the previous word's link address
+        let link = self.here();
+        let previous = self.kernel.get(self.context_ptr) as usize - CELL;
+        let name = self.kernel.string_new(name.as_bytes()) as i64;
+        self.emit_cell(previous as i64);
+        self.emit_cell(name);
         for val in args {
-            ptr += CELL;
-            self.kernel.set(ptr, *val);
+            self.emit_cell(*val);
         }
-        ptr += CELL;
-        self.kernel.set(ptr, back as i64); // the new back pointer
-        self.kernel.set(self.here_ptr, (ptr + CELL) as i64); // start of free space = HERE
-        self.kernel.set(self.context_ptr, (back + CELL) as i64); // context is the name_pointer field of this word
-        back + 2 * CELL // address of first parameter field
+        self.kernel.set(self.context_ptr, (link + CELL) as i64); // context is the name field of this word
+        link + 2 * CELL // the code field
     }
 
     pub fn insert_variables(&mut self) {
-        // install system variables in data area
-        // hand craft S-HERE (free string pointer) so write_string() can work
+        // install system variables in data area. Each word is [link][name][code field][value];
+        // a link holds the previous word's link address, and 0 ends the chain.
+        // S-HERE, DP (HERE) and CONTEXT are hand-crafted, because make_word needs them.
         // (cell k is at address k * CELL; values that are addresses are scaled the same way)
         let c = |k: usize| k * CELL;
-        self.kernel.set(c(0), 0);
-        self.kernel.set(c(1), 0);
-        self.kernel.set(c(2), STR_START as i64); // name field of s-here
+        self.kernel.set(c(0), 0); // unused: no link field is at address 0
 
         self.kernel.string_set(STR_START, "s-here");
-
-        self.kernel.set_string_ptr(c(4));
+        self.kernel.set(c(1), 0); // s-here's link: the end of the chain
+        self.kernel.set(c(2), STR_START as i64); // name
         self.kernel.set(c(3), VARIABLE);
-        self.kernel.set(c(4), (STR_START + 7) as i64); // update the value of S-HERE
-        self.kernel.set(c(5), c(1) as i64); // back pointer
-                                            // hand craft HERE, because it's needed by make_word
+        self.kernel.set(c(4), (STR_START + 7) as i64); // the value of S-HERE: after its own name
+        self.kernel.set_string_ptr(c(4));
+
         let name_pointer = self.kernel.string_new(b"dp"); // the dictionary pointer; HERE is `dp @`
+        self.kernel.set(c(5), c(1) as i64); // link to s-here
         self.kernel.set(c(6), name_pointer as i64);
         self.kernel.set(c(7), VARIABLE);
-        self.kernel.set(c(8), c(10) as i64); // the value of HERE
-        self.kernel.set(c(9), c(5) as i64); // back pointer
         self.here_ptr = c(8); // the address of the HERE variable
 
-        // hand craft CONTEXT, because it's needed by make_word
         let str_addr = self.kernel.string_new(b"context");
+        self.kernel.set(c(9), c(5) as i64); // link to dp
         self.kernel.set(c(10), str_addr as i64);
         self.kernel.set(c(11), VARIABLE);
-        self.kernel.set(c(12), c(10) as i64);
-        self.kernel.set(c(13), c(9) as i64); // back pointer
+        self.kernel.set(c(12), c(10) as i64); // CONTEXT: the name field of the newest word (itself)
         self.context_ptr = c(12);
-        self.kernel.set(self.here_ptr, c(14) as i64);
+        self.kernel.set(self.here_ptr, c(13) as i64); // HERE: the first free cell
 
         self.pad_ptr = self.make_variable("'pad"); // PAD is `'pad @`
         self.kernel.set(self.pad_ptr, PAD_START as i64);
@@ -595,8 +574,8 @@ mod tests {
         let mut runtime = ForthRuntime::new();
         runtime.cold_start();
 
-        assert_eq!(runtime.kernel.get(0), 0); // stack pointer
-        assert_eq!(runtime.kernel.get(1), 0); // return pointer
+        assert_eq!(runtime.kernel.get(0), 0); // unused cell
+        assert_eq!(runtime.kernel.get(CELL), 0); // s-here's link: the end of the dictionary chain
         assert!(!runtime.exit_flag);
     }
 
@@ -658,8 +637,8 @@ mod tests {
         runtime.cold_start();
 
         runtime.insert_variables();
-        assert!(runtime.kernel.get(0) == 0); // stack pointer
-        assert!(runtime.kernel.get(1) == 0); // return pointer
+        assert!(runtime.kernel.get(0) == 0); // unused cell
+        assert!(runtime.kernel.get(CELL) == 0); // s-here's link: the end of the dictionary chain
         assert!(runtime.kernel.get(runtime.here_ptr) > WORD_START as i64);
         assert!(runtime.kernel.get(runtime.pad_ptr) == PAD_START as i64);
         assert!(runtime.kernel.get(runtime.base_ptr) == 10); // decimal base

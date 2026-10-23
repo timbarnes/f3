@@ -226,7 +226,7 @@ impl ForthRuntime {
     pub fn f_get(&mut self) {
         if self.kernel.stack_check(1, "@") {
             let addr = self.kernel.pop() as usize;
-            let val = self.kernel.get(addr); // throws on a bad address
+            let val = self.kernel.get_checked(addr); // throws on a bad or misaligned address
             self.kernel.push(val);
         }
     }
@@ -240,7 +240,7 @@ impl ForthRuntime {
             if addr == self.stepper_ptr {
                 self.set_stepper(value); // keeps the tracing flag in step
             } else {
-                self.kernel.set(addr, value); // throws on a bad address
+                self.kernel.set_checked(addr, value); // throws on a bad or misaligned address
             }
         }
     }
@@ -324,10 +324,9 @@ impl ForthRuntime {
         self.kernel.push(val);
     }
 
-    /// allot ( n -- ) reserves n cells of data space at HERE, or releases them if n is negative.
-    ///     After a finished word (LAST = CONTEXT), the cell at HERE-1 is its back pointer, which the
-    ///     next definition links to; allot moves it up to the new HERE-1. So `variable buf 10 allot`
-    ///     gives buf 11 contiguous cells. Inside a definition (CREATE ... allot (close)) nothing moves.
+    /// allot ( n -- ) reserves n address units of data space at HERE, or releases them if n is
+    ///     negative. Words start with their own link field, so data can simply be appended:
+    ///     `variable buf 10 cells allot` gives buf 11 contiguous cells.
     ///
     pub fn f_allot(&mut self) {
         self.kernel.stack_check(1, "allot");
@@ -339,10 +338,6 @@ impl ForthRuntime {
                 throw_code(DICTIONARY_FULL, "dictionary full");
             }
             throw_code(INVALID_ADDRESS, "allot: below the start of memory");
-        }
-        if self.word_closed() {
-            let back = self.kernel.get(old as usize - CELL);
-            self.kernel.set(here as usize - CELL, back);
         }
         self.kernel.set(self.here_ptr, here);
     }

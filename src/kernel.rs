@@ -14,13 +14,13 @@ use crate::internals::builtin::BuiltInFn;
 //
 // Compiled code tells opcodes from word addresses by OPCODE_FLAG (see runtime.rs),
 // so DATA_SIZE can grow freely up to the address mask.
-pub const CELL: usize = 1; // address units per cell (step 4 makes addresses bytes, and this 8)
-pub const DATA_SIZE: usize = 65536 * CELL;
+pub const CELL: usize = 8; // bytes per cell: the heap is byte-addressed, and cells are 8-byte aligned
+pub const DATA_SIZE: usize = 1 << 20; // 1 MB
 pub const STRING_SIZE: usize = 10000;
 pub const BUF_SIZE: usize = 256; // TIB, PAD, TMP. Counted strings hold at most 255 bytes.
 pub const RET_SIZE: usize = 1024;
 pub const STACK_SIZE: usize = 1024;
-pub const RET_START: usize = DATA_SIZE - 1; // return stack counts downwards
+pub const RET_START: usize = DATA_SIZE - CELL; // return stack counts downwards
 pub const STACK_START: usize = RET_START - RET_SIZE * CELL; // data stack counts downwards
 pub const DICT_LIMIT: usize = STACK_START - STACK_SIZE * CELL; // the dictionary grows up to here
 pub const WORD_START: usize = 0; // data area counts up from the bottom (builtins, words, variables etc.)
@@ -45,6 +45,7 @@ pub const RSTACK_OVERFLOW: i64 = -5;
 pub const RSTACK_UNDERFLOW: i64 = -6;
 pub const DICTIONARY_FULL: i64 = -8;
 pub const INVALID_ADDRESS: i64 = -9;
+pub const ALIGNMENT: i64 = -23;
 pub const DIVISION_BY_ZERO: i64 = -10;
 pub const OUT_OF_RANGE: i64 = -11;
 pub const UNDEFINED_WORD: i64 = -13;
@@ -82,7 +83,9 @@ pub fn throw_code(code: i64, msg: impl Into<String>) -> ! {
 ///
 //#[derive(Debug)]
 pub struct Kernel {
-    heap: Box<[i64; DATA_SIZE]>, // a fixed size, so bounds checks compare against a constant
+    // ponytail: memory is byte-addressed, but stored as 8-byte words, so an aligned cell is one
+    // load (heap[addr / CELL]); a byte (stage 2: c@ c!) is a shift and mask of its word.
+    heap: Box<[i64; DATA_SIZE / CELL]>, // a fixed size, so bounds checks compare against a constant
     strings: [u8; STRING_SIZE], // storage for strings
     builtins: Vec<BuiltInFn>,   // the dictionary of builtins
     stack_ptr: usize,           // top of the linear space stack
@@ -93,7 +96,7 @@ pub struct Kernel {
 impl Kernel {
     pub fn new() -> Kernel {
         Kernel {
-            heap: vec![0; DATA_SIZE].into_boxed_slice().try_into().unwrap(),
+            heap: vec![0; DATA_SIZE / CELL].into_boxed_slice().try_into().unwrap(),
             strings: [b' '; STRING_SIZE],
             builtins: Vec::new(),
             stack_ptr: STACK_START,
@@ -114,12 +117,44 @@ impl Kernel {
         self.stack_ptr = STACK_START;
     }
 
+    // Cells are 8 bytes at aligned byte addresses. The engine's own accesses (get, set) derive
+    // from aligned addresses, so only @ and ! (get_checked, set_checked) test alignment: that is
+    // where a wrong address from Forth code arrives. A misaligned engine access would read the
+    // cell containing the address: wrong, but still bounds-checked.
     #[inline(always)]
-    fn cell(&mut self, addr: usize) -> &mut i64 {
-        match self.heap.get_mut(addr) {
-            Some(cell) => cell,
-            None => throw_code(INVALID_ADDRESS, format!("invalid address {}", addr as i64)),
+    fn read(&self, addr: usize) -> i64 {
+        match self.heap.get(addr / CELL) {
+            Some(val) => *val,
+            None => Self::bad_address(addr),
         }
+    }
+
+    #[inline(always)]
+    fn write(&mut self, addr: usize, val: i64) {
+        match self.heap.get_mut(addr / CELL) {
+            Some(cell) => *cell = val,
+            None => Self::bad_address(addr),
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn bad_address(addr: usize) -> ! {
+        throw_code(INVALID_ADDRESS, format!("invalid address {}", addr as i64))
+    }
+
+    #[inline(always)]
+    fn check_aligned(addr: usize) {
+        if !addr.is_multiple_of(CELL) {
+            Self::misaligned(addr);
+        }
+    }
+
+    // The error paths are out of line, so the checks above stay a test and a branch.
+    #[cold]
+    #[inline(never)]
+    fn misaligned(addr: usize) -> ! {
+        throw_code(ALIGNMENT, format!("address {} is not cell-aligned", addr as i64))
     }
 
     /// get returns the value of a cell on the heap using its address
@@ -127,17 +162,27 @@ impl Kernel {
     ///
     #[inline(always)]
     pub fn get(&self, addr: usize) -> i64 {
-        match self.heap.get(addr) {
-            Some(val) => *val,
-            None => throw_code(INVALID_ADDRESS, format!("invalid address {}", addr as i64)),
-        }
+        self.read(addr)
     }
 
     /// set_var stores a new value to a cell on the heap using its address
     ///     This is used to set variables, constants, and other data stored in the heap.
     ///
+    #[inline(always)]
     pub fn set(&mut self, addr: usize, val: i64) {
-        *self.cell(addr) = val;
+        self.write(addr, val);
+    }
+
+    /// get_checked and set_checked are @ and !: they also raise -23 for a misaligned address
+    ///
+    pub fn get_checked(&self, addr: usize) -> i64 {
+        Self::check_aligned(addr);
+        self.read(addr)
+    }
+
+    pub fn set_checked(&mut self, addr: usize, val: i64) {
+        Self::check_aligned(addr);
+        self.write(addr, val);
     }
     /// incr and decr are used to increment or decrement a cell on the heap
     pub fn incr(&mut self, addr: usize) {
@@ -151,8 +196,8 @@ impl Kernel {
 
     /// delta adds a delta value to a cell on the heap
     pub fn delta(&mut self, addr: usize, delta: i64) {
-        let cell = self.cell(addr);
-        *cell = cell.wrapping_add(delta);
+        let val = self.get(addr).wrapping_add(delta);
+        self.set(addr, val);
     }
 
     /// Safe stack accessors
@@ -162,7 +207,7 @@ impl Kernel {
             throw_code(STACK_OVERFLOW, "stack overflow");
         }
         self.stack_ptr -= CELL;
-        self.heap[self.stack_ptr] = val;
+        self.write(self.stack_ptr, val);
     }
 
     #[inline(always)]
@@ -170,7 +215,7 @@ impl Kernel {
         if self.stack_ptr >= STACK_START {
             throw_code(STACK_UNDERFLOW, "stack underflow");
         }
-        let r = self.heap[self.stack_ptr];
+        let r = self.read(self.stack_ptr);
         self.stack_ptr += CELL;
         r
     }
@@ -195,7 +240,7 @@ impl Kernel {
             throw_code(RSTACK_OVERFLOW, "return stack overflow");
         }
         self.return_ptr -= CELL;
-        self.heap[self.return_ptr] = val;
+        self.write(self.return_ptr, val);
     }
 
     #[inline(always)]
@@ -203,7 +248,7 @@ impl Kernel {
         if self.return_ptr >= RET_START {
             throw_code(RSTACK_UNDERFLOW, "return stack underflow");
         }
-        let val = self.heap[self.return_ptr];
+        let val = self.read(self.return_ptr);
         self.return_ptr += CELL;
         val
     }
@@ -220,12 +265,12 @@ impl Kernel {
     ///     Primitives check the depth once with stack_check, then work on the cells in place.
     #[inline(always)]
     pub fn nth(&self, n: usize) -> i64 {
-        self.heap[self.stack_ptr + n * CELL]
+        self.read(self.stack_ptr + n * CELL)
     }
 
     #[inline(always)]
     pub fn set_nth(&mut self, n: usize, val: i64) {
-        self.heap[self.stack_ptr + n * CELL] = val;
+        self.write(self.stack_ptr + n * CELL, val);
     }
 
     /// drop_cells removes n cells from the data stack (the caller has checked the depth)
@@ -413,7 +458,7 @@ mod tests {
 
     fn kernel_with_string_ptr(start: usize) -> Kernel {
         let mut k = Kernel::new();
-        k.heap[k.string_ptr] = start as i64;
+        k.set(k.string_ptr, start as i64);
         k
     }
 

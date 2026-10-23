@@ -12,7 +12,7 @@ variable word-counter
 
 : words ( -- )
                     0 word-counter !
-                    dp @ cell- @                              \ Get the starting point: the top back pointer
+                    context @ cell-                           \ Get the starting point: the newest link field
                     begin                                       \ loops through the words in the dictionary
                         .word dup not                           \ print a word and test the next pointer
                     until
@@ -315,7 +315,7 @@ variable word-counter
 
 \ dump-here dumps the top n cells. Useful for seeing recent dictionary entries.
 : dump-here     ( n -- )
-    dup here cell- swap cells - swap dump
+    dup here swap cells - swap dump
     dim ." **************** HERE ********** TOP OF HEAP *********************" t-reset cr
     here 2 dump ;
 
