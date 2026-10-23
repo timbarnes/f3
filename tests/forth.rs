@@ -382,6 +382,16 @@ fn new_primitives() {
     assert_eq!(stack("' if immed? ' dup immed?"), "-1 0");
 }
 
+// ------------------------------------------------------------- Phase 4
+
+#[test]
+fn tracer_follows_stepper_variable() {
+    // the inner interpreter caches `stepper`; storing to it with ! must switch tracing on and off
+    let r = run(": t 1 2 + ;\n1 stepper ! 5 stepper-depth !\nt\n0 stepper !\nt\n.s");
+    assert_eq!(r.out.matches(" EXIT ").count(), 1, "{}", r.out); // only the first t is traced
+    assert!(r.out.contains("[ 3 3 ]"), "{}", r.out);
+}
+
 /// Phase 1 exit check: 10k lines of random words and numbers (plus small colon definitions)
 /// must never kill f3, hang it, or hit a Rust panic (an engine bug rather than a Forth error).
 #[test]

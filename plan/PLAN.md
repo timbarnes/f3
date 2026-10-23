@@ -251,6 +251,33 @@ Dropped: the earlier item 4.4, which would have written `.`, `type`, `1+`, `2dup
 
 Targets: colon-call overhead ≤ 8 ns (from ~17), and `27 fib` ≤ 12 ms (from 21). Beyond that, a closure-compiled or JIT design would be a different project.
 
+**Status: done (2026-10-22).** Each change was measured best-of-15 against a build of the Phase 3 commit on the same machine, because the machine had background load:
+
+| | Phase 3 | Phase 4 |
+|---|---|---|
+| `fib(27)` | 20 ms | **14 ms** |
+| 10M empty `for` | 24 ms | 19 ms |
+| 10M calls of `: nop ;` | 83 ms | 60 ms |
+| 10M `dup drop` | 86 ms | 47 ms |
+| 10M variable reads | 99 ms | 45 ms |
+
+Colon-call overhead is now about 4 ns, so that target is met. (The "17 ns" in the plan included the four primitives inside the word; the call alone was 5.9 ns.) `fib` reached 14 ms, so the 12 ms target was missed. The remaining time is mostly the indirect call into each builtin. Closing the gap would mean inlining hot primitives into the interpreter loop, which works against the minimal-engine goal, so I stopped here.
+
+Kept, because each one measurably helped:
+* **Stepper gate:** the inner loop tests a `tracing` bool instead of calling `debug_step` (two heap reads) on every cell. All writes to `stepper`, including `!`, go through `set_stepper`, and a test covers it. `fib` 21 → 18 ms.
+* **Call dispatch on the target's code field:**
+  * Colon words are entered directly at their body, with no extra loop iteration for the DEFINITION marker.
+  * Variables and constants push their value inline, without a call and return.
+  * `fib` 18 → 16 ms; variables 99 → 54 ms.
+* **Builtin cells tested first** in the loop, before the opcode match. `dup drop` 65 → 56 ms.
+* **One depth check per primitive:** `top_cells(n)` gives the top `n` cells as a slice. Stack and arithmetic words work on it in place. The gain is small, but the code is simpler.
+* **Fixed-size heap** (`Box<[i64; DATA_SIZE]>`), so bounds checks compare against a constant. About 5–8% across the board.
+
+Tried and dropped, because they didn't help:
+* **Two copies of the inner loop** (plain and tracing, generic over a `TRACE` constant): no change.
+* **`lto = true` with `codegen-units = 1`:** no change, and builds went from about 1 s to 9 s.
+* **A buffered stdout writer (4.5):** printing 100k numbers takes about 88 ms, and only about 10 ms of that is the writes; the rest is Forth formatting. A buffer would only pay off if all output, including `println!`, went through one writer, which is the Phase 0 "out" refactor. Not worth it for under 10% on print-heavy code.
+
 ---
 
 ## Phase 5: Standards and polish (optional, L)
@@ -269,7 +296,7 @@ Targets: colon-call overhead ≤ 8 ns (from ~17), and `27 fib` ≤ 12 ms (from 2
 | 1 Stop crashing | 0 | Fuzz run with no panics, and errors return to a clean prompt |
 | 2 Correctness | 1 | All F-tests pass |
 | 3 Architecture | 2 | Cold words in Forth, stacks addressable via `sp@`/`rp@`, internals in plain Rust, dead code gone |
-| 4 Performance | 3 | Colon-call overhead ≤ 8 ns, `fib` ≤ 12 ms |
+| 4 Performance | 3 | Colon-call overhead ≤ 8 ns (met: 4 ns), `fib` ≤ 12 ms (14 ms) |
 | 5 Standards | 2 | ANS core tests |
 
 If time is short, **Phase 0 + Phase 1.1 + Phase 2.1/2.2** fix the worst user-visible problems: process death, corrupted state after errors, and `execute` inside a definition.

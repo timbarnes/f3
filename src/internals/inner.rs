@@ -52,7 +52,15 @@ impl ForthRuntime {
         let mut call_depth: usize = 1;
         loop {
             let code = self.kernel.get(pc); // throws if pc has left the heap
-            self.debug_step(pc, call_depth);
+            if self.tracing {
+                self.debug_step(pc, call_depth); // only when stepping or tracing
+            }
+            if code as usize & BUILTIN_FLAG != 0 {
+                // the most common cell: a builtin, compiled as its flagged index
+                self.builtin(code as usize & ADDRESS_MASK);
+                pc += 1;
+                continue;
+            }
             match code {
                 DEFINITION => pc += 1, // entering a called colon definition
                 LITERAL | STRLIT => {
@@ -149,19 +157,36 @@ impl ForthRuntime {
                     pc += 1;
                 }
                 _ => {
+                    // a word's cfa: dispatch on its code field, without an extra trip round the loop
                     let xt = code as usize;
-                    if xt & BUILTIN_FLAG != 0 {
-                        self.builtin(xt & ADDRESS_MASK);
-                        pc += 1;
-                    } else if self.kernel.get(xt) as usize & BUILTIN_FLAG != 0 {
-                        // the cfa of a builtin word (e.g. compiled by ['] ... ,)
-                        self.builtin(self.kernel.get(xt) as usize & ADDRESS_MASK);
-                        pc += 1;
-                    } else {
-                        // call a word: save the return address and continue at its cfa
-                        call_depth += 1;
-                        self.kernel.push_r(pc as i64 + 1);
-                        pc = xt;
+                    let target = self.kernel.get(xt);
+                    match target {
+                        DEFINITION => {
+                            // call: save the return address and continue in the word's body
+                            call_depth += 1;
+                            self.kernel.push_r(pc as i64 + 1);
+                            pc = xt + 1;
+                        }
+                        VARIABLE | ARRAY => {
+                            self.kernel.push(xt as i64 + 1);
+                            pc += 1;
+                        }
+                        CONSTANT => {
+                            let val = self.kernel.get(xt + 1);
+                            self.kernel.push(val);
+                            pc += 1;
+                        }
+                        _ if target as usize & BUILTIN_FLAG != 0 => {
+                            // the cfa of a builtin word (e.g. compiled by ['] ... ,)
+                            self.builtin(target as usize & ADDRESS_MASK);
+                            pc += 1;
+                        }
+                        _ => {
+                            // anything else: run it as code, as a call
+                            call_depth += 1;
+                            self.kernel.push_r(pc as i64 + 1);
+                            pc = xt;
+                        }
                     }
                 }
             }

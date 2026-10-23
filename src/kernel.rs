@@ -52,7 +52,7 @@ pub fn throw(msg: impl Into<String>) -> ! {
 ///
 //#[derive(Debug)]
 pub struct Kernel {
-    heap: Box<[i64]>,           // DATA_SIZE cells
+    heap: Box<[i64; DATA_SIZE]>, // a fixed size, so bounds checks compare against a constant
     strings: [u8; STRING_SIZE], // storage for strings
     builtins: Vec<BuiltInFn>,   // the dictionary of builtins
     stack_ptr: usize,           // top of the linear space stack
@@ -63,7 +63,7 @@ pub struct Kernel {
 impl Kernel {
     pub fn new() -> Kernel {
         Kernel {
-            heap: vec![0; DATA_SIZE].into_boxed_slice(),
+            heap: vec![0; DATA_SIZE].into_boxed_slice().try_into().unwrap(),
             strings: [b' '; STRING_SIZE],
             builtins: Vec::new(),
             stack_ptr: STACK_START,
@@ -191,24 +191,37 @@ impl Kernel {
         true
     }
 
+    /// top returns the top n cells of the data stack, top first, after one depth check.
+    ///     Primitives work on this slice directly instead of popping and pushing.
+    #[inline(always)]
+    pub fn top_cells(&mut self, n: usize, word: &str) -> &mut [i64] {
+        self.stack_check(n, word);
+        &mut self.heap[self.stack_ptr..self.stack_ptr + n]
+    }
+
+    /// drop_cells removes n cells from the data stack (the caller has checked the depth)
+    #[inline(always)]
+    pub fn drop_cells(&mut self, n: usize) {
+        self.stack_ptr += n;
+    }
+
+    #[inline(always)]
     pub fn pop2_push1<F>(&mut self, word: &str, f: F)
     where
         F: Fn(i64, i64) -> i64,
     {
-        self.stack_check(2, word);
-        let j = self.pop();
-        let k = self.pop();
-        self.push(f(k, j));
+        let cells = self.top_cells(2, word);
+        cells[1] = f(cells[1], cells[0]);
+        self.drop_cells(1);
     }
 
+    #[inline(always)]
     pub fn pop1_push1<F>(&mut self, word: &str, f: F)
     where
         F: Fn(i64) -> i64,
     {
-        if self.stack_check(1, word) {
-            let x = self.pop();
-            self.push(f(x));
-        }
+        let cells = self.top_cells(1, word);
+        cells[0] = f(cells[0]);
     }
 
     /// string_new writes a new string into the next empty space, updating the free space pointer

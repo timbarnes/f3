@@ -79,6 +79,7 @@ pub struct ForthRuntime {
     pub reader: Vec<FileHandle>, // allows for nested file processing
     pub files: Vec<Option<FileHandle>>, // open files, indexed by file-id; None once closed
     pub stepper_ptr: usize,      // indicates trace, step, or continuous execution
+    pub tracing: bool,           // stepper != 0, cached for the inner interpreter (see set_stepper)
     pub step_depth_ptr: usize,   // number of levels deep to step or trace
     pub timer: Instant,          // for timing things
     pub pending_def: Option<PendingDef>, // dictionary state before the latest CREATE
@@ -112,6 +113,7 @@ impl ForthRuntime {
             reader: Vec::new(),
             files: Vec::new(),
             stepper_ptr: 0,
+            tracing: false,
             step_depth_ptr: 1,
             timer: Instant::now(),
             pending_def: None,
@@ -158,6 +160,14 @@ impl ForthRuntime {
     pub fn set_compile_mode(&mut self, value: bool) {
         let val = if value { -1 } else { 0 };
         self.kernel.set(self.state_ptr, val);
+    }
+
+    /// set_stepper writes the STEPPER variable. Every write goes through here (! included),
+    ///     so the inner interpreter can test a plain bool instead of reading the heap per cell.
+    ///
+    pub fn set_stepper(&mut self, mode: i64) {
+        self.kernel.set(self.stepper_ptr, mode);
+        self.tracing = mode != 0;
     }
 
     /// abort empties the stack, resets any pending operations, and returns to the prompt

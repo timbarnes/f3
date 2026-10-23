@@ -70,10 +70,10 @@ impl ForthRuntime {
     pub fn run_untraced(&mut self, name: &str) {
         if let Some(cfa) = self.find_word(name.as_bytes()) {
             let stepper = self.kernel.get(self.stepper_ptr);
-            self.kernel.set(self.stepper_ptr, 0);
+            self.set_stepper(0);
             self.kernel.push(cfa as i64);
             self.f_execute();
-            self.kernel.set(self.stepper_ptr, stepper);
+            self.set_stepper(stepper);
         }
     }
 

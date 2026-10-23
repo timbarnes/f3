@@ -42,6 +42,7 @@ impl ForthRuntime {
     ///
     ///     pc is the program counter, which represents the address of the cell being executed.
     ///
+    #[cold]
     pub fn debug_step(&mut self, pc: usize, call_depth: usize) {
         let stepper_mode = self.kernel.get(self.stepper_ptr);
         let stepper_depth = self.kernel.get(self.step_depth_ptr) as usize;
@@ -111,10 +112,10 @@ impl ForthRuntime {
             }
         }
         match c {
-            't' => self.kernel.set(self.stepper_ptr, 1),
+            't' => self.set_stepper(1),
             'i' => self.kernel.incr(self.step_depth_ptr),
             'o' => self.kernel.decr(self.step_depth_ptr),
-            'c' => self.kernel.set(self.stepper_ptr, 0),
+            'c' => self.set_stepper(0),
             'h' | '?' => println!(
                 "Stepper: 's' for show, 't' for trace, 'c' for continue, 'o' for step-out."
             ),

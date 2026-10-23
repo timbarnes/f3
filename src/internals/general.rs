@@ -10,11 +10,7 @@ impl ForthRuntime {
     /// Basic Forth operations on the stack.
     ///
     pub fn f_plus(&mut self) {
-        if self.kernel.stack_check(2, "+") {
-            let a = self.kernel.pop();
-            let b = self.kernel.pop();
-            self.kernel.push(a.wrapping_add(b));
-        };
+        self.kernel.pop2_push1("+", |a, b| a.wrapping_add(b));
     }
 
     // Arithmetic wraps on overflow, as Forth expects, and behaves the same in debug and release builds.
@@ -77,50 +73,28 @@ impl ForthRuntime {
         self.kernel.pop1_push1("0<", |a| if a < 0 { -1 } else { 0 });
     }
 
+    // Stack primitives work on the top cells in place (top_cells: one depth check, cell 0 is the top).
     pub fn f_dup(&mut self) {
-        if self.kernel.stack_check(1, "dup") {
-            let top = self.kernel.top();
-            self.kernel.push(top);
-        }
+        let top = self.kernel.top_cells(1, "dup")[0];
+        self.kernel.push(top);
     }
     pub fn f_drop(&mut self) {
-        if self.kernel.stack_check(1, "drop") {
-            self.kernel.pop();
-        }
+        self.kernel.top_cells(1, "drop");
+        self.kernel.drop_cells(1);
     }
     pub fn f_swap(&mut self) {
-        if self.kernel.stack_check(2, "swap") {
-            let a = self.kernel.pop();
-            let b = self.kernel.pop();
-            self.kernel.push(a);
-            self.kernel.push(b);
-        }
+        self.kernel.top_cells(2, "swap").swap(0, 1);
     }
     pub fn f_over(&mut self) {
-        if self.kernel.stack_check(2, "over") {
-            let first = self.kernel.pop();
-            let second = self.kernel.pop();
-            self.kernel.push(second);
-            self.kernel.push(first);
-            self.kernel.push(second);
-        }
+        let second = self.kernel.top_cells(2, "over")[1];
+        self.kernel.push(second);
     }
     pub fn f_rot(&mut self) {
-        if self.kernel.stack_check(3, "rot") {
-            let first = self.kernel.pop();
-            let second = self.kernel.pop();
-            let third = self.kernel.pop();
-            self.kernel.push(second);
-            self.kernel.push(first);
-            self.kernel.push(third);
-        }
+        // ( i j k -- j k i ): top first, [k j i] becomes [i k j]
+        self.kernel.top_cells(3, "rot").rotate_right(1);
     }
     pub fn f_and(&mut self) {
-        if self.kernel.stack_check(2, "and") {
-            let a = self.kernel.pop();
-            let b = self.kernel.pop();
-            self.kernel.push((a as usize & b as usize) as i64);
-        }
+        self.kernel.pop2_push1("and", |a, b| a & b);
     }
 
     pub fn f_xor(&mut self) {
@@ -158,11 +132,7 @@ impl ForthRuntime {
     }
 
     pub fn f_or(&mut self) {
-        if self.kernel.stack_check(2, "or") {
-            let a = self.kernel.pop();
-            let b = self.kernel.pop();
-            self.kernel.push((a as usize | b as usize) as i64);
-        }
+        self.kernel.pop2_push1("or", |a, b| a | b);
     }
 
     /// @ (get) ( a -- n ) loads the value at address a onto the stack
@@ -180,7 +150,11 @@ impl ForthRuntime {
         if self.kernel.stack_check(2, "!") {
             let addr = self.kernel.pop() as usize;
             let value = self.kernel.pop();
-            self.kernel.set(addr, value); // throws on a bad address
+            if addr == self.stepper_ptr {
+                self.set_stepper(value); // keeps the tracing flag in step
+            } else {
+                self.kernel.set(addr, value); // throws on a bad address
+            }
         }
     }
 
