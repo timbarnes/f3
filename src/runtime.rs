@@ -11,7 +11,8 @@ use crate::internals::terminal;
 /// // It includes the kernel, stack pointers, and various other state variables.
 /// // It also provides methods for initializing the runtime (cold_start).
 ///
-use crate::kernel::{Kernel, BUF_SIZE, WORD_START};
+use crate::kernel::{throw, ForthError, Kernel, BUF_SIZE, DICT_LIMIT, WORD_START};
+use std::any::Any;
 use std::time::Instant;
 
 // STRING AREA constants
@@ -81,6 +82,15 @@ pub struct ForthRuntime {
     pub stepper_ptr: usize,      // indicates trace, step, or continuous execution
     pub step_depth_ptr: usize,   // number of levels deep to step or trace
     pub timer: Instant,          // for timing things
+    pub pending_def: Option<PendingDef>, // dictionary state before the latest CREATE
+}
+
+/// Dictionary pointers saved by CREATE, so an error before the word is closed can roll it back.
+pub struct PendingDef {
+    pub here: i64,
+    pub s_here: i64,
+    pub last: i64,
+    pub context: i64,
 }
 
 impl ForthRuntime {
@@ -108,6 +118,7 @@ impl ForthRuntime {
             stepper_ptr: 0,
             step_depth_ptr: 1,
             timer: Instant::now(),
+            pending_def: None,
         };
         let fh = FileHandle {
             source: FType::Stdin, // Use standard input
@@ -130,6 +141,9 @@ impl ForthRuntime {
     ///
     pub fn emit_cell(&mut self, value: i64) {
         let addr = self.here();
+        if addr >= DICT_LIMIT {
+            throw("dictionary full");
+        }
         self.kernel.set(addr, value);
         self.kernel.incr(self.here_ptr);
     }
@@ -143,7 +157,7 @@ impl ForthRuntime {
             MARK_FOR => ControlMarker::For(addr),
             MARK_CASE => ControlMarker::Case(addr),
             MARK_OF => ControlMarker::Of(addr),
-            _ => panic!(">c: unknown control tag {}", tag),
+            _ => throw(format!(">c: unknown control tag {tag}")),
         };
         //println!(">c pushing {:?}", marker);
         self.control_stack.push(marker);
@@ -176,7 +190,7 @@ impl ForthRuntime {
                 self.kernel.push(addr as i64);
                 self.kernel.push(MARK_OF);
             }
-            None => self.msg.error("c>", "control stack underflow", None::<()>),
+            None => throw("c>: control stack underflow"),
         }
     }
 
@@ -208,20 +222,51 @@ impl ForthRuntime {
     ///     There is a version called abort" implemented in Forth, which prints an error message
     ///
     pub fn f_abort(&mut self) {
-        // empty the stack, reset any pending operations, and return to the prompt
-        self.f_raw_mode_off();
-        self.f_flush();
-        self.msg
-            .warning("ABORT", "Terminating execution", None::<bool>);
-        self.f_clear();
-        self.set_abort_flag(true);
+        throw(""); // silent: quit catches it and calls recover
     }
 
-    /// f_clear resets the stack and return stack pointers to their initial values
+    /// recover reports an error caught by quit, and returns the system to a clean state:
+    ///     empty stacks, interpret mode, no half-built definition, input back to the console.
+    ///
+    pub fn recover(&mut self, payload: Box<dyn Any + Send>) {
+        let msg = if let Some(ForthError(msg)) = payload.downcast_ref::<ForthError>() {
+            msg.clone()
+        } else if let Some(msg) = payload.downcast_ref::<&str>() {
+            format!("internal: {msg}")
+        } else if let Some(msg) = payload.downcast_ref::<String>() {
+            format!("internal: {msg}")
+        } else {
+            "internal error".to_string()
+        };
+        if msg.starts_with("internal: failed printing to stdout") {
+            std::process::exit(0); // stdout is gone (e.g. a closed pipe): nothing left to talk to
+        }
+        if !msg.is_empty() {
+            println!("ERROR: {msg}");
+        }
+
+        self.kernel.reset();
+        self.control_stack.clear();
+        self.set_compile_mode(false);
+        if let Some(def) = self.pending_def.take() {
+            // CREATE ran but the word was never closed (CONTEXT unchanged): remove it
+            if self.kernel.get(self.context_ptr) == def.context {
+                self.kernel.set(self.here_ptr, def.here);
+                self.kernel.set(self.kernel.get_string_ptr(), def.s_here);
+                self.kernel.set(self.last_ptr, def.last);
+            }
+        }
+        self.reader.truncate(1); // abandon any files being included
+        if terminal::get_raw_mode().unwrap_or(false) {
+            let _ = terminal::disable_raw();
+        }
+        self.f_flush();
+    }
+
+    /// f_clear empties the data stack
     ///
     pub fn f_clear(&mut self) {
-        // println!("Clearing interpreter state");
-        self.kernel.reset(); // Reset the kernel state
+        self.kernel.clear_stack();
     }
 
     /// make-variable creates a variable, returning the address of the variable's value
@@ -736,19 +781,6 @@ impl ForthRuntime {
         );
     }
 
-    /// set_abort_flag allows the abort condition to be made globally visible
-    ///
-    pub fn set_abort_flag(&mut self, v: bool) {
-        self.kernel.set(self.abort_ptr, if v { -1 } else { 0 });
-    }
-
-    /// get_abort_flag returns the current value of the flag
-    ///
-    pub fn get_abort_flag(&mut self) -> bool {
-        let val = self.kernel.get(self.abort_ptr);
-        val != FALSE
-    }
-
     /// should_exit determines whether or not the user has executed BYE
     ///
     pub fn should_exit(&self) -> bool {
@@ -909,17 +941,6 @@ mod tests {
     }
 
     #[test]
-    fn test_set_abort_flag() {
-        let mut runtime = ForthRuntime::new();
-        runtime.cold_start();
-
-        runtime.set_abort_flag(true);
-        assert!(runtime.get_abort_flag());
-        runtime.set_abort_flag(false);
-        assert!(!runtime.get_abort_flag());
-    }
-
-    #[test]
     fn test_should_exit() {
         let mut runtime = ForthRuntime::new();
         runtime.cold_start();
@@ -949,11 +970,16 @@ mod tests {
     #[test]
     fn test_f_abort() {
         let mut runtime = ForthRuntime::new();
+        runtime.cold_start();
         runtime.kernel.push(42);
-        runtime.kernel.push(99);
-        assert_eq!(runtime.kernel.stack_len(), 2); // stack should have 2 items
-        runtime.f_abort();
+        runtime.kernel.push_r(99);
+        runtime.set_compile_mode(true);
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| runtime.f_abort()));
+        runtime.recover(result.unwrap_err());
         assert_eq!(runtime.kernel.stack_len(), 0); // stack should be cleared
+        assert_eq!(runtime.kernel.get_return_ptr(), crate::kernel::RET_START);
+        assert!(!runtime.get_compile_mode());
     }
 
     #[test]
@@ -976,17 +1002,6 @@ mod tests {
         assert_eq!(runtime.kernel.get(runtime.state_ptr), -1);
         runtime.set_compile_mode(false);
         assert_eq!(runtime.kernel.get(runtime.state_ptr), 0);
-    }
-
-    #[test]
-    fn test_f_set_abort_flag() {
-        let mut runtime = ForthRuntime::new();
-        runtime.cold_start();
-
-        runtime.set_abort_flag(true);
-        assert!(runtime.get_abort_flag());
-        runtime.set_abort_flag(false);
-        assert!(!runtime.get_abort_flag());
     }
 
     #[test]

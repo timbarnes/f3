@@ -1,11 +1,14 @@
 // Compiler and Interpreter
 
 use crate::internals::general::u_is_integer;
+use crate::kernel::throw;
+use crate::runtime::PendingDef;
 use crate::runtime::{
     ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN, CONSTANT,
     DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE,
 };
 use crate::runtime::{BUILTIN_FLAG, FALSE, IMMEDIATE_FLAG, TRUE};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 impl ForthRuntime {
     /// immediate ( -- ) sets the immediate flag on the most recently defined word
@@ -29,7 +32,7 @@ impl ForthRuntime {
             let clean_cfa = cfa & ADDRESS_MASK;
 
             // Get the NFA (Name Field Address) which is always cfa - 1
-            let name_ptr = self.kernel.get(clean_cfa - 1) as usize;
+            let name_ptr = self.kernel.get(clean_cfa.wrapping_sub(1)) as usize;
             let immed = name_ptr & IMMEDIATE_FLAG;
 
             let result = if immed == 0 { FALSE } else { TRUE };
@@ -39,13 +42,10 @@ impl ForthRuntime {
 
     /// quit is the main loop in Forth, reading from the input stream and dispatching for evaluation
     ///     quit also issues the prompt and checks for a shutdown (exit) condition
+    ///     Any error raised while handling a line unwinds to here, and is handled by recover
     pub fn f_quit(&mut self) {
-        self.f_abort();
-        loop {
-            if self.should_exit() {
-                break;
-            } else {
-                self.set_abort_flag(false);
+        while !self.should_exit() {
+            let result = catch_unwind(AssertUnwindSafe(|| {
                 self.f_query();
                 self.f_eval(); // interpret the contents of the line
                 if self.reader.len() == 1 {
@@ -55,6 +55,9 @@ impl ForthRuntime {
                     print!("ok ");
                 }
                 self.f_flush();
+            }));
+            if let Err(payload) = result {
+                self.recover(payload);
             }
         }
     }
@@ -146,10 +149,7 @@ impl ForthRuntime {
                 } else {
                     self.kernel.pop(); // lose the failed number
                     let addr = self.kernel.get(self.pad_ptr) as usize;
-                    let word = &self.kernel.string_get(addr);
-                    self.msg
-                        .warning("$interpret", "token not recognized", Some(word));
-                    self.f_abort();
+                    throw(format!("{} ?", self.kernel.string_get(addr)));
                 }
             }
         }
@@ -173,9 +173,7 @@ impl ForthRuntime {
                     // leave the converted number on the stack
                 } else {
                     self.kernel.pop(); // lose the failed number
-                    let word = &self.kernel.string_get(token_addr as usize);
-                    self.msg
-                        .warning("$interpret", "token not recognized", Some(word));
+                    throw(format!("{} ?", self.kernel.string_get(token_addr as usize)));
                 }
             }
         }
@@ -188,7 +186,7 @@ impl ForthRuntime {
         if self.kernel.stack_check(1, "find") {
             let mut result = false;
             let source_addr = self.kernel.pop() as usize;
-            let mut link = self.kernel.get(self.context_ptr) as usize - 1;
+            let mut link = (self.kernel.get(self.context_ptr) as usize).wrapping_sub(1);
             // link = self.data[link] as usize; // go back to the beginning of the top word
             while link > 0 {
                 // name field is immediately after the link
@@ -231,10 +229,8 @@ impl ForthRuntime {
     /// f_comma ( n -- ) compile a value into a definition
     ///     Takes the top of the stack and writes it to the next free location in data space
     pub fn f_comma(&mut self) {
-        let addr = self.kernel.get(self.here_ptr) as usize;
         let val = self.kernel.pop();
-        self.kernel.set(addr, val);
-        self.kernel.incr(self.here_ptr); // increment HERE pointer to first free cell
+        self.emit_cell(val);
     }
 
     /// f_literal ( n -- ) compile a literal number with it's inner interpreter code pointer
@@ -253,7 +249,7 @@ impl ForthRuntime {
         self.f_dup();
         self.f_find();
         let result = self.kernel.pop();
-        let s_addr = (self.kernel.pop() as usize - 1) & ADDRESS_MASK;
+        let s_addr = (self.kernel.pop() as usize).wrapping_sub(1) & ADDRESS_MASK;
         if result == TRUE {
             self.msg.warning(
                 "unique?",
@@ -312,7 +308,7 @@ impl ForthRuntime {
                 let end = buf_len as usize;
                 let mut i = 0;
                 let mut j;
-                while buffer[i] == delim && i < end {
+                while i < end && buffer[i] == delim {
                     i += 1;
                 }
                 j = i;
@@ -395,9 +391,7 @@ impl ForthRuntime {
         // println!("; (semicolon) - end of definition");
         self.emit_cell(EXIT);
         let back = self.kernel.get(self.last_ptr); // get the current LAST pointer
-        let here = self.kernel.get(self.here_ptr) as usize; // get the current HERE pointer
-        self.kernel.set(here, back - 1); // write the back pointer
-        self.kernel.incr(self.here_ptr); // over EXIT and back pointer
+        self.emit_cell(back - 1); // write the back pointer
         self.kernel.set(self.context_ptr, back); // adds the new definition to FIND
         self.set_compile_mode(false);
     }
@@ -406,6 +400,12 @@ impl ForthRuntime {
     ///     References HERE, and assumes back pointer is in place already
     ///     create updates the three definition-related pointers: HERE, CONTEXT and LAST
     pub fn f_create(&mut self) {
+        self.pending_def = Some(PendingDef {
+            here: self.kernel.get(self.here_ptr),
+            s_here: self.kernel.get(self.kernel.get_string_ptr()),
+            last: self.kernel.get(self.last_ptr),
+            context: self.kernel.get(self.context_ptr),
+        });
         let pad = self.kernel.get(self.pad_ptr);
         self.kernel.push(pad);
         self.kernel.push(' ' as i64);
@@ -418,13 +418,11 @@ impl ForthRuntime {
         let val = self.kernel.get(self.kernel.get_string_ptr());
         self.kernel.push(val);
         self.f_smove(); // make a new string with the name from PAD
-        let addr = self.kernel.get(self.here_ptr) as usize; // get the current HERE pointer
         let val = self.kernel.pop(); // get the string address
-        self.kernel.set(addr, val); // the string header
         self.kernel.delta(self.kernel.get_string_ptr(), length + 1); // update the free string pointer
-        let here = self.kernel.get(self.here_ptr) as usize;
-        self.kernel.set(self.last_ptr, here as i64); // save the last pointer
-        self.kernel.incr(self.here_ptr);
+        let here = self.kernel.get(self.here_ptr);
+        self.kernel.set(self.last_ptr, here); // save the last pointer
+        self.emit_cell(val); // the string header
     }
 
     /// see <name> ( -- ) prints the definition of a word

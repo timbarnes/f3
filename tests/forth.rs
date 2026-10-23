@@ -136,39 +136,35 @@ fn f2_execute_builtin_xt() {
 }
 
 #[test]
-#[ignore = "F3 error inside : ; installs a truncated word"]
 fn f3_error_inside_definition_does_not_install_word() {
     assert_eq!(stack(": bad 1 nosuch 2 ;\nbad"), "");
 }
 
 #[test]
-#[ignore = "F4 compile state survives an error"]
 fn f4_error_resets_compile_state() {
     assert_eq!(stack(": x nosuch\nstate @"), "0");
 }
 
 #[test]
-#[ignore = "F5 EOF on stdin loops forever"]
 fn f5_stdin_eof_exits() {
     let r = run_raw("1 .\n");
     assert!(!r.timed_out && r.ok, "{}", r.out);
 }
 
 #[test]
-#[ignore = "F6 input lines truncated at 131 bytes"]
 fn f6_long_lines_not_truncated() {
     let line = format!("0{}", " 1 +".repeat(40)); // 161 chars
     assert_eq!(stack(&line), "40");
 }
 
 #[test]
-#[ignore = "F7 dictionary overflow is unchecked"]
 fn f7_dictionary_overflow_is_an_error() {
-    assert_survives(": fill 1000000 for 1 , next ; fill");
+    // filling the dictionary with , is permanent, so only check the error and that f3 lives on
+    let r = run(": fill 1000000 for 1 , next ; fill\n12345 .");
+    assert!(r.ok && r.out.contains("dictionary full") && r.out.contains("12345 "), "{}", r.out);
 }
 
 #[test]
-#[ignore = "F8 return stack overflow is unchecked"]
 fn f8_runaway_recursion_is_an_error() {
     assert_survives(": deep recurse ; deep");
 }
@@ -186,13 +182,11 @@ fn f10_do_loop() {
 }
 
 #[test]
-#[ignore = "F14 non-ASCII input can split a UTF-8 char"]
 fn f14_non_ascii_input() {
     assert_survives(&format!("{}é", "a".repeat(130)));
 }
 
 #[test]
-#[ignore = "F24 clear also resets the return stack"]
 fn f24_clear_inside_definition() {
     assert_eq!(stack(": z 1 clear 2 ; z"), "2");
 }
@@ -207,19 +201,80 @@ fn f25_loaded_file_sees_core_words() {
 }
 
 #[test]
-#[ignore = "Phase 1: any panic kills the process"]
+#[ignore = "F26 abort\" is defined before type, so it does nothing"]
+fn f26_abort_quote() {
+    let r = run(": t abort\" oops\" ; 1 2 t\n.s");
+    assert!(r.ok && r.out.contains("oops") && r.out.contains("[ ]"), "{}", r.out);
+}
+
+#[test]
+#[ignore = "F27 negative allot grows the dictionary"]
+fn f27_negative_allot() {
+    assert_eq!(stack("here @ 10 allot -10 allot here @ ="), "-1");
+}
+
+#[test]
+#[ignore = "F29 ' and ['] of an unknown word return 0 silently"]
+fn f29_tick_unknown_word_is_an_error() {
+    let r = run(": t ['] nosuch ;");
+    assert!(r.ok && r.out.contains("nosuch"), "{}", r.out);
+}
+
+#[test]
 fn stack_underflow_is_recoverable() {
     assert_survives("drop");
 }
 
 #[test]
-#[ignore = "Phase 1: any panic kills the process"]
 fn divide_by_zero_is_recoverable() {
     assert_survives("1 0 /");
 }
 
 #[test]
-#[ignore = "Phase 1: arithmetic should wrap, not panic"]
 fn arithmetic_wraps() {
     assert_eq!(stack("9223372036854775807 1 +"), "-9223372036854775808");
+}
+
+/// Phase 1 exit check: 10k lines of random words and numbers (plus small colon definitions)
+/// must never kill f3, hang it, or hit a Rust panic (an engine bug rather than a Forth error).
+#[test]
+fn fuzz_random_input_never_crashes() {
+    const WORDS: &[&str] = &[
+        "+", "-", "*", "/", "mod", "lshift", "rshift", "<", "=", "0=", "0<", "and", "or",
+        "dup", "drop", "swap", "over", "rot", "pick", "roll", "depth", "clear", "@", "c@",
+        ">r", "r>", "r@", "i", "j", ".", "negate", "abs", "min", "max", "1+", "1-", "2dup",
+        "2drop", "nip", "tuck", ">", "<>", "0>", "?dup", "not", "nosuch",
+    ];
+    const NUMBERS: &[&str] = &[
+        "0", "1", "-1", "2", "7", "63", "64", "65", "255", "1000", "65535", "65536",
+        "9223372036854775807", "-9223372036854775808",
+    ];
+    let mut seed: u64 = 0x2545F4914F6CDD1D;
+    let mut next = |n: usize| {
+        seed ^= seed << 13; // xorshift64: deterministic, so failures reproduce
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % n as u64) as usize
+    };
+    let mut src = String::new();
+    for line in 0..10_000 {
+        let tokens: Vec<&str> = (0..1 + next(8))
+            .map(|_| if next(3) == 0 { NUMBERS[next(NUMBERS.len())] } else { WORDS[next(WORDS.len())] })
+            .collect();
+        if line % 10 == 0 {
+            src += &format!(": fz {} ; fz\n", tokens.join(" "));
+        } else {
+            src += &tokens.join(" ");
+            src += "\n";
+        }
+    }
+    let r = run(&format!("{src}: alive 12345 ; alive ."));
+    assert!(!r.timed_out, "f3 hung");
+    assert!(r.ok && r.out.contains("12345 "), "f3 did not survive");
+    let (errors, oks) = (r.out.matches("ERROR:").count(), r.out.matches("ok ").count());
+    eprintln!("fuzz: {errors} errors, {oks} lines ok");
+    assert!(errors > 1000 && oks > 1000, "fuzz input is not exercising both paths");
+    if let Some(i) = r.out.find("Rust panic") {
+        panic!("engine panic: {}", &r.out[i.saturating_sub(200)..(i + 200).min(r.out.len())]);
+    }
 }

@@ -79,24 +79,23 @@ impl FileHandle {
         }
     }
 
-    pub fn get_line(&mut self) -> Option<String> {
-        match &mut self.source {
-            FType::Stdin => {
-                let mut new_line = String::new();
-                if std::io::stdin().read_line(&mut new_line).is_ok() {
-                    Some(new_line.trim_end().to_string())
-                } else {
-                    None
+    /// get_line returns the next line as raw bytes, without trailing whitespace.
+    ///     None means end of input (or a read error).
+    pub fn get_line(&mut self) -> Option<Vec<u8>> {
+        let mut line = Vec::new();
+        let read = match &mut self.source {
+            FType::Stdin => io::stdin().lock().read_until(b'\n', &mut line),
+            FType::BReader(br) => br.read_until(b'\n', &mut line),
+            FType::File(_) => return None, // Files don't support line reading
+        };
+        match read {
+            Ok(n) if n > 0 => {
+                while line.last().is_some_and(|c| c.is_ascii_whitespace()) {
+                    line.pop();
                 }
+                Some(line)
             }
-            FType::BReader(ref mut br) => {
-                let mut new_line = String::new();
-                match br.read_line(&mut new_line) {
-                    Ok(n) if n > 0 => Some(new_line.trim_end().to_string()),
-                    _ => None,
-                }
-            }
-            FType::File(_) => None, // Files don't support line reading
+            _ => None,
         }
     }
 

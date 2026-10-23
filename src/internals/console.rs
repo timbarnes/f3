@@ -1,11 +1,23 @@
 use crate::internals::files::{FType, FileHandle, FileMode};
 use crate::internals::messages::Msg;
 /// Input-output words
-use crate::kernel::BUF_SIZE;
+use crate::kernel::{throw, BUF_SIZE};
 use crate::runtime::{ForthRuntime, FALSE, FILEMODE_RO, TRUE};
-use std::cmp::min;
 use std::io::{self, BufRead, Write};
 use std::process::Command;
+
+/// Write to stdout; if stdout is gone (e.g. a closed pipe) there is no one left to talk to, so exit.
+fn out(bytes: &[u8]) {
+    if io::stdout().write_all(bytes).is_err() {
+        std::process::exit(0);
+    }
+}
+
+fn flush() {
+    if io::stdout().flush().is_err() {
+        std::process::exit(0);
+    }
+}
 
 // file I/O and system call
 //
@@ -39,9 +51,12 @@ impl ForthRuntime {
                 println!("Adding {}", arg);
                 cmd.arg(arg);
             }
-            let output = cmd.output().expect("(system) failed to execute command");
-            io::stdout().write_all(&output.stdout).unwrap();
-            io::stderr().write_all(&output.stderr).unwrap();
+            let output = match cmd.output() {
+                Ok(output) => output,
+                Err(e) => throw(format!("(system): {e}")),
+            };
+            out(&output.stdout);
+            let _ = io::stderr().write_all(&output.stderr);
         }
     }
 
@@ -76,38 +91,33 @@ impl ForthRuntime {
     ///     If the read fails, we assume EOF, and pop the reader. Returned length will be 0.
     ///
     ///     Return the start of the string, and the number of characters read.
-    ///     Typically writes a counted string to the TIB, in which case,
-    ///     it needs TIB_START and BUF_SIZE - 1 on the stack.
+    ///     Longer lines are truncated to u characters (at most 255, the counted-string limit).
     ///
     pub fn f_accept(&mut self) {
         if self.kernel.stack_check(2, "accept") {
-            let max_len = self.kernel.pop();
+            let max_len = self.kernel.pop().clamp(0, BUF_SIZE as i64 - 1) as usize;
             let dest = self.kernel.top() as usize;
-            match self.reader.last_mut() {
-                Some(reader) => {
-                    let l = reader.get_line();
-                    match l {
-                        Some(line) => {
-                            let length = min(line.len(), max_len as usize) as usize;
-                            let line_str = &line[..length];
-                            self.kernel.string_save(line_str, dest); // write a counted string
-                            self.kernel.push(length as i64);
-                        }
-                        None => {
-                            // EOF - there are no more lines to read
-                            if self.reader.len() > 1 {
-                                // Reader 0 is stdin
-                                self.reader.pop(); // file goes out of scope and should be closed automatically
-                                self.kernel.push(0);
-                            } else {
-                                panic!("Reader error - EOF in stdin");
-                            }
-                        }
-                    }
+            let line = self.read_line();
+            let length = line.len().min(max_len);
+            self.kernel.bytes_save(&line[..length], dest); // write a counted string
+            self.kernel.push(length as i64);
+        }
+    }
+
+    /// read_line returns the next line from the current input source.
+    ///     At the end of an included file, input returns to the previous source and the line is empty.
+    ///     At the end of stdin, the interpreter exits.
+    ///
+    fn read_line(&mut self) -> Vec<u8> {
+        match self.reader.last_mut().and_then(|reader| reader.get_line()) {
+            Some(line) => line,
+            None => {
+                if self.reader.len() > 1 {
+                    self.reader.pop(); // file goes out of scope and is closed automatically
+                } else {
+                    self.exit_flag = true; // reader 0 is stdin
                 }
-                None => self
-                    .msg
-                    .error("accept", "No input source available", None::<bool>),
+                Vec::new()
             }
         }
     }
@@ -115,28 +125,24 @@ impl ForthRuntime {
     /// QUERY ( -- ) Load a new line of text into the TIB
     ///
     pub fn f_query(&mut self) {
-        let addr = self.kernel.get(self.tib_ptr);
-        self.kernel.push(addr);
-        self.kernel.push(BUF_SIZE as i64 - 1);
-        self.f_accept();
-        let val = self.kernel.pop(); // this is the length of the string read
-        self.kernel.set(self.tib_size_ptr, val); // update the TIB size pointer
+        let tib = self.kernel.get(self.tib_ptr) as usize;
+        let line = self.read_line();
+        if line.len() >= BUF_SIZE {
+            throw(format!("input line longer than {} characters", BUF_SIZE - 1));
+        }
+        self.kernel.bytes_save(&line, tib);
+        self.kernel.set(self.tib_size_ptr, line.len() as i64); // update the TIB size pointer
         self.kernel.set(self.tib_in_ptr, 1); // set the starting point in the TIB
-        self.kernel.pop(); // we don't need the address
     }
 
     // output functions
 
-    /// (emit) ( c -- ) takes a character from the stack and prints it.
-    ///     (emit) will output any ASCII value (mod 128).
+    /// (emit) ( c -- ) takes a character from the stack and prints it as a raw byte.
     ///
     pub fn f_emit_p(&mut self) {
         if self.kernel.stack_check(1, "(emit)") {
-            let c = self.kernel.pop() as u8 as char;
-            //print!("{}", c as u8 as char);
-            io::stdout()
-                .write_all(c.encode_utf8(&mut [0; 4]).as_bytes())
-                .unwrap();
+            let c = self.kernel.pop() as u8;
+            out(&[c]);
         }
     }
 
@@ -145,19 +151,19 @@ impl ForthRuntime {
     ///     This forces them out sooner
     ///
     pub fn f_flush(&mut self) {
-        io::stdout().flush().unwrap();
+        flush();
     }
 
     /// .s ( -- ) prints a copy of the computation stack
     ///
     pub fn f_dot_s(&mut self) {
-        print!("[ ");
-        let stack_len = self.kernel.stack_len();
-        for i in (0..stack_len).rev() {
-            print!("{} ", self.kernel.peek(i));
+        let mut s = String::from("[ ");
+        for i in (0..self.kernel.stack_len()).rev() {
+            s += &format!("{} ", self.kernel.peek(i));
         }
-        print!("] ");
-        io::stdout().flush().unwrap();
+        s += "] ";
+        out(s.as_bytes());
+        flush();
     }
 
     /// include-file (s -- T | F ) Pushes a new reader, pointing to the file named at s, calling ABORT if unsuccessful
@@ -290,11 +296,13 @@ impl ForthRuntime {
             let chars = self.kernel.pop() as usize;
             let addr = self.kernel.pop() as usize;
             if file_id < self.files.len() {
-                let string = self.kernel.string_get(addr)[0..chars - 1].to_owned();
+                // ponytail: drops the last character, as before; Phase 2 fixes write-line (F13)
+                let string: String = self.kernel.string_get(addr).chars().take(chars.saturating_sub(1)).collect();
                 // write the string to the file
                 if let FType::File(ref mut f) = self.files[file_id].source {
-                    f.write_all(string.as_bytes())
-                        .expect("Error writing to file");
+                    if let Err(e) = f.write_all(string.as_bytes()) {
+                        throw(format!("write-line: {e}"));
+                    }
                 }
             }
         }

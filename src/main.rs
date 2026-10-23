@@ -23,7 +23,7 @@ mod kernel;
 mod runtime;
 
 use config::{Config, DEFAULT_CORE, VERSION};
-use kernel::STACK_START;
+use kernel::{ForthError, STACK_START};
 use runtime::ForthRuntime;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -95,33 +95,22 @@ fn run_forth(forth: &mut ForthRuntime) {
     println!("{WELCOME_MESSAGE} Version {VERSION}");
 
     // --- Interactive Loop Phase ---
-    // ponytail: any panic is still fatal (re-raised below); Phase 1 replaces this with recovery.
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        forth.f_dot_s();
-        forth.set_abort_flag(false);
-        forth.f_quit(); // main interpreter loop
-    }));
-
-    match result {
-        Ok(_) => println!("{EXIT_MESSAGE}"),
-        Err(err) => {
-            eprintln!("⚠️  Error during execution. Resetting interpreter to prompt.");
-
-            if let Some(msg) = err.downcast_ref::<&str>() {
-                eprintln!("panic message: {}", msg);
-            } else if let Some(msg) = err.downcast_ref::<String>() {
-                eprintln!("panic message: {}", msg);
-            } else {
-                eprintln!("panic payload is not a string.");
-            }
-
-            // Re-raise to get Rust's full backtrace output if RUST_BACKTRACE is set
-            std::panic::resume_unwind(err);
-        }
-    }
+    forth.f_dot_s();
+    forth.f_quit(); // main interpreter loop; recovers from errors itself
+    println!("{EXIT_MESSAGE}");
 }
 
 fn main() {
+    // Forth errors (ForthError) are reported by quit, so the hook stays silent for them.
+    // Any other panic is an engine bug: quit still recovers, but say where it happened.
+    std::panic::set_hook(Box::new(|info| {
+        if info.payload().downcast_ref::<ForthError>().is_none() {
+            if let Some(location) = info.location() {
+                eprintln!("(Rust panic at {location})");
+            }
+        }
+    }));
+
     let mut config = Config::new();
     config.process_args();
 

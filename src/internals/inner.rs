@@ -1,4 +1,4 @@
-use crate::kernel::{DATA_SIZE, RET_START};
+use crate::kernel::RET_START;
 /// Inner Interpreters
 ///
 /// Core functions to execute specific types of objects
@@ -78,15 +78,11 @@ impl ForthRuntime {
         self.f_to_r();
         loop {
             // each time round the loop should be one word
-            if pc == 0 || self.get_abort_flag() {
+            if pc == 0 {
                 self.kernel.set_return_ptr(RET_START); // clear the return stack
-                return; // we've completed the last exit or encountered an error
+                return; // we've completed the last exit
             }
-            let code = if pc < DATA_SIZE {
-                self.kernel.get(pc)
-            } else {
-                pc as i64
-            };
+            let code = self.kernel.get(pc); // throws if pc has left the heap
             self.debug_step(pc, call_depth);
             match code {
                 BUILTIN => {

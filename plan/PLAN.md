@@ -60,6 +60,27 @@ Goal: no Forth input can kill the process, and any error returns to a clean prom
 
 Exit: a fuzz-style test (random tokens from the dictionary plus random numbers, 10k lines) runs with no panic, and the process is still responsive after each error.
 
+**Status: done (2026-10-22).** Fixed: F3, F4, F5, F6, F7, F8, F11, F12, F14, F24, and the overflow, divide-by-zero, and underflow crashes. The fuzz test (`fuzz_random_input_never_crashes`) produces about 7k errors and 3k clean lines, with no engine panics. Benchmarks are unchanged (25 ms / 230 ms).
+
+One design decision differs from item 1 above:
+* **Errors unwind instead of returning `Result`.** `kernel::throw(msg)` calls `panic_any(ForthError)`. `quit` wraps each line in `catch_unwind`, and the single `ForthRuntime::recover` routine reports the error and resets the system.
+* Why:
+  * Builtin signatures stay the same, so the diff is a fraction of the `Result` refactor.
+  * It adds no cost to the fast path, where `Result` would add a branch to every push and pop.
+  * The same catch also makes Rust panics (indexing, overflow) recoverable.
+  * The nested `execute` → `i_definition` calls need no error threading.
+* Limits:
+  * The build must keep `panic = "unwind"`. Never set `panic = "abort"` in `Cargo.toml`.
+  * A Rust panic is an engine bug. The panic hook prints `(Rust panic at file:line)` for it, while Forth errors print only `ERROR: …`.
+* Phase 5 `catch`/`throw` maps directly onto this: `catch` = `catch_unwind` around `execute`.
+
+Other notes:
+* Memory is now 64K cells. The dictionary runs up to `DICT_LIMIT`, and the data stack and return stack each have 1024 cells, all bounds-checked. This is the interim layout for Phase 3.1.
+* `BUF_SIZE` is now 256, so the largest input line is 255 bytes. A longer line is an error, not a silent truncation.
+* An unknown token is now an error in interpret mode as well, and the rest of the line is skipped.
+* `abort` is now silent (`throw("")`). The `abort?` variable is no longer used, and the per-instruction abort-flag check is gone.
+* New bugs found and tracked: F26 (`abort"`), F27 (negative `allot`), F28 (`builtin-name`), F29 (`'` of an unknown word).
+
 ---
 
 ## Phase 2: Core correctness (M)
@@ -79,7 +100,13 @@ Exit: a fuzz-style test (random tokens from the dictionary plus random numbers, 
    * Fill in `file-size` from metadata, and keep `file-position` up to date.
    * Bounds-check `read-line` and `write-line`.
 7. **Boot fixes (F15).** Load the first core file that's found, and expand `~`. Make `include` paths relative to the including file, so `corelib.fs` doesn't depend on the working directory.
-8. **Small fixes.** F12 (`>c`/`c>` return errors), F16 (`see` constant name), F17 (`dbg`/`debuglevel` symmetry), F18 (delete `'eval`), F20 (remove the debug print in `(system)`).
+8. **Small fixes.** F16 (`see` constant name), F17 (`dbg`/`debuglevel` symmetry), F18 (delete `'eval`), F20 (remove the debug print in `(system)`). F12 was fixed in Phase 1.
+9. **Fix the bugs found during Phases 0–1.**
+   * F25: load the `-f` file after the core library. Read each boot file to EOF in order, instead of stacking all the readers.
+   * F29: `'`, `[']`, and `(')` raise an error for an unknown word.
+   * F26: move `abort"` below `type` in `corelib.fs`, and drop its stray `.s`.
+   * F27: correct negative `allot`, and check it against `DICT_LIMIT`.
+   * F28: `builtin-name` writes to `tmp @`.
 
 Exit: all Phase 0 bug tests are un-ignored and passing.
 

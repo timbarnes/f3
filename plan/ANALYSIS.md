@@ -101,6 +101,10 @@ Opcodes and addresses can only be told apart because `DATA_SIZE (10000) < 100000
 | F22 | `cargo test` has one failing test (`test_compile_builtins` expects `<` at index 5). `files::tests::test_read_char` blocks waiting for interactive stdin. | |
 | F23 | `cargo clippy` fails with 2 deny-level errors (`stack_ptr <= 0`, and the loop in `main.rs` that never loops). | Fixed in Phase 0, along with F22. |
 | F24 | **[confirmed]** `clear` resets the return stack as well as the data stack. Used inside a definition, it destroys the return address, and the process dies. This was the panic at the end of `regression.fs`; it only showed up because test 82 fails when no terminal is attached. | `: z 1 clear 2 ; z` → `r>: Return stack underflow`. `f_clear` → `kernel.reset()`. |
+| F26 | **[confirmed]** `abort"` neither prints its message nor aborts. It is defined in `corelib.fs` before `type`, so its `['] type` compiles 0, and a compiled 0 silently ends the word. It also contains a stray `.s` that prints the stack while compiling. | `: t abort" oops" ; 1 2 t` → no message, stack `1 2 <addr>`. `corelib.fs:327`. |
+| F27 | `allot` with a negative count *grows* the dictionary: `here @ swap - here !` subtracts a negative number. | `corelib.fs:195-204` |
+| F28 | `builtin-name` writes the name to string address `tmp_ptr`, which is the heap address of the `tmp` variable, rather than to the TMP buffer. It lands inside the TIB. | `general.rs` `f_builtin_name` |
+| F29 | `'` and `[']` on an unknown word push 0 rather than raising an error. `['] nosuch` inside a definition compiles a 0, which silently ends the word at run time. This is the root cause of F26. | `compiler.rs` `f_tick_p`, `corelib.fs:150` |
 | F25 | **[confirmed]** A file given with `-f` runs **before** the core library. Boot pushes both readers onto the reader stack, and the last one pushed is read first. | A file containing `7 .` → `token not recognized: "."`. `main.rs` `boot_forth`. |
 
 ---

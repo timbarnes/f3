@@ -1,6 +1,6 @@
 // General-purpose builtin words
 
-use crate::kernel::DATA_SIZE;
+use crate::kernel::throw;
 use crate::runtime::ForthRuntime;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -18,32 +18,42 @@ impl ForthRuntime {
         if self.kernel.stack_check(2, "+") {
             let a = self.kernel.pop();
             let b = self.kernel.pop();
-            self.kernel.push(a + b);
+            self.kernel.push(a.wrapping_add(b));
         };
     }
 
+    // Arithmetic wraps on overflow, as Forth expects, and behaves the same in debug and release builds.
     pub fn f_minus(&mut self) {
-        self.kernel.pop2_push1("-", |a, b| a - b);
+        self.kernel.pop2_push1("-", |a, b| a.wrapping_sub(b));
     }
 
     pub fn f_times(&mut self) {
-        self.kernel.pop2_push1("*", |a, b| a * b);
+        self.kernel.pop2_push1("*", |a, b| a.wrapping_mul(b));
     }
 
     pub fn f_divide(&mut self) {
-        self.kernel.pop2_push1("/", |a, b| a / b);
+        self.kernel.pop2_push1("/", |a, b| match b {
+            0 => throw("division by zero"),
+            _ => a.wrapping_div(b),
+        });
     }
 
     pub fn f_lshift(&mut self) {
-        self.kernel.pop2_push1("lshift", |a, b| a << b);
+        self.kernel
+            .pop2_push1("lshift", |a, b| if (0..64).contains(&b) { a << b } else { 0 });
     }
 
     pub fn f_rshift(&mut self) {
-        self.kernel.pop2_push1("rshift", |a, b| a >> b);
+        // arithmetic shift; shifting by 64 or more leaves only the sign
+        self.kernel
+            .pop2_push1("rshift", |a, b| if (0..64).contains(&b) { a >> b } else { a >> 63 });
     }
 
     pub fn f_mod(&mut self) {
-        self.kernel.pop2_push1("mod", |a, b| a % b);
+        self.kernel.pop2_push1("mod", |a, b| match b {
+            0 => throw("division by zero"),
+            _ => a.wrapping_rem(b),
+        });
     }
 
     pub fn f_less(&mut self) {
@@ -106,7 +116,7 @@ impl ForthRuntime {
     pub fn f_pick(&mut self) {
         if self.kernel.stack_check(1, "pick") {
             let n = self.kernel.pop() as usize;
-            if self.kernel.stack_check(n + 1, "pick") {
+            if self.kernel.stack_check(n.saturating_add(1), "pick") {
                 let val = self.kernel.peek(n);
                 self.kernel.push(val);
             }
@@ -118,7 +128,7 @@ impl ForthRuntime {
             if n == 0 {
                 return;
             } // 0 roll is a no-op
-            if self.kernel.stack_check(n + 1, "roll") {
+            if self.kernel.stack_check(n.saturating_add(1), "roll") {
                 // Save the nth value from the top
                 let val = self.kernel.peek(n);
                 // Shift all items above it down by one
@@ -152,13 +162,8 @@ impl ForthRuntime {
     pub fn f_get(&mut self) {
         if self.kernel.stack_check(1, "@") {
             let addr = self.kernel.pop() as usize;
-            if self.kernel.addr_check(addr) {
-                let val = self.kernel.get(addr);
-                self.kernel.push(val);
-            } else {
-                self.msg.error("@", "Address out of range", Some(addr));
-                self.f_abort();
-            }
+            let val = self.kernel.get(addr); // throws on a bad address
+            self.kernel.push(val);
         }
     }
 
@@ -168,12 +173,7 @@ impl ForthRuntime {
         if self.kernel.stack_check(2, "!") {
             let addr = self.kernel.pop() as usize;
             let value = self.kernel.pop();
-            if addr < DATA_SIZE {
-                self.kernel.set(addr, value);
-            } else {
-                self.msg.error("@", "Address out of range", Some(addr));
-                self.f_abort();
-            }
+            self.kernel.set(addr, value); // throws on a bad address
         }
     }
 
@@ -300,7 +300,7 @@ impl ForthRuntime {
     /// ms ( ms -- ) Sleep for ms milliseconds
     pub fn f_ms(&mut self) {
         if self.kernel.stack_check(1, "sleep") {
-            let delay = self.kernel.pop() as u64;
+            let delay = self.kernel.pop().max(0) as u64; // a negative delay would sleep "forever"
             let millis = Duration::from_millis(delay);
             thread::sleep(millis);
         }
