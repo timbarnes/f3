@@ -160,6 +160,26 @@ What it does: C1–C8. The counted-string versions stay available as `ctype` and
 
 **Checkpoint:** after steps 1–3, run Gerry Jackson's `core.fr` (`tester.fr` + `core.fr`) itself, not f3's port. Expect the parts that do byte arithmetic on `here` and `create`d buffers to fail, and nothing else.
 
+**Status: done (2026-10-23).**
+
+What changed:
+* **`type ( c-addr u -- )`:** the old counted `type` is now `ctype`; f3's own code was renamed mechanically.
+* **`s"`** is state-smart: inside a definition it compiles a literal; outside one it alternates between two transient buffers. `c"` gives a counted string.
+* **Parsing:** `parse` reads in place and doesn't skip leading delimiters (so `( )` works now). `parse-name` and `word` were added.
+* **`accept ( c-addr u -- u2 )`.**
+* **File words:** `open-file`, `create-file`, `delete-file`, `read-line`, `write-line`, `included`, and `include-file ( fileid -- )` take ANS arguments, and `bin` was added.
+* **The String word set,** `>number` (with `d+ m+ ud* digit?`), `2swap 2over 2@ 2!`, and the string-space helpers `s-save` and `place`.
+
+Found along the way:
+* **`included` was asynchronous.** It queued the file to be read after the current line; ANS interprets it immediately. It is now synchronous, like `evaluate`.
+* **`SOURCE` during `EVALUATE`** was a copy of the string; ANS requires the string itself. `evaluate` now points the input-buffer variables at the string and interprets it in place, with no copy.
+
+**The checkpoint:** core.fr itself (downloaded, not committed) passes 597 of its 638 tests. The 41 others all depend on `C,`. They come from 8 `HERE n C,` / `CREATE x n C,` lines, plus the tests that use what those lines build: `1STC`, `2NDC`, `GT1STRING`, `GN-BUF`, `FBUF`, `SBUF`. Nothing else fails.
+
+To reproduce: put `tester.fr` and `core.fr` in `target/ans/`, then run `include target/ans/tester.fr` and `include target/ans/core.fr`. Every remaining failure is something step 4 would fix.
+
+Tests: 333 f3 core tests, 50 black-box tests, and 31 unit tests. All pass, and the benchmarks are unchanged.
+
 ### Step 4 (decide first): one byte-addressed memory (L, about 1–2 weeks)
 
 B1 Option 2:

@@ -62,9 +62,9 @@ variable test-num 0 test-num !
 12 12 constant months months test-single \ a constant with the value 12
 
 ."        Engine" cr
-tmp @ s" does-not-exist" drop ?unique test-single
-tmp @ s" *" drop ?unique test-single
-tmp @ s" min" drop ?unique test-single
+c" does-not-exist" dup ?unique test-single
+c" *" dup ?unique test-single
+c" min" dup ?unique test-single
 : exit-test 22 33 exit 44 ;
 22 33 exit-test test-dual
 

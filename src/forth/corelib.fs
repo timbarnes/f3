@@ -2,7 +2,6 @@
 : compile-only context @ dup @ COMPILE_ONLY_FLAG or swap ! ;
 : here dp @ last @ context @ = + ;
 : pad 'pad @ ;
-: parse pad swap parse-to ;
 : \ 1 parse drop drop ; immediate
 : ( 41 parse drop drop ; immediate     \ Implements in-line comments
 
@@ -38,6 +37,8 @@
 : s-copy ( from to -- ) over c@ 1 + cmove ;                \ copy a counted string
 : s-create ( from -- to )                                  \ copy a counted string to new string space
     dup c@ 1 + dup s-allot swap over >r cmove r> ;
+: place ( c-addr u s -- ) over over c! 1 + swap cmove ;    \ store characters as a counted string at s
+: s-save ( c-addr u -- s ) dup 1 + s-allot dup >r place r> ; \ ... in new string space
 
 : constant ( n -- ) (create) op:constant , ,      \ v constant <name> creates a constant with value v
     (close) ;
@@ -82,11 +83,11 @@
 
 \ char <character> takes the first character of the next token and puts its ASCII value on the stack
 : char
-    32 parse drop 1 + c@ ;
+    parse-name drop c@ ;
 
 \ This version is for use inside a definition. It compiles the value into the definition as a literal.
 : [char]
-    32 parse drop 1 + c@ op:literal , , ; immediate compile-only
+    parse-name drop c@ op:literal , , ; immediate compile-only
 
 : literal ( x -- )  op:literal , , ; immediate compile-only   \ compile x from the stack as a literal
 
@@ -118,21 +119,10 @@
 : [compile]         (') , ; immediate compile-only  \ Cause the following word to be compiled in, even if immediate
 : exec op:exec , ; immediate compile-only
 
-: text              BL parse ;                      \ Parser shortcut for space-delimited tokens
-: s-parse           tmp @ swap parse-to ;           \ Same as text, but loads to tmp instead of pad
-: (s") ( -- s u )   tmp @ '"' parse-to ; immediate  \ Parses a double-quoted string into tmp, returning the address and length
-: s" ( -- s u ")    tmp @ '"' parse-to ;            \ Places a double-quoted string in tmp
+: word ( char -- s ) pad swap parse-to drop ;      \ the next char-delimited word, counted, in PAD
 
-\ File reader functions
-
-\ included gets the file path already in TMP and loads it, leaving a success flag
-: included  ( -- bool )
-                    tmp @ include-file ; \ include-file uses a string pointer on the stack to load a file
-
-\ include is for interactive use. It gets a file path from the user and loads it.
-: include   ( -- )
-                    tmp @ BL parse-to
-                    drop include-file drop ;        \ include-file only needs the address
+\ include <file> interprets a file (included takes the name as c-addr u)
+: include ( <name> -- ) parse-name included ;
 
 : [ FALSE state ! ; immediate                       \ Turns compile mode off
 : ] TRUE state ! ;                                  \ Turns compile mode on
@@ -163,7 +153,7 @@
                     if , else op:literal , , ['] , , then ; immediate compile-only  \ others compile a ,
 
 : abort" ( x -- )   op:branch0 , here 0 ,               \ if x is non-zero, abort with the message (ANS)
-                    op:strlit , s" drop s-create ,
+                    op:strlit , '"' parse s-save ,
                     ['] (error) , _patch-here ; immediate compile-only
 
 \ Movement within a word definition
@@ -197,6 +187,16 @@
 : aligned ( a -- a ) ;
 : count ( s -- c-addr u ) dup 1+ swap c@ ;           \ a counted string's characters and length
 
+\ String literals. s" gives ( c-addr u ), c" a counted string; both compile a literal inside a
+\ definition. Outside one, the string is copied to one of two buffers, TMP and tmp2, in turn,
+\ so two strings can be in use at once (as Forth-2012 requires).
+256 s-allot constant tmp2
+variable 's-buf
+: (s-buf) ( -- s )  's-buf @ 0= dup 's-buf ! if tmp @ else tmp2 then ;
+: s" ( -- c-addr u ) '"' parse state @ if s-save op:strlit , , ['] count , else (s-buf) dup >r place r> count then ;
+    immediate
+: c" ( -- s )       '"' parse state @ if s-save op:strlit , , else (s-buf) dup >r place r> then ; immediate
+
 : ?pairs ( tag expected -- )                          \ check that control structures match up
                     <> abort" unbalanced control structure" ;
 
@@ -216,6 +216,10 @@
 : roll ( xn..x0 n -- xn-1..x0 xn )
                     dup depth 2 - u< 0= abort" roll: stack underflow"
                     ?dup if swap >r 1- recurse r> swap then ;
+: 2swap ( a b c d -- c d a b ) rot >r rot r> ;
+: 2over ( a b c d -- a b c d a b ) 3 pick 3 pick ;
+: 2! ( x1 x2 a -- ) swap over ! 1+ ! ;                \ x2 at a, x1 at a+1
+: 2@ ( a -- x1 x2 ) dup 1+ @ swap @ ;
 
 \ Return stack operations
 
@@ -298,7 +302,7 @@
 \ system executes a command in the shell. The shell is exited afterwards.
 \   This means that commands like 'cd' are not persistent.
 \
-: system" ( <command> ) tmp @ '"' parse-to drop (system) ;
+: system" ( <command> ) '"' parse tmp @ place tmp @ (system) ;
 
 : sec ( n -- )      1000 * ms ;  \ sleep for n seconds
 
@@ -309,7 +313,7 @@
 : spaces ( n -- )   dup 0> if for space next else drop then ;
 : cr ( -- )         '\n' emit ;
 
-: tell ( s l -- )                               \ like type, but length is provided: useful for substrings
+: type ( c-addr u -- )                          \ print u characters from c-addr (ANS)
                     swap ADDRESS_MASK and
                     swap 2dup + rot drop swap
                     for
@@ -317,39 +321,38 @@
                     next
                         drop ;
 
-: type ( s -- )                                 \ Print from the string pointer on the stack
+: ctype ( s -- )                                 \ print a counted string (f3: names and literals are counted)
                     ADDRESS_MASK and            \ Wipe out any flags
                     dup c@ swap 1+ swap         \ Get the length to drive the for loop
                     dup 0= if exit then
-                    tell ;
+                    type ;
 
 : rtell ( s l w -- )                            \ Right justify a string of length l in a field of w characters
                     over - 1 max
-                    spaces tell ;
+                    spaces type ;
 
 : ltell ( s l w -- ) 2dup swap -
                     nip rot rot
-                    tell spaces ;
+                    type spaces ;
 
 : rtype ( s w -- )  swap ADDRESS_MASK and dup c@
-                    rot swap - spaces type ;
+                    rot swap - spaces ctype ;
 
 : ltype             swap ADDRESS_MASK and dup c@
-                    rot swap - swap type spaces ;
+                    rot swap - swap ctype spaces ;
 
-: .tmp              tmp @ type ;                               \ Print the tmp buffer
-: .pad              pad type ;                               \ Print the pad buffer
-: ."  ( -- )        state @                                    \ Compile or print a string
+: .tmp              tmp @ ctype ;                               \ Print the tmp buffer
+: .pad              pad ctype ;                               \ Print the pad buffer
+: ."  ( -- )        '"' parse state @                          \ Compile or print a string
                     if
-                        op:strlit ,                               \ Compilation section
-                        s" drop s-create ,
-                        ['] type ,
+                        s-save op:strlit , ,                   \ Compilation section
+                        ['] ctype ,
                     else
-                        s" drop type                           \ Execution (print) section
+                        type                                   \ Execution (print) section
                     then ; immediate
 
 \ Numeric print words: ANS pictured numeric output. <# starts a number, # converts one digit,
-\ #s the rest, hold and sign add characters, and #> leaves ( c-addr u ) for tell.
+\ #s the rest, hold and sign add characters, and #> leaves ( c-addr u ) for type.
 
 : /mod              2dup mod rot rot / ;
 : s>d ( n -- d )    dup 0< ;                            \ sign-extend to a double-cell number
@@ -365,25 +368,24 @@
 : #s ( ud -- 0 0 )  begin # 2dup or 0= until ;
 : #> ( ud -- c-addr u ) 2drop hld @ #end over - ;
 
-: u. ( u -- )       0 <# #s #> tell space ;
-: u.r ( u width -- ) >r 0 <# #s #> r> over - spaces tell ;
-: .r ( n width -- ) >r dup abs 0 <# #s rot sign #> r> over - spaces tell ;   \ abs leaves the most
+: u. ( u -- )       0 <# #s #> type space ;
+: u.r ( u width -- ) >r 0 <# #s #> r> over - spaces type ;
+: .r ( n width -- ) >r dup abs 0 <# #s rot sign #> r> over - spaces type ;   \ abs leaves the most
 : . ( n -- )        0 .r space ;                                            \ negative number as its
                                                                             \ unsigned value: correct
 : .s ( -- )         ." [ " depth for i 1- pick . next ." ] " flush ;   \ print the data stack
 : .rs ( -- )        ." R: [ "                           \ print the return stack, below .rs's own return
                     rp@ 1+ rp0 over - for dup i + 1- @ . next drop ." ] " ;
 
-: stop"  ( -- )     state @                                    \ Compile or print a string
+: stop"  ( -- )     '"' parse state @                          \ Compile or print a string
                     if
-                        op:strlit ,                               \ Compilation section
-                        s" drop s-create ,
-                        ['] type ,
+                        s-save op:strlit , ,                   \ Compilation section
+                        ['] ctype ,
                         ['] .s ,
                         ['] flush ,
                         ['] key , ['] drop ,
                     else
-                        s" drop type                           \ Execution (print) section
+                        type                                   \ Execution (print) section
                         .s
                         ." Stopped: "
                         flush key drop
@@ -423,14 +425,14 @@
 \ Dictionary inspection
 
 : immed? ( cfa -- f ) 1- @ IMMEDIATE_FLAG and 0<> ;              \ is the word at cfa immediate?
-: ?unique ( s -- s ) dup find nip if ." redefining " dup type cr then ;
+: ?unique ( s -- s ) dup find nip if ." redefining " dup ctype cr then ;
 
-: .name ( cfa -- )  1- @ ADDRESS_MASK and type space ;          \ print the name of the word at cfa
+: .name ( cfa -- )  1- @ ADDRESS_MASK and ctype space ;          \ print the name of the word at cfa
 : .operand ( a -- a+1 ) 1+ dup @ . ;
 : see-cell ( a -- a' more? )                                    \ print the compiled cell at a
     dup @ case
         op:literal of .operand TRUE endof
-        op:strlit  of 1+ '"' emit space dup @ type '"' emit space TRUE endof
+        op:strlit  of 1+ '"' emit space dup @ ctype '"' emit space TRUE endof
         op:branch  of ." branch:" .operand TRUE endof
         op:branch0 of ." branch0:" .operand TRUE endof
         op:do      of ." do:" .operand TRUE endof
@@ -446,12 +448,12 @@
         op:does    of ." does> " TRUE endof
         op:exit    of ." ; " FALSE endof
         dup BUILTIN_FLAG and
-        if dup ADDRESS_MASK and builtin-name type space else dup .name then
+        if dup ADDRESS_MASK and builtin-name ctype space else dup .name then
         TRUE swap                                               \ endcase drops the key
     endcase
     swap 1+ swap ;
 : (see) ( cfa -- )                                              \ decompile the word at cfa
-    dup @ BUILTIN_FLAG and if @ ADDRESS_MASK and ." Builtin: " builtin-doc type cr exit then
+    dup @ BUILTIN_FLAG and if @ ADDRESS_MASK and ." Builtin: " builtin-doc ctype cr exit then
     dup @ op:constant = if ." Constant: " dup .name ." = " 1+ @ . cr exit then
     dup @ op:variable = if ." Variable: " dup .name ." = " 1+ @ . cr exit then
     dup @ op:created = if ." Created: " dup .name ." data at " dup >body .
@@ -468,14 +470,14 @@
 variable '[if]  variable '[else]
 : [then] ( -- ) ; immediate
 : [else] ( -- )     1 begin
-                        begin text nip while            ( level ) \ the next token is in pad
-                            pad find if
+                        begin bl word dup c@ while      ( level s ) \ the next word, counted
+                            find if
                                 dup '[if] @ = if drop 1+ else
                                 dup '[else] @ = if drop 1- dup if 1+ then else
                                 ['] [then] = if 1- then then then
                             else drop then
                             ?dup 0= if exit then
-                        repeat
+                        repeat drop
                     refill 0= until drop ; immediate
 : [if] ( flag -- )  0= if postpone [else] then ; immediate
 ' [if] '[if] !  ' [else] '[else] !
@@ -489,7 +491,44 @@ variable '[if]  variable '[else]
                     ['] (unset) , (close) ;            \ the xt cell: 6 cells after the cfa
 : is ( xt <name> -- ) ' 6 + state @ if postpone literal postpone ! else ! then ; immediate
 
-: .( ( -- )         41 parse drop type ; immediate     \ print the text up to the next )
+: .( ( -- )         ')' parse type ; immediate          \ print the text up to the next )
+\ String words. Characters live in string space; c@ c! cmove address it.
+: /string ( c-addr u n -- c-addr+n u-n ) tuck - >r + r> ;
+: -trailing ( c-addr u -- c-addr u2 ) begin dup while 2dup + 1- c@ bl = while 1- repeat then ;
+: fill ( c-addr u char -- ) swap 0 ?do 2dup swap i + c! loop 2drop ;
+: erase ( c-addr u -- ) 0 fill ;
+: blank ( c-addr u -- ) bl fill ;
+: move ( from to u -- ) cmove ;                         \ cmove copies overlapping ranges correctly
+: cmove> ( from to u -- ) cmove ;
+: compare ( c-addr1 u1 c-addr2 u2 -- n )               \ -1, 0 or 1, comparing characters
+    rot 2dup 2>r min 0 ?do
+        over i + c@ over i + c@ - ?dup
+        if nip nip 0< 2* 1+ unloop 2r> 2drop exit then
+    loop 2drop
+    2r> 2dup = if 2drop 0 else < if 1 else -1 then then ;
+: search ( c-addr1 u1 c-addr2 u2 -- c-addr3 u3 flag )   \ find string 2 in string 1
+    2>r 2dup
+    begin dup r@ < 0= while
+        over r@ 2r@ compare 0= if 2swap 2drop 2r> 2drop true exit then
+        1 /string
+    repeat
+    2drop 2r> 2drop false ;
+: bin ( fam -- fam ) ;                                  \ files are always binary
+
+\ Number conversion: >number accumulates digits in base into a double-cell number
+: d+ ( d1 d2 -- d ) rot + >r tuck + swap over u> r> swap - ;
+: m+ ( d n -- d )   s>d d+ ;
+: ud* ( ud u -- ud ) dup >r um* drop swap r> um* rot + ;
+: digit? ( c -- n flag )                                \ the value of digit c, and whether it is one in base
+    dup [char] 0 [char] 9 1+ within if [char] 0 - else
+    dup [char] A [char] Z 1+ within if [char] A - 10 + else
+    dup [char] a [char] z 1+ within if [char] a - 10 + else drop base @ then then then
+    dup base @ u< ;
+: >number ( ud1 c-addr1 u1 -- ud2 c-addr2 u2 )          \ stops at the first non-digit
+    begin dup while
+        over c@ digit? 0= if drop exit then
+        >r 2swap base @ ud* r> m+ 2swap 1 /string
+    repeat ;
 : environment? ( c-addr u -- false ) 2drop false ;
 : unused ( -- u )   DICT_LIMIT here - ;                 \ cells left in the dictionary
 

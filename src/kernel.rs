@@ -50,6 +50,7 @@ pub const UNDEFINED_WORD: i64 = -13;
 pub const COMPILE_ONLY: i64 = -14;
 pub const NAME_EXPECTED: i64 = -16;
 pub const FILE_ERROR: i64 = -37;
+pub const NO_SUCH_FILE: i64 = -38;
 pub const ENGINE_ERROR: i64 = -256;
 
 // ponytail: errors unwind instead of returning Result: no cost on the hot path, no signature
@@ -174,11 +175,6 @@ impl Kernel {
     }
 
     #[inline(always)]
-    pub fn top(&self) -> i64 {
-        self.heap[self.stack_ptr]
-    }
-
-    #[inline(always)]
     pub fn stack_len(&self) -> usize {
         STACK_START - self.stack_ptr
     }
@@ -275,6 +271,15 @@ impl Kernel {
         }
         self.strings[to] = from.len() as u8; // count byte
         self.strings[to + 1..to + 1 + from.len()].copy_from_slice(from);
+    }
+
+    /// bytes_write copies raw bytes (no count byte) into string space at `to`
+    ///
+    pub fn bytes_write(&mut self, from: &[u8], to: usize) {
+        if to.checked_add(from.len()).is_none_or(|end| end > STRING_SIZE) {
+            throw_code(INVALID_ADDRESS, "invalid string address or length");
+        }
+        self.strings[to..to + from.len()].copy_from_slice(from);
     }
 
     /// string_get returns a string from a Forth string address

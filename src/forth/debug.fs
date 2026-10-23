@@ -63,7 +63,7 @@ variable word-counter
 \ Dump a counted string, given a starting address
 : dump-string ( s_addr -- )
     dup 5 .r ." /" dup c@ 3 .r ." : "
-    dup type cr drop ;
+    dup ctype cr drop ;
 
 \ Dump up to n strings from a starting poinnt
 : dump-strings ( s_addr n -- )
@@ -156,13 +156,13 @@ variable word-counter
     ." *UNKNOWN* " drop ;
 
 : dump-word ( addr -- )             \ Print the name of the word with compile reference at addr
-    @ 1 - @ type
+    @ 1 - @ ctype
     ;
 
 : dump-builtin ( addr -- )
     @ ADDRESS_MASK and
     dup 2 .r
-    ." : " builtin-name type
+    ." : " builtin-name ctype
     ;
 
 : dump-immed ( addr -- )            \ Output an immediate word's name
@@ -282,7 +282,7 @@ variable word-counter
     dup lit-value?          if ."  Integer Literal "                 exit then
     dup var-value?          if ."            Value "                 exit then
     dup const-value?        if ." Constant Literal "                 exit then
-    dup dup strlit-value?   if ."  String Literal: "          @ type exit else drop then
+    dup dup strlit-value?   if ."  String Literal: "          @ ctype exit else drop then
     dup offset-value?       if ."    Branch offset "                 exit then
     dup dup def-call?       if ." Definition call: "       dump-word exit else drop then
     dup dup var-call?       if ."    Var/Const ref "       dump-word exit else drop then

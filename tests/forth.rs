@@ -309,14 +309,15 @@ fn f13_file_words() {
     let (a, b) = (dir.join("f3_fw_a.txt"), dir.join("f3_fw_b.txt"));
     let (a, b) = (a.to_str().unwrap(), b.to_str().unwrap());
     let src = format!(
-        "s\" {a}\" drop W/O open-file drop constant fa\n\
-         s\" {b}\" drop W/O open-file drop constant fb\n\
+        "s\" {a}\" W/O open-file drop constant fa\n\
+         s\" {b}\" W/O open-file drop constant fb\n\
          s\" hello\" fa write-line\n\
          fa close-file\n\
          s\" more\" fb write-line\n\
          fb close-file drop drop drop drop\n\
-         s\" {a}\" drop R/O open-file drop constant fr\n\
-         fr file-size drop 100 fr read-line 100 fr read-line fr file-position drop"
+         s\" {a}\" R/O open-file drop constant fr\n\
+         100 s-allot constant rb\n\
+         fr file-size drop rb 100 fr read-line rb 100 fr read-line fr file-position drop"
     );
     // sizes and lengths: 6 bytes; "hello" read (5 TRUE 0); then end of file (0 FALSE 0); position 6
     assert_eq!(stack(&src), "6 5 -1 0 0 0 0 6");
@@ -379,8 +380,8 @@ fn unbalanced_control_structure_is_an_error() {
 
 #[test]
 fn string_words_in_forth() {
-    assert_eq!(stack("s\" hello\" drop s-create c@"), "5");
-    assert_eq!(stack("s\" abc\" drop pad s-copy pad 1+ c@"), "97");
+    assert_eq!(stack("c\" hello\" s-create c@"), "5");
+    assert_eq!(stack("c\" abc\" pad s-copy pad 1+ c@"), "97");
 }
 
 #[test]
@@ -427,6 +428,34 @@ fn ans_create_does() {
     assert!(r.out.contains("42 "), "{}", r.out);
     let r = run("variable x : d does> ; : t x d ; t\n12345 .");
     assert!(r.out.contains("does>: the latest word was not made by create") && r.out.contains("12345"), "{}", r.out);
+}
+
+// ------------------------------------------- ANS step 3 (plan/ANS.md)
+
+#[test]
+fn ans_file_and_include_words() {
+    let dir = std::env::temp_dir();
+    let (src, out) = (dir.join("f3_inc.fs"), dir.join("f3_out.txt"));
+    std::fs::write(&src, ": inc-word 41 ;\n").unwrap();
+    let (src, out) = (src.to_str().unwrap(), out.to_str().unwrap());
+    let script = format!(
+        "s\" {src}\" included inc-word\n\
+         s\" {src}\" R/O open-file drop include-file inc-word\n\
+         s\" {out}\" R/W create-file drop constant fo\n\
+         s\" line one\" fo write-line drop fo file-size drop fo close-file drop\n\
+         s\" {out}\" delete-file s\" {out}\" R/O open-file nip"
+    );
+    // included and include-file interpret the file; the file has 9 bytes; delete-file works
+    assert_eq!(stack(&script), "41 41 9 0 -1");
+    let r = run("s\" /no/such/file.fs\" included\n12345 .");
+    assert!(r.out.contains("ERROR: /no/such/file.fs") && r.out.contains("12345"), "{}", r.out);
+}
+
+#[test]
+fn ans_accept() {
+    // accept reads the next input line into the buffer: here, the line after the command
+    let r = run("64 s-allot constant ab ab 64 accept ab swap type\nhello there");
+    assert!(r.out.contains("hello there"), "{}", r.out);
 }
 
 // ------------------------------------------------------------- Phase 5

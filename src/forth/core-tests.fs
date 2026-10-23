@@ -301,9 +301,9 @@ T{ 1 2 2>r 2rdrop -> }T
 T{ : gr4 1 2 2>r 3 2r> ; gr4 -> 3 1 2 }T
 
 \ ---- find reports immediacy
-T{ : gimm ; immediate s" gimm" drop find nip -> 1 }T
-T{ s" dup" drop find nip -> -1 }T
-T{ s" no-such-word" drop find nip -> 0 }T
+T{ : gimm ; immediate c" gimm" find nip -> 1 }T
+T{ c" dup" find nip -> -1 }T
+T{ c" no-such-word" find nip -> 0 }T
 
 \ ---- double-cell arithmetic
 T{ 5 s>d -> 5 0 }T
@@ -328,7 +328,7 @@ T{ -1 0 1 within -> <false> }T
 T{ 1 2 u> -> <false> }T
 T{ -1 1 u> -> <true> }T
 T{ 1 cell+ 1 char+ 3 chars -> 2 2 3 }T
-T{ s" abc" drop count nip -> 3 }T
+T{ c" abc" count nip -> 3 }T
 T{ unused 0 > -> <true> }T
 T{ s" x" environment? -> <false> }T
 T{ source nip 0 > -> <true> }T
@@ -371,16 +371,38 @@ T{ : garr create cells allot does> swap cells + ; 5 garr ga 9 2 ga ! 2 ga @ -> 9
 T{ create gbuf 3 , 4 , gbuf @ gbuf 1+ @ -> 3 4 }T
 T{ variable gv1 3 allot here gv1 4 + = -> <true> }T
 
-\ ---- evaluate (strings are made at interpret time: s" is not yet compiled inside definitions)
-s" 123" drop s-create constant ges1
-s" 1 2 +" drop s-create constant ges2
-s" : ge5 77 ;" drop s-create constant ges3
-s" nosuch" drop s-create constant ges4
-T{ ges1 count evaluate -> 123 }T
-T{ ges2 count evaluate -> 3 }T
-T{ : ge3 ges1 count evaluate ; ge3 -> 123 }T
-T{ ges3 count evaluate ge5 -> 77 }T
-T{ ges2 count evaluate 10 * -> 30 }T              \ the rest of the line still runs
-T{ : ge6 ges4 count evaluate ; ' ge6 catch 5 -> -13 5 }T
+\ ---- evaluate
+T{ s" 123" evaluate -> 123 }T
+T{ s" 1 2 +" evaluate -> 3 }T
+T{ : ge3 s" 123" evaluate ; ge3 -> 123 }T
+T{ s" : ge5 77 ;" evaluate ge5 -> 77 }T
+T{ s" 1 2 +" evaluate 10 * -> 30 }T              \ the rest of the line still runs
+T{ : ge6 s" nosuch" evaluate ; ' ge6 catch 5 -> -13 5 }T
+
+\ ---- strings (c-addr u) and the String word set
+T{ s" abc" nip -> 3 }T
+T{ : gs4 s" xyz" ; gs4 nip -> 3 }T
+T{ s" abc" drop c@ -> 97 }T
+T{ c" abc" c@ -> 3 }T
+T{ s" abc" s" abc" compare -> 0 }T
+T{ s" abc" s" abd" compare -> -1 }T
+T{ s" abd" s" abc" compare -> 1 }T
+T{ s" ab" s" abc" compare -> -1 }T
+T{ s" abc" s" ab" compare -> 1 }T
+T{ s" " s" " compare -> 0 }T
+T{ s" hello world" s" wor" search nip nip -> <true> }T
+T{ s" hello world" s" wor" search drop nip -> 5 }T
+T{ s" hello" s" xyz" search nip nip -> <false> }T
+T{ s" hello" 2 /string nip -> 3 }T
+T{ s" hi   " -trailing nip -> 2 }T
+T{ s" " -trailing nip -> 0 }T
+T{ 0 0 s" 123" >number nip -> 123 0 0 }T
+T{ 0 0 s" 12x" >number nip -> 12 0 1 }T
+T{ 4 s-allot constant gsb gsb 4 char z fill gsb 3 + c@ -> 122 }T
+T{ gsb 4 erase gsb c@ -> 0 }T
+T{ s" abcd" gsb swap move gsb 1+ c@ -> 98 }T
+T{ parse-name word1 nip -> 5 }T
+T{ char ) parse abc) nip -> 3 }T
+T{ bl word zz c@ -> 2 }T
 
 ." core tests: " #errors @ 0 .r ."  errors" cr

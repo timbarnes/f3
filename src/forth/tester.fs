@@ -13,7 +13,7 @@ variable actual-results 31 allot                \ room for 32 results
 : -> ( ... -- )     depth start-depth @ - dup actual-depth !
                     0 ?do actual-results i + ! loop ;   \ top of stack goes to cell 0
 
-: (fail) ( -- )     1 #errors +!  'tib @ type cr  clear ;
+: (fail) ( -- )     1 #errors +!  'tib @ ctype cr  clear ;
 
 : }T ( ... -- )
     depth start-depth @ - actual-depth @ <>

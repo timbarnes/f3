@@ -112,7 +112,7 @@ impl ForthRuntime {
     ///
     pub fn f_eval(&mut self) {
         loop {
-            let (addr, len) = self.parse_token(b' ');
+            let (addr, len) = self.parse_token(b' ', true);
             if len == 0 {
                 break; // end of line
             }
@@ -160,12 +160,12 @@ impl ForthRuntime {
     ///     and advances >IN past it. Returns the token's string address and length;
     ///     the length is 0 at the end of the line.
     ///
-    pub fn parse_token(&mut self, delim: u8) -> (usize, usize) {
+    pub fn parse_token(&mut self, delim: u8, skip_leading: bool) -> (usize, usize) {
         // the line starts after the TIB's count byte; >IN is a 0-based offset into it (ANS)
         let text = self.kernel.get(self.tib_ptr) as usize + 1;
         let end = self.kernel.get(self.tib_size_ptr) as usize;
         let mut i = self.kernel.get(self.tib_in_ptr) as usize;
-        while i < end && self.kernel.byte_get(text + i) == delim {
+        while skip_leading && i < end && self.kernel.byte_get(text + i) == delim {
             i += 1;
         }
         let start = i;
@@ -174,6 +174,25 @@ impl ForthRuntime {
         }
         self.kernel.set(self.tib_in_ptr, i as i64 + 1); // past the delimiter
         (text + start, i.saturating_sub(start))
+    }
+
+    /// parse ( char -- c-addr u ) the text up to the next char, in place in the input buffer.
+    ///     Leading delimiters are not skipped (ANS); parse-name skips leading spaces.
+    ///
+    pub fn f_parse(&mut self) {
+        self.kernel.stack_check(1, "parse");
+        let delim = self.kernel.pop() as u8;
+        let (addr, len) = self.parse_token(delim, false);
+        self.kernel.push(addr as i64);
+        self.kernel.push(len as i64);
+    }
+
+    /// parse-name ( -- c-addr u ) the next space-delimited name, in place in the input buffer
+    ///
+    pub fn f_parse_name(&mut self) {
+        let (addr, len) = self.parse_token(b' ', true);
+        self.kernel.push(addr as i64);
+        self.kernel.push(len as i64);
     }
 
     /// find_word searches the dictionary, newest first, and returns the cfa of the word with this name
@@ -241,7 +260,7 @@ impl ForthRuntime {
     ///     It is an error if the word is not found.
     ///
     pub fn f_tick_p(&mut self) {
-        let (addr, len) = self.parse_token(b' ');
+        let (addr, len) = self.parse_token(b' ', true);
         match self.find_word(self.kernel.string_slice(addr, len)) {
             Some(cfa) => self.kernel.push(cfa as i64),
             None if len == 0 => throw_code(NAME_EXPECTED, "' : name expected"),
@@ -256,7 +275,7 @@ impl ForthRuntime {
         self.kernel.stack_check(2, "parse-to");
         let delim = self.kernel.pop() as u8;
         let dest = self.kernel.pop() as usize;
-        let (addr, len) = self.parse_token(delim);
+        let (addr, len) = self.parse_token(delim, true);
         self.kernel.string_copy(addr, dest, len, false);
         self.kernel.push(dest as i64);
         self.kernel.push(len as i64);
@@ -291,7 +310,7 @@ impl ForthRuntime {
     ///     Sets LAST and HERE; the word becomes visible (CONTEXT) when it is closed by ; or (close).
     ///
     pub fn f_create(&mut self) {
-        let (addr, len) = self.parse_token(b' ');
+        let (addr, len) = self.parse_token(b' ', true);
         if len == 0 {
             throw_code(NAME_EXPECTED, "create: name expected");
         }

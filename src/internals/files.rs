@@ -26,7 +26,6 @@ pub enum FType {
     Stdin, // Standard input
     File(File),
     BReader(BufReader<File>), // Buffered reader for file input
-    Text(io::Cursor<Vec<u8>>), // a string being interpreted by EVALUATE
 }
 
 pub struct FileHandle {
@@ -62,15 +61,6 @@ fn read_line_max(r: &mut impl Read, max: usize) -> io::Result<Option<(Vec<u8>, u
 }
 
 impl FileHandle {
-    /// text makes an input source from a string, for EVALUATE
-    pub fn text(text: Vec<u8>) -> FileHandle {
-        FileHandle {
-            source: FType::Text(io::Cursor::new(text)),
-            file_position: 0,
-            dir: None,
-        }
-    }
-
     pub fn stdin() -> FileHandle {
         FileHandle {
             source: FType::Stdin,
@@ -107,6 +97,21 @@ impl FileHandle {
         })
     }
 
+    /// create creates (or truncates) a file for writing, and for reading too if `readable`
+    pub fn create(path: &Path, readable: bool) -> io::Result<FileHandle> {
+        let file = OpenOptions::new()
+            .read(readable)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(path)?;
+        Ok(FileHandle {
+            source: FType::File(file),
+            file_position: 0,
+            dir: path.parent().map(Path::to_path_buf),
+        })
+    }
+
     /// get_line returns the next line of source as raw bytes, without trailing whitespace.
     ///     None means end of input (or a read error).
     pub fn get_line(&mut self) -> Option<Vec<u8>> {
@@ -114,7 +119,6 @@ impl FileHandle {
         let read = match &mut self.source {
             FType::Stdin => io::stdin().lock().read_until(b'\n', &mut line),
             FType::BReader(br) => br.read_until(b'\n', &mut line),
-            FType::Text(text) => text.read_until(b'\n', &mut line),
             FType::File(_) => return None, // Files don't support line reading
         };
         match read {
@@ -134,7 +138,6 @@ impl FileHandle {
             FType::BReader(br) => read_line_max(br, max)?,
             FType::File(f) => read_line_max(f, max)?,
             FType::Stdin => read_line_max(&mut io::stdin().lock(), max)?,
-            FType::Text(text) => read_line_max(text, max)?,
         };
         Ok(result.map(|(line, consumed)| {
             self.file_position += consumed;
@@ -184,7 +187,7 @@ impl FileHandle {
                     }
                 }
             }
-            FType::File(_) | FType::Text(_) => {
+            FType::File(_) => {
                 // Files don't support character-by-character reading
                 None
             }
@@ -212,7 +215,7 @@ impl FileHandle {
         let metadata = match &self.source {
             FType::File(f) => f.metadata(),
             FType::BReader(br) => br.get_ref().metadata(),
-            FType::Stdin | FType::Text(_) => return 0,
+            FType::Stdin => return 0,
         };
         metadata.map(|m| m.len() as usize).unwrap_or(0)
     }
