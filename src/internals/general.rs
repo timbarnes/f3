@@ -1,5 +1,6 @@
 // General-purpose builtin words
 
+use crate::internals::builtin::BuiltInFn;
 use crate::kernel::{throw, DICT_LIMIT};
 use crate::runtime::ForthRuntime;
 use std::thread;
@@ -33,14 +34,21 @@ impl ForthRuntime {
     }
 
     pub fn f_lshift(&mut self) {
-        self.kernel
-            .pop2_push1("lshift", |a, b| if (0..64).contains(&b) { a << b } else { 0 });
+        self.kernel.pop2_push1(
+            "lshift",
+            |a, b| if (0..64).contains(&b) { a << b } else { 0 },
+        );
     }
 
     pub fn f_rshift(&mut self) {
         // arithmetic shift; shifting by 64 or more leaves only the sign
-        self.kernel
-            .pop2_push1("rshift", |a, b| if (0..64).contains(&b) { a >> b } else { a >> 63 });
+        self.kernel.pop2_push1("rshift", |a, b| {
+            if (0..64).contains(&b) {
+                a >> b
+            } else {
+                a >> 63
+            }
+        });
     }
 
     pub fn f_mod(&mut self) {
@@ -107,40 +115,45 @@ impl ForthRuntime {
             self.kernel.push(third);
         }
     }
-    pub fn f_pick(&mut self) {
-        if self.kernel.stack_check(1, "pick") {
-            let n = self.kernel.pop() as usize;
-            if self.kernel.stack_check(n.saturating_add(1), "pick") {
-                let val = self.kernel.peek(n);
-                self.kernel.push(val);
-            }
-        }
-    }
-    pub fn f_roll(&mut self) {
-        if self.kernel.stack_check(1, "roll") {
-            let n = self.kernel.pop() as usize;
-            if n == 0 {
-                return;
-            } // 0 roll is a no-op
-            if self.kernel.stack_check(n.saturating_add(1), "roll") {
-                // Save the nth value from the top
-                let val = self.kernel.peek(n);
-                // Shift all items above it down by one
-                for i in (1..=n).rev() {
-                    let tmp = self.kernel.peek(i - 1);
-                    let idx = self.kernel.get_stack_ptr() + i;
-                    self.kernel.set(idx, tmp);
-                }
-                // Place the saved value on top
-                self.kernel.set(self.kernel.get_stack_ptr(), val);
-            }
-        }
-    }
     pub fn f_and(&mut self) {
         if self.kernel.stack_check(2, "and") {
             let a = self.kernel.pop();
             let b = self.kernel.pop();
             self.kernel.push((a as usize & b as usize) as i64);
+        }
+    }
+
+    pub fn f_xor(&mut self) {
+        self.kernel.pop2_push1("xor", |a, b| a ^ b);
+    }
+
+    /// u< ( u1 u2 -- b ) unsigned comparison
+    pub fn f_u_less(&mut self) {
+        self.kernel
+            .pop2_push1("u<", |a, b| if (a as u64) < (b as u64) { -1 } else { 0 });
+    }
+
+    /// sp@ ( -- a ) the address of the top of the data stack, before sp@ pushes it.
+    ///     The data stack grows down, so the item n deep is at sp@ + n.
+    pub fn f_sp_fetch(&mut self) {
+        let sp = self.kernel.get_stack_ptr();
+        self.kernel.push(sp as i64);
+    }
+
+    /// rp@ ( -- a ) the address of the top of the return stack (it also grows down)
+    pub fn f_rp_fetch(&mut self) {
+        let rp = self.kernel.get_return_ptr();
+        self.kernel.push(rp as i64);
+    }
+
+    /// cmove ( from to n -- ) copies n bytes within string space
+    pub fn f_cmove(&mut self) {
+        self.kernel.stack_check(3, "cmove");
+        let n = self.kernel.pop();
+        let to = self.kernel.pop() as usize;
+        let from = self.kernel.pop() as usize;
+        if n > 0 {
+            self.kernel.cmove(from, to, n as usize);
         }
     }
 
@@ -196,10 +209,6 @@ impl ForthRuntime {
         self.kernel.push(val);
     }
 
-    pub fn f_dot_rs(&mut self) {
-        self.kernel.print_return_stack();
-    }
-
     /// i ( -- n ) Pushes the current loop index to the calculation stack
     ///     Loops keep three cells on the return stack: exit address, limit, index (on top)
     ///
@@ -225,7 +234,11 @@ impl ForthRuntime {
         let n = self.kernel.pop();
         let here = self.kernel.get(self.here_ptr).wrapping_add(n);
         if here < 0 || here as usize > DICT_LIMIT {
-            throw(if n > 0 { "dictionary full" } else { "allot: below the start of memory" });
+            throw(if n > 0 {
+                "dictionary full"
+            } else {
+                "allot: below the start of memory"
+            });
         }
         self.kernel.set(self.here_ptr, here);
     }
@@ -248,46 +261,6 @@ impl ForthRuntime {
             let c = self.kernel.pop() as u8;
             self.kernel.byte_set(s_address, c);
         }
-    }
-
-    /// s-copy (s-from s-to -- s-to ) copies a counted string from one address to another.
-    /// /// This does NOT update the free space pointer - it's intended for use in pre-allocated buffers.
-    /// /// The source string is expected to be a counted string, with the first byte being the length.
-    pub fn f_s_copy(&mut self) {
-        if self.kernel.stack_check(2, "s-copy") {
-            let dest = self.kernel.pop() as usize;
-            let source = self.kernel.pop() as usize;
-            let length = self.kernel.byte_get(source);
-            self.kernel.string_copy(source, dest, length as usize, true);
-        }
-    }
-
-    /// s-create ( s-from -- s-to ) copies a counted string into the next empty space, updating the free space pointer
-    pub fn f_s_create(&mut self) {
-        if self.kernel.stack_check(1, "s-create") {
-            let source = self.kernel.pop() as usize;
-            let length = self.kernel.byte_get(source) as usize;
-            let dest = self.kernel.get(self.kernel.get_string_ptr());
-            self.kernel.string_copy(source, dest as usize, length, true);
-            self.kernel
-                .delta(self.kernel.get_string_ptr(), length as i64 + 1);
-            self.kernel.push(dest); // pointer to the beginning of the new string
-        }
-    }
-
-    /// f_smove ( source len dest -- dest ) builds a new counted string from an existing counted string.
-    ///     Used by CREATE
-    ///
-    pub fn f_smove(&mut self) {
-        let dest = self.kernel.pop() as usize;
-        let length = self.kernel.pop() as usize;
-        let source = self.kernel.pop() as usize;
-        // assuming both are counted, we begin with the count byte. Length should match the source count byte
-        self.kernel.string_copy(source, dest, length, true);
-        // for i in 0..=length {
-        //     self.kernel.strings[dest + i] = self.kernel.strings[source + i];
-        // }
-        self.kernel.push(dest as i64);
     }
 
     /// f_now ( -- ) Start a timer
@@ -315,85 +288,23 @@ impl ForthRuntime {
             thread::sleep(millis);
         }
     }
-    /// DEPTH - print the number of items on the stack
-    ///
-    pub fn f_stack_depth(&mut self) {
-        let depth = self.kernel.stack_len();
-        self.kernel.push(depth as i64);
-    }
-
+    /// builtin-name ( index -- s ) copies the name of a builtin to TMP
     pub fn f_builtin_name(&mut self) {
-        if self.kernel.stack_check(1, "builtin-name") {
-            let index = self.kernel.pop() as usize;
-            let builtin = self.kernel.get_builtin(index).name.clone();
-            let name = builtin.as_str();
-            let destination = self.kernel.get(self.tmp_ptr) as usize;
-            self.kernel.string_save(name, destination);
-            self.kernel.push(destination as i64);
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::runtime::ForthRuntime;
-
-    fn setup_stack(rt: &mut ForthRuntime, vals: &[i64]) {
-        for &v in vals.iter() {
-            rt.kernel.push(v);
-        }
+        self.builtin_text(|b| &b.name);
     }
 
-    #[test]
-    fn test_roll_basic() {
-        let mut rt = ForthRuntime::new();
-        rt.cold_start();
-        setup_stack(&mut rt, &[1, 2, 3, 4, 5]);
-        // Stack: 1 2 3 4 5 (5 is top)
-        rt.kernel.push(2); // n = 2
-        rt.f_roll();
-        // Should move 3 to top: 1 2 4 5 3
-        let mut result = vec![];
-        for i in (0..rt.kernel.stack_len()).rev() {
-            result.push(rt.kernel.peek(i));
-        }
-        assert_eq!(result, vec![1, 2, 4, 5, 3]);
+    /// builtin-doc ( index -- s ) copies the documentation of a builtin to TMP (at most 255 characters)
+    pub fn f_builtin_doc(&mut self) {
+        self.builtin_text(|b| &b.doc);
     }
 
-    #[test]
-    fn test_roll_zero() {
-        let mut rt = ForthRuntime::new();
-        setup_stack(&mut rt, &[1, 2, 3]);
-        rt.kernel.push(0); // n = 0
-        rt.f_roll();
-        // Should be unchanged
-        let mut result = vec![];
-        for i in (0..rt.kernel.stack_len()).rev() {
-            result.push(rt.kernel.peek(i));
-        }
-        assert_eq!(result, vec![1, 2, 3]);
-    }
-
-    #[test]
-    fn test_roll_top() {
-        let mut rt = ForthRuntime::new();
-        setup_stack(&mut rt, &[7, 8, 9]);
-        rt.kernel.push(2); // n = 2 (bottom)
-        rt.f_roll();
-        // Should move 7 to top: 8 9 7
-        let mut result = vec![];
-        for i in (0..rt.kernel.stack_len()).rev() {
-            result.push(rt.kernel.peek(i));
-        }
-        assert_eq!(result, vec![8, 9, 7]);
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_roll_underflow() {
-        let mut rt = ForthRuntime::new();
-        setup_stack(&mut rt, &[1]);
-        rt.kernel.push(2); // n = 2, not enough items
-        rt.f_roll();
+    fn builtin_text(&mut self, field: fn(&BuiltInFn) -> &String) {
+        self.kernel.stack_check(1, "builtin-name");
+        let index = self.kernel.pop() as usize;
+        let text = field(self.kernel.get_builtin(index)).as_bytes();
+        let text = text[..text.len().min(255)].to_vec();
+        let destination = self.kernel.get(self.tmp_ptr) as usize;
+        self.kernel.bytes_save(&text, destination);
+        self.kernel.push(destination as i64);
     }
 }

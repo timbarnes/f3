@@ -83,7 +83,11 @@ fn stack(src: &str) -> String {
 fn assert_survives(src: &str) {
     let r = run(&format!("{src}\n: alive 12345 ; alive ."));
     assert!(!r.timed_out, "f3 hung:\n{}", r.out);
-    assert!(r.ok && r.out.contains("12345 "), "f3 did not recover:\n{}", r.out);
+    assert!(
+        r.ok && r.out.contains("12345 "),
+        "f3 did not recover:\n{}",
+        r.out
+    );
 }
 
 // ---------------------------------------------------------------- baseline
@@ -159,7 +163,11 @@ fn f6_long_lines_not_truncated() {
 fn f7_dictionary_overflow_is_an_error() {
     // filling the dictionary with , is permanent, so only check the error and that f3 lives on
     let r = run(": fill 1000000 for 1 , next ; fill\n12345 .");
-    assert!(r.ok && r.out.contains("dictionary full") && r.out.contains("12345 "), "{}", r.out);
+    assert!(
+        r.ok && r.out.contains("dictionary full") && r.out.contains("12345 "),
+        "{}",
+        r.out
+    );
 }
 
 #[test]
@@ -198,7 +206,11 @@ fn f25_loaded_file_sees_core_words() {
 #[test]
 fn f26_abort_quote() {
     let r = run(": t abort\" oops\" ; 1 2 t\n.s");
-    assert!(r.ok && r.out.contains("oops") && r.out.contains("[ ]"), "{}", r.out);
+    assert!(
+        r.ok && r.out.contains("oops") && r.out.contains("[ ]"),
+        "{}",
+        r.out
+    );
 }
 
 #[test]
@@ -236,22 +248,38 @@ fn do_loop_variants() {
     assert_eq!(stack(": t 0 10 do i -3 +loop ; t"), "10 7 4 1");
     assert_eq!(stack(": t 0 3 do i -1 +loop ; t"), "3 2 1 0");
     assert_eq!(stack(": t 5 5 ?do i loop 99 ; t"), "99");
-    assert_eq!(stack(": t 10 0 do i dup 3 = if leave then loop ; t"), "0 1 2 3");
-    assert_eq!(stack(": t 3 1 do 13 11 do j i loop loop ; t"), "1 11 1 12 2 11 2 12");
-    assert_eq!(stack(": t 10 0 do i 2 = if unloop exit then loop 99 ; t 7"), "7");
+    assert_eq!(
+        stack(": t 10 0 do i dup 3 = if leave then loop ; t"),
+        "0 1 2 3"
+    );
+    assert_eq!(
+        stack(": t 3 1 do 13 11 do j i loop loop ; t"),
+        "1 11 1 12 2 11 2 12"
+    );
+    assert_eq!(
+        stack(": t 10 0 do i 2 = if unloop exit then loop 99 ; t 7"),
+        "7"
+    );
 }
 
 #[test]
 fn for_next() {
     assert_eq!(stack(": t 3 for i next ; t"), "3 2 1");
     assert_eq!(stack(": t 0 for i next 99 ; t"), "99"); // used to run ~2^64 times
-    assert_eq!(stack(": t 2 for 2 for j i next next ; t"), "2 2 2 1 1 2 1 1");
+    assert_eq!(
+        stack(": t 2 for 2 for j i next next ; t"),
+        "2 2 2 1 1 2 1 1"
+    );
 }
 
 #[test]
 fn f21_compile_only_words_error_when_interpreted() {
     let r = run("5 for i . next\n12345 .");
-    assert!(r.ok && r.out.contains("only valid inside a definition") && r.out.contains("12345 "), "{}", r.out);
+    assert!(
+        r.ok && r.out.contains("only valid inside a definition") && r.out.contains("12345 "),
+        "{}",
+        r.out
+    );
 }
 
 #[test]
@@ -262,7 +290,10 @@ fn number_prefixes() {
 
 #[test]
 fn execute_data_words() {
-    assert_eq!(stack("variable v 5 v ! ' v execute @ 7 constant c ' c execute"), "5 7");
+    assert_eq!(
+        stack("variable v 5 v ! ' v execute @ 7 constant c ' c execute"),
+        "5 7"
+    );
 }
 
 #[test]
@@ -300,19 +331,82 @@ fn f28_builtin_name_uses_tmp() {
     assert_eq!(stack("0 builtin-name tmp @ = 0 builtin-name c@"), "-1 1");
 }
 
+// ------------------------------------------------------------- Phase 3
+
+#[test]
+fn stack_words_in_forth() {
+    assert_eq!(stack("1 2 3 2 pick"), "1 2 3 1");
+    assert_eq!(stack("1 2 3 2 roll"), "2 3 1");
+    assert_eq!(stack("1 2 3 depth"), "1 2 3 3");
+    assert_eq!(stack("1 2 3 clear depth"), "0");
+    let r = run("1 5 pick\n12345 .");
+    assert!(
+        r.out.contains("pick: stack underflow") && r.out.contains("12345 "),
+        "{}",
+        r.out
+    );
+}
+
+#[test]
+fn see_in_forth() {
+    let r = run(": sq dup * ; see sq see dup");
+    assert!(r.out.contains(": sq dup * ; "), "{}", r.out);
+    assert!(r.out.contains("Builtin: dup ( n -- n n )"), "{}", r.out);
+    let r = run(": t 3 0 do i . loop .\" hi\" ; see t");
+    assert!(
+        r.out.contains(": t 3 0 do:") && r.out.contains("\" hi\""),
+        "{}",
+        r.out
+    );
+}
+
+#[test]
+fn unbalanced_control_structure_is_an_error() {
+    let r = run(": t if again ;\n12345 .");
+    assert!(
+        r.out.contains("unbalanced control structure") && r.out.contains("12345 "),
+        "{}",
+        r.out
+    );
+}
+
+#[test]
+fn string_words_in_forth() {
+    assert_eq!(stack("s\" hello\" drop s-create c@"), "5");
+    assert_eq!(stack("s\" abc\" drop pad @ s-copy pad @ 1+ c@"), "97");
+}
+
+#[test]
+fn new_primitives() {
+    assert_eq!(stack("5 3 xor -1 1 u< 1 -1 u< 0 invert"), "6 0 -1 -1");
+    assert_eq!(stack("' if immed? ' dup immed?"), "-1 0");
+}
+
 /// Phase 1 exit check: 10k lines of random words and numbers (plus small colon definitions)
 /// must never kill f3, hang it, or hit a Rust panic (an engine bug rather than a Forth error).
 #[test]
 fn fuzz_random_input_never_crashes() {
     const WORDS: &[&str] = &[
-        "+", "-", "*", "/", "mod", "lshift", "rshift", "<", "=", "0=", "0<", "and", "or",
-        "dup", "drop", "swap", "over", "rot", "pick", "roll", "depth", "clear", "@", "c@",
-        ">r", "r>", "r@", "i", "j", ".", "negate", "abs", "min", "max", "1+", "1-", "2dup",
-        "2drop", "nip", "tuck", ">", "<>", "0>", "?dup", "not", "nosuch",
+        "+", "-", "*", "/", "mod", "lshift", "rshift", "<", "=", "0=", "0<", "and", "or", "dup",
+        "drop", "swap", "over", "rot", "pick", "roll", "depth", "clear", "@", "c@", ">r", "r>",
+        "r@", "i", "j", ".", "negate", "abs", "min", "max", "1+", "1-", "2dup", "2drop", "nip",
+        "tuck", ">", "<>", "0>", "?dup", "not", "nosuch",
     ];
     const NUMBERS: &[&str] = &[
-        "0", "1", "-1", "2", "7", "63", "64", "65", "255", "1000", "65535", "65536",
-        "9223372036854775807", "-9223372036854775808",
+        "0",
+        "1",
+        "-1",
+        "2",
+        "7",
+        "63",
+        "64",
+        "65",
+        "255",
+        "1000",
+        "65535",
+        "65536",
+        "9223372036854775807",
+        "-9223372036854775808",
     ];
     let mut seed: u64 = 0x2545F4914F6CDD1D;
     let mut next = |n: usize| {
@@ -324,7 +418,13 @@ fn fuzz_random_input_never_crashes() {
     let mut src = String::new();
     for line in 0..10_000 {
         let tokens: Vec<&str> = (0..1 + next(8))
-            .map(|_| if next(3) == 0 { NUMBERS[next(NUMBERS.len())] } else { WORDS[next(WORDS.len())] })
+            .map(|_| {
+                if next(3) == 0 {
+                    NUMBERS[next(NUMBERS.len())]
+                } else {
+                    WORDS[next(WORDS.len())]
+                }
+            })
             .collect();
         if line % 10 == 0 {
             src += &format!(": fz {} ; fz\n", tokens.join(" "));
@@ -333,13 +433,24 @@ fn fuzz_random_input_never_crashes() {
             src += "\n";
         }
     }
+    if let Ok(path) = std::env::var("F3_FUZZ_DUMP") {
+        std::fs::write(path, &src).unwrap(); // to reproduce a failure by hand
+    }
     let r = run(&format!("{src}: alive 12345 ; alive ."));
     assert!(!r.timed_out, "f3 hung");
     assert!(r.ok && r.out.contains("12345 "), "f3 did not survive");
-    let (errors, oks) = (r.out.matches("ERROR:").count(), r.out.matches("ok ").count());
+    let (errors, oks) = (
+        r.out.matches("ERROR:").count(),
+        r.out.matches("ok ").count(),
+    );
     eprintln!("fuzz: {errors} errors, {oks} lines ok");
-    assert!(errors > 1000 && oks > 1000, "fuzz input is not exercising both paths");
+    assert!(
+        errors > 1000 && oks > 1000,
+        "fuzz input is not exercising both paths"
+    );
     if let Some(i) = r.out.find("Rust panic") {
-        panic!("engine panic: {}", &r.out[i.saturating_sub(200)..(i + 200).min(r.out.len())]);
+        let start = r.out.floor_char_boundary(i.saturating_sub(300));
+        let end = r.out.ceil_char_boundary((i + 100).min(r.out.len()));
+        panic!("engine panic:\n{}", &r.out[start..end]);
     }
 }

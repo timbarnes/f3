@@ -3,22 +3,10 @@
 use crate::internals::messages::DebugLevel;
 use crate::runtime::{
     ForthRuntime, ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BREAK, BUILTIN_FLAG, CONSTANT, DEFINITION,
-    DO, EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, PLOOP, QDO, STRLIT, VARIABLE,
+    DO, EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, OPCODE_FLAG, PLOOP, QDO, STRLIT, VARIABLE,
 };
 
 impl ForthRuntime {
-    /// show-stack ( -- ) turns on stack printing at the time the prompt is issued
-    ///
-    pub fn f_show_stack(&mut self) {
-        self.show_stack = true;
-    }
-
-    /// hide-stack ( -- ) turns off stack printing at the time the prompt is issued
-    ///
-    pub fn f_hide_stack(&mut self) {
-        self.show_stack = false;
-    }
-
     /// dbg ( n -- ) sets the current debug level used by the message module
     ///
     pub fn f_dbg(&mut self) {
@@ -41,7 +29,6 @@ impl ForthRuntime {
             DebugLevel::Debug => 3,
         };
         self.kernel.push(result as i64);
-        // println!("DebugLevel is {:?}", self.msg.get_level());
     }
 
     /// u_step provides the step / trace functionality
@@ -61,9 +48,7 @@ impl ForthRuntime {
         if stepper_mode == 0 || call_depth > stepper_depth {
             return;
         };
-        let mut contents = self.kernel.get(pc) as usize;
-        let is_builtin = contents & BUILTIN_FLAG != 0;
-        contents &= ADDRESS_MASK;
+        let code = self.kernel.get(pc);
         let mut c = 's';
 
         // Print the program counter address
@@ -72,11 +57,11 @@ impl ForthRuntime {
         for _i in 1..call_depth {
             print!(" ");
         }
-        self.f_dot_s();
+        self.run_untraced(".s");
 
-        match contents as i64 {
+        match code {
             VARIABLE | CONSTANT | DEFINITION => {
-                let val = self.kernel.get(pc - 1) as usize;
+                let val = self.kernel.get(pc.wrapping_sub(1)) as usize;
                 println!(" {} ", self.kernel.string_get(val))
             }
             LITERAL => println!(" {} ", self.kernel.get(pc + 1)),
@@ -90,21 +75,27 @@ impl ForthRuntime {
             }
             BRANCH0 => println!(" BRANCH0:{}", self.kernel.get(pc + 1)),
             DO | QDO | LOOP | PLOOP | FOR | NEXT => {
-                println!(" LOOP-OP {}:{}", contents, self.kernel.get(pc + 1))
+                println!(
+                    " LOOP-OP {}:{}",
+                    code & !OPCODE_FLAG,
+                    self.kernel.get(pc + 1)
+                )
             }
             LEAVE => println!(" LEAVE "),
             ABORT => println!(" ABORT "),
             EXIT => println!(" EXIT "),
             BREAK => println!(" BREAK "),
             EXEC => println!(" -> EXEC"),
+            _ if code as usize & BUILTIN_FLAG != 0 => {
+                println!(
+                    " {} ",
+                    self.kernel.get_builtin(code as usize & ADDRESS_MASK).name
+                );
+            }
             _ => {
-                if is_builtin {
-                    println!(" {} ", self.kernel.get_builtin(contents).name);
-                } else {
-                    // it's a word address: step-in about to occur
-                    let val = self.kernel.get(contents - 1);
-                    println!(" ->{}", self.kernel.string_get(val as usize));
-                }
+                // it's a word address: step-in about to occur
+                let val = self.kernel.get((code as usize).wrapping_sub(1));
+                println!(" ->{}", self.kernel.string_get(val as usize));
             }
         }
         if stepper_mode == -1 {

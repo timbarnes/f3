@@ -7,4 +7,3 @@ pub mod general;
 pub mod inner;
 pub mod messages;
 pub mod terminal;
-// pub mod tui;

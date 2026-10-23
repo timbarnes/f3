@@ -6,19 +6,8 @@
 // Errors during boot will not start the interpreter loop, while errors during execution will
 // reset the interpreter to the prompt, clearing the data stack and return stack.
 
-mod internals {
-    pub mod builtin;
-    pub mod compiler;
-    pub mod console;
-    pub mod debug;
-    pub mod files;
-    pub mod general;
-    pub mod inner;
-    pub mod messages;
-    pub mod terminal;
-    //pub mod tui;
-}
 mod config;
+mod internals;
 mod kernel;
 mod runtime;
 
@@ -66,7 +55,6 @@ fn run_forth(forth: &mut ForthRuntime) {
     println!("{WELCOME_MESSAGE} Version {VERSION}");
 
     // --- Interactive Loop Phase ---
-    forth.f_dot_s();
     forth.f_quit(); // main interpreter loop; recovers from errors itself
     println!("{EXIT_MESSAGE}");
 }

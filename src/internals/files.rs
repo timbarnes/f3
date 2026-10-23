@@ -53,7 +53,11 @@ fn read_line_max(r: &mut impl Read, max: usize) -> io::Result<Option<(Vec<u8>, u
     if line.last() == Some(&b'\r') {
         line.pop();
     }
-    Ok(if consumed == 0 && max > 0 { None } else { Some((line, consumed)) })
+    Ok(if consumed == 0 && max > 0 {
+        None
+    } else {
+        Some((line, consumed))
+    })
 }
 
 impl FileHandle {

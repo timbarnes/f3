@@ -1,8 +1,13 @@
+: immediate context @ dup @ IMMEDIATE_FLAG or swap ! ;
+: compile-only context @ dup @ COMPILE_ONLY_FLAG or swap ! ;
 : parse pad @ swap parse-to ;
-
 : \ 1 parse drop drop ; immediate
-
 : ( 41 parse drop drop ; immediate     \ Implements in-line comments
+
+\ The words above come first, because comments need them.
+\ immediate and compile-only set a flag on the most recently defined word.
+\ The engine defines the opcodes (VARIABLE, LITERAL, BRANCH, ...), the flags (IMMEDIATE_FLAG, ...),
+\ ADDRESS_MASK, and the empty-stack addresses sp0 and rp0 as constants (runtime.rs insert_constants).
 
 1 dbg \ set debuglevel to warnings and errors
 
@@ -15,11 +20,19 @@
         last @ context !              \ update CONTEXT
         ;
 
-: constant ( n -- ) create 100002 , ,      \ v constant <name> creates a constant with value v
+\ String space. Strings are counted: the first byte is the length (at most 255).
+\ s-here is the next free byte. c@ c! cmove address string space; @ ! address the heap.
+
+: s-allot ( n -- s )   s-here @ dup rot + s-here ! ;       \ reserve n bytes of string space
+: s-copy ( from to -- ) over c@ 1 + cmove ;                \ copy a counted string
+: s-create ( from -- to )                                  \ copy a counted string to new string space
+    dup c@ 1 + dup s-allot swap over >r cmove r> ;
+
+: constant ( n -- ) create CONSTANT , ,      \ v constant <name> creates a constant with value v
     (close) ;
 
 : string ( n -- )
-    create 100004 ,
+    create STRLIT ,
     s-create dup 0 swap c! , (close) ;
 
 \ Boolean constants. In fact any non-zero value is interpreted as true, but -1 is traditional.
@@ -27,42 +40,15 @@
 0 constant FALSE
 -1 constant TRUE
 
-\ Constants referring to inner interpreter opcodes, which are typically compiled into definitions
-\ These are used by dump to identify tokens in the dictionary / heap
+: show-stack ( -- ) TRUE show-stack? ! ;    \ show the stack at the prompt
+: hide-stack ( -- ) FALSE show-stack? ! ;
 
-100000 constant BUILTIN
-100001 constant VARIABLE
-100002 constant CONSTANT
-100003 constant LITERAL
-100004 constant STRLIT
-100005 constant DEFINITION
-100006 constant BRANCH
-100007 constant BRANCH0
-100008 constant ABORT
-100009 constant EXIT
-100010 constant BREAK
-100011 constant EXEC
-100012 constant ARRAY
-100013 constant DO
-100014 constant QDO
-100015 constant LOOP
-100016 constant PLOOP
-100017 constant LEAVE
-100018 constant FOR
-100019 constant NEXT
-
+\ Markers that control structures leave on the stack while they are compiled, checked by ?pairs
 200000 constant MARK_BEGIN
 200001 constant MARK_WHILE
-200002 constant MARK_FOR
 200003 constant MARK_CASE
 200004 constant MARK_OF
 200005 constant MARK_DO
-
-\ Flags and masks used to identify special words and extract addresses
-72057594037927935 constant ADDRESS_MASK                      \ wipes any flags
-1 61 lshift constant BUILTIN_FLAG
-1 62 lshift constant IMMEDIATE_FLAG
-1 60 lshift constant COMPILE_ONLY_FLAG
 
 \ ASCII symbols that are useful for text processing
 10  constant '\n'
@@ -160,6 +146,9 @@
 
 : [']               LITERAL , ' , ; immediate compile-only \ compiles a word's cfa into a definition as a literal
 
+: abort" ( -- )     STRLIT , s" drop s-create ,         \ abort with a message. Use inside another word.
+                    ['] (error) , ; immediate compile-only
+
 \ Movement within a word definition
 
 : cfa>nfa           1 - ;                                 \ converts an cfa to an nfa
@@ -180,6 +169,10 @@
 : <> ( n -- n )     = 0= ;
 : 0>                0 > ;
 : 0<>               0= 0= ;
+: invert ( n -- ~n ) -1 xor ;
+
+: ?pairs ( tag expected -- )                          \ check that control structures match up
+                    <> if abort" unbalanced control structure" then ;
 
 \ Stack operations
 
@@ -187,6 +180,16 @@
 : 2dup ( a b -- a b a b ) over over ;
 : 2drop ( a b -- )  drop drop ;
 : ?dup              dup 0= if else dup then ;
+
+\ The data stack lives in the heap and grows down: sp@ is the address of the top item,
+\ the item n deep is at sp@ + n, and sp0 is sp@ when the stack is empty.
+: depth ( -- n )    sp@ sp0 swap - ;
+: pick ( xn..x0 n -- xn..x0 xn )
+                    dup depth 2 - u< 0= if abort" pick: stack underflow" then
+                    1 + sp@ + @ ;
+: roll ( xn..x0 n -- xn-1..x0 xn )
+                    dup depth 2 - u< 0= if abort" roll: stack underflow" then
+                    ?dup if swap >r 1- recurse r> swap then ;
 
 \ Return stack operations
 
@@ -216,31 +219,32 @@
 
 \ Control structures
 
-: begin ( -- )      here @ MARK_BEGIN >c ; immediate compile-only
+: begin ( -- a tag ) here @ MARK_BEGIN ; immediate compile-only
 
-: while ( -- )      BRANCH0 ,
-                    here @ MARK_WHILE >c
-                    999 ,                ; immediate compile-only
-: repeat ( -- )     c> drop                             \ pop while branch placeholder address
+: while ( -- a tag ) BRANCH0 ,
+                    here @ MARK_WHILE 0 , ; immediate compile-only     \ placeholder for the exit offset
+: repeat ( -- )     MARK_WHILE ?pairs
                     BRANCH ,                            \ unconditional branch to the beginning of the loop
                     here @ over - 1 + swap !            \ patch forward offset at WHILE's placeholder
-                    c> drop                             \ pop begin address
+                    MARK_BEGIN ?pairs
                     here @ - ,           ; immediate compile-only \ save negative offset to BEGIN
 
-: until             c> drop BRANCH0 ,
+: until             MARK_BEGIN ?pairs BRANCH0 ,
                     here @ - ,           ; immediate compile-only
 
-: again             c> drop BRANCH ,
+: again             MARK_BEGIN ?pairs BRANCH ,
                     here @ - ,           ; immediate compile-only
+
+: clear ( ... -- )  begin depth while drop repeat ;   \ empty the data stack
 
 \ Counted loops. FOR, DO and ?DO compile an opcode whose operand is the offset to the loop exit;
 \ NEXT, LOOP and +LOOP compile an opcode whose operand is the offset back to the loop body.
 \ At run time each loop keeps three cells on the return stack: exit address, limit, index.
 
-: (loop-start) ( opcode -- )
-                    , here @ MARK_DO >c 0 , ;           \ placeholder for the exit offset
-: (loop-end) ( opcode -- )
-                    , c> drop                           \ address of the exit-offset placeholder
+: (loop-start) ( opcode -- a tag )
+                    , here @ MARK_DO 0 , ;              \ placeholder for the exit offset
+: (loop-end) ( a tag opcode -- )
+                    , MARK_DO ?pairs                    \ a: address of the exit-offset placeholder
                     dup 1+ here @ - ,                   \ offset back to the loop body
                     here @ over - swap ! ;              \ patch the exit offset
 
@@ -252,50 +256,16 @@
 : +loop ( n -- )    PLOOP (loop-end) ; immediate compile-only
 : leave ( -- )      LEAVE , ; immediate compile-only    \ continue after the end of the innermost loop
 
-\ Case statement
+\ Case statement: the key is kept on the return stack while the clauses are tested
 
-: case      ( val -- val )
-    ['] >r ,                \ put the key on the return stack for later use
-    here @ MARK_CASE >c     \ issues a marker to be retrieved by 'endcase'
-    ;
-    immediate compile-only
-
-: of        ( -- )          \ the "if" part
-    ['] r@ ,                \ compile getting the key from the return stack
-    ['] = ,                 \ compile the test
-    BRANCH0 , 999 ,         \ compile the branch. If the key doesn't match, we will skip
-    here @ MARK_OF >c       \ push a marker
-    ;
-    immediate compile-only
-
-: endof     ( -- )          \ the "then" part
-    BRANCH ,            \ compile the branch
-    here @ MARK_OF >c       \ push a second marker for this clause
-    888 ,
-    ;
-    immediate compile-only
-
-: endcase   ( -- )          \ patch the branches, exiting when the MARK_CASE is found
-    begin
-        c> MARK_CASE =          \ is the first marker a CASE marker?
-        if
-            ['] r> ,            \ pop the key off the return stack
-            ['] drop ,          \ dump the key
-            drop                \ the address
-            exit                \ we've finished
-        else                    \ it's an 'endof' marker, so patch jump to the end. patch_addr is on the stack
-            dup dup             \ save extra copies of the address for the second patch operation
-            here @ swap -
-            swap
-            !                   \ store the patch
-            c>                  \ get the corresponding 'of' marker
-            drop 1 -            \ we could test the type...
-            dup rot swap - 1 + swap
-            !                   \ store the delta between 'of' and 'endof'
-        then
-    again
-    ;
-    immediate compile-only
+: case ( key -- )   ['] >r , MARK_CASE ; immediate compile-only
+: of ( n -- )       ['] r@ , ['] = ,                    \ compile the test against the key
+                    BRANCH0 , here @ MARK_OF 0 , ; immediate compile-only
+: endof ( -- )      MARK_OF ?pairs
+                    BRANCH , here @ 0 ,                 \ jump to the end of the case, patched by endcase
+                    swap _patch-here ; immediate compile-only   \ a failed test continues here
+: endcase ( -- )    begin dup MARK_CASE <> while _patch-here repeat drop
+                    ['] r> , ['] drop , ; immediate compile-only
 
 \ Takes a typical descending for - next loop, and simplifies reversing the direction of the loop variable
 \     usage is : word incr-for for dup i - ... next .. ;
@@ -347,9 +317,6 @@
 : ltype             swap ADDRESS_MASK and dup c@
                     rot swap - swap type spaces ;
 
-: abort" ( -- )     STRLIT , s" drop s-create ,        \ abort with a message. Use inside another word.
-                    ['] type , ['] abort , ; immediate compile-only
-
 : .tmp              tmp @ type ;                               \ Print the tmp buffer
 : .pad              pad @ type ;                               \ Print the pad buffer
 : ."  ( -- )        state @                                    \ Compile or print a string
@@ -359,21 +326,6 @@
                         ['] type ,
                     else
                         s" drop type                           \ Execution (print) section
-                    then ; immediate
-
-: stop"  ( -- )     state @                                    \ Compile or print a string
-                    if
-                        STRLIT ,                               \ Compilation section
-                        s" drop s-create ,
-                        ['] type ,
-                        ['] .s ,
-                        ['] flush ,
-                        ['] key , ['] drop ,
-                    else
-                        s" drop type                           \ Execution (print) section
-                        .s
-                        ." Stopped: "
-                        flush key drop
                     then ; immediate
 
 \ Numeric print words
@@ -397,52 +349,37 @@
                     swap dup uwidth rot swap -
                     spaces u. ;
 
-: .r ( n width -- )
-                    swap dup 0<
-                    if
-                        negate 1 swap rot 1-
-                    else
-                        0 swap rot
-                    then
-                    swap dup uwidth rot swap -
-                    spaces swap
-                    if '-' emit then
-                    u. ;
-
+: (n.) ( n -- )      base @ /mod ?dup if recurse then negate .d ;  \ the digits of n <= 0
+: .r ( n width -- )                             \ print n right-aligned in width characters
+                    over uwidth - over 0< if 1- then spaces
+                    dup 0< if '-' emit else negate then (n.) ;   \ works from the negative side,
+                                                                 \ so the most negative number prints too
 : . 0 .r space ;
+
+: .s ( -- )         ." [ " depth for i 1- pick . next ." ] " flush ;   \ print the data stack
+: .rs ( -- )        ." R: [ "                           \ print the return stack, below .rs's own return
+                    rp@ 1+ rp0 over - for dup i + 1- @ . next drop ." ] " ;
+
+: stop"  ( -- )     state @                                    \ Compile or print a string
+                    if
+                        STRLIT ,                               \ Compilation section
+                        s" drop s-create ,
+                        ['] type ,
+                        ['] .s ,
+                        ['] flush ,
+                        ['] key , ['] drop ,
+                    else
+                        s" drop type                           \ Execution (print) section
+                        .s
+                        ." Stopped: "
+                        flush key drop
+                    then ; immediate
+
 
 \ Variable utilities
 
 : +! ( n addr -- )  dup @ rot + swap ! ;
 : ?  ( addr -- )    @ . ;
-
-\ Dictionary traversal functions
-\   Takes an execution address on the stack, and execs it on every word, via its preceding back pointer
-\   The word being executed must consume the address: it's signature is ( bp xt -- ).
-
-\ : print-name ( bp -- )
-\                     dup 1+ @ 13 ltype ;
-
-\ : traverse-exec ( xt bp -- xt )
-\                     over swap exec ;            \ pass bp to xt, keep xt
-
-\ : traverse-next ( bp -- bp' )
-\                     @ ;                         \ follow the link
-
-\ : (traverse-words) ( xt bp -- xt )
-\                     begin
-\                         dup                    \ check bp != 0
-\                     while
-\                         trace-all
-\                         \traverse-exec          \ call xt with bp
-\                         \traverse-next          \ follow link
-\                         trace-all
-\                     repeat
-\                     drop ;                     \ drop final null bp
-\ trace-off
-\ : traverse-words ( xt -- )
-\                     here @ 1- @                 \ get initial bp (as in words)
-\                     (traverse-words) ;
 
 : forget-last ( -- )                            \ delete the most recent definitions
                     here @ 1- @ dup 1+ here !   \ resets HERE to the previous back pointer
@@ -467,6 +404,46 @@
                     #tib @ >in @ < if FALSE else key TRUE then ; \ otherwise push FALSE
 
 : strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
+
+\ Dictionary inspection
+
+: immed? ( cfa -- f ) 1- @ IMMEDIATE_FLAG and 0<> ;              \ is the word at cfa immediate?
+: ?unique ( s -- s ) dup find nip if ." redefining " dup type cr then ;
+
+: .name ( cfa -- )  1- @ ADDRESS_MASK and type space ;          \ print the name of the word at cfa
+: .operand ( a -- a+1 ) 1+ dup @ . ;
+: see-cell ( a -- a' more? )                                    \ print the compiled cell at a
+    dup @ case
+        LITERAL of .operand TRUE endof
+        STRLIT  of 1+ '"' emit space dup @ type '"' emit space TRUE endof
+        BRANCH  of ." branch:" .operand TRUE endof
+        BRANCH0 of ." branch0:" .operand TRUE endof
+        DO      of ." do:" .operand TRUE endof
+        QDO     of ." ?do:" .operand TRUE endof
+        LOOP    of ." loop:" .operand TRUE endof
+        PLOOP   of ." +loop:" .operand TRUE endof
+        FOR     of ." for:" .operand TRUE endof
+        NEXT    of ." next:" .operand TRUE endof
+        LEAVE   of ." leave " TRUE endof
+        ABORT   of ." abort " TRUE endof
+        BREAK   of ." exit " TRUE endof
+        EXEC    of ." exec " TRUE endof
+        EXIT    of ." ; " FALSE endof
+        r@ BUILTIN_FLAG and
+        if r@ ADDRESS_MASK and builtin-name type space else r@ .name then
+        TRUE
+    endcase
+    swap 1+ swap ;
+: (see) ( cfa -- )                                              \ decompile the word at cfa
+    dup @ BUILTIN_FLAG and if @ ADDRESS_MASK and ." Builtin: " builtin-doc type cr exit then
+    dup @ CONSTANT = if ." Constant: " dup .name ." = " 1+ @ . cr exit then
+    dup @ VARIABLE = if ." Variable: " dup .name ." = " 1+ @ . cr exit then
+    dup @ DEFINITION <> if drop ." not a colon definition" cr exit then
+    ." : " dup .name
+    dup 1- @ IMMEDIATE_FLAG and >r
+    1+ begin see-cell while repeat drop
+    r> if ." immediate" then cr ;
+: see ( <name> -- ) ' (see) ;
 
 include terminal.fs
 include debug.fs

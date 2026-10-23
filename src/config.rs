@@ -15,10 +15,6 @@ pub struct Config {
     /// skip loading the core files.
     #[argh(switch, short = 'n')]
     pub no_core: bool,
-
-    /// run the interpreter.
-    #[argh(switch, short = 'r')]
-    pub run: bool,
 }
 
 impl Config {
@@ -26,7 +22,6 @@ impl Config {
         Self {
             loaded_file: None,
             no_core: false,
-            run: true,
         }
     }
 
@@ -34,6 +29,5 @@ impl Config {
         let args: Config = argh::from_env();
         self.loaded_file = args.loaded_file;
         self.no_core = args.no_core;
-        self.run = args.run;
     }
 }

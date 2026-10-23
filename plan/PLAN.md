@@ -191,6 +191,42 @@ Exit:
 * The `.rs` sources are smaller, and no `pub` fields are left on `Kernel`.
 * All tests pass, and the benchmarks are within 5% of the Phase 2 numbers (21 ms / 27 ms). Moved words are all cold paths, so a measurable slowdown would mean something went wrong.
 
+**Status: done (2026-10-22).**
+* Builtins went from 91 to 73. The Rust sources went from 3,721 lines (Phase 0) to 2,864.
+* There are 40 black-box tests and 31 unit tests. Clippy is clean.
+* Benchmarks: `fib(27)` 20–21 ms and the empty loop 24 ms, so no slowdown.
+* Steps were done in dependency order (5, 4, 6, 1, 2, 3, 8, 9), not numerical order, because the Forth `immediate` needs the exported constants.
+
+What was done:
+* **3.1:** `sp@`, `rp@`, `sp0`, and `rp0` exist. `depth`, `pick`, `roll`, `clear`, `.s`, and `.rs` are Forth; `pick` and `roll` check for underflow. The prompt and the tracer run the Forth `.s` by name, with the stepper off. `show-stack?` is a Forth variable.
+* **3.2:** the Rust control stack is gone. `begin`, `while`, the loops, and `case` keep `addr tag` pairs on the data stack, and `?pairs` reports an "unbalanced control structure" error.
+* **3.3:**
+  * `see`, `immediate`, `compile-only`, `immed?`, `?unique`, `s-copy`, and `s-create` are Forth. `see` uses a new `builtin-doc` primitive.
+  * `interpret`, `s-move`, and `(parse)` are gone.
+  * `abort"` now raises a real error through a new `(error)` primitive, so its message prints as `ERROR: …`.
+* **3.4:** `xor`, `u<`, and `cmove` are added, and `invert` is defined in Forth.
+* **3.5:** opcodes are `OPCODE_FLAG (1<<59) | n`. Rust exports them as Forth constants, together with the flags, `ADDRESS_MASK`, `sp0`, and `rp0`. The opcode literals are gone from `corelib.fs` and `debug.fs`.
+* **3.6:**
+  * The outer interpreter is plain Rust: `parse_token`, `find_word`, `parse_number(&[u8])`, and `eval`.
+  * Tokens are read in place in the TIB, with no copy to PAD and no `String`, so Phase 4.6 is done too.
+  * `create` warns about redefinitions directly.
+  * The builtins are a single table.
+* **3.8:** `s-allot` is added, and the string model is described in `corelib.fs`.
+* **3.9:**
+  * Removed `utility.rs`, `test.js`, `Config::run`, `insert_code`, the `abort?` variable, `print_return_stack`, `string_equal`, `peek`, and the commented-out code.
+  * `main.rs` now uses `internals/mod.rs`, which was dead because the modules were declared inline.
+  * `.DS_Store` and `out.txt` are untracked and ignored.
+
+Not done, on purpose:
+* **3.7, making `kernel` private:** the builtins are `impl ForthRuntime` blocks spread across `internals/*`, which Rust treats as separate modules. They need the field, so it stays `pub`.
+* **Fixed `*_ptr` addresses as constants:** those addresses are assigned at boot, and hard-coding them would be fragile for little gain.
+
+Found and fixed along the way:
+* `.` couldn't print the most negative number. `.r` now builds digits from the negative side.
+* `debug_step` matched opcodes after masking off their flag.
+* `string_get` indexed without checking bounds. The fuzz test found this one, through a `>r` that left garbage where a return address should be.
+* The tracer traced the prompt's own `.s`.
+
 ---
 
 ## Phase 4: Performance (M)
@@ -208,7 +244,7 @@ Already done in Phase 2: the direct call path (return addresses go straight to t
    * The EXIT check (`return_ptr == entry_rp`) stays, because it is what makes re-entry safe.
 4. **Cheaper primitive bodies.** One bounds check per primitive instead of `stack_check` plus a per-`pop` check: check depth once, then use unchecked pops, or use helpers like `pop2()`.
 5. **Buffer the output.** Use a `BufWriter` on stdout, flushed at the prompt, on `key`/`key?`, on `flush`, and before `(system)`/`ms`. Printing stays in Forth; this just makes each `(emit)` cheap.
-6. **Remove allocations from the outer interpreter.** `number?` parses from `&[u8]` with no `String`. `$compile` reuses the cfa it already found for immediate words, instead of looking it up again.
+6. ~~Remove allocations from the outer interpreter.~~ Done in Phase 3.6.
 7. **Low priority.** `[profile.release] lto = true, codegen-units = 1`. A hash index for `find`, but only if loading the core ever becomes noticeably slow (it takes about 6 ms today).
 
 Dropped: the earlier item 4.4, which would have written `.`, `type`, `1+`, `2dup`, and similar words in Rust. It contradicts the split above. Printing a number in Forth takes about 2 µs.

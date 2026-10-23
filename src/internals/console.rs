@@ -40,7 +40,6 @@ impl ForthRuntime {
             let addr = self.kernel.pop() as usize;
             let cmd_string = self.kernel.string_get(addr);
             let mut args = cmd_string.split_ascii_whitespace();
-            //println!("args: {:?}", args);
             let mut cmd: Command;
             let c = args.next();
             match c {
@@ -125,7 +124,10 @@ impl ForthRuntime {
         let tib = self.kernel.get(self.tib_ptr) as usize;
         let line = self.read_line();
         if line.len() >= BUF_SIZE {
-            throw(format!("input line longer than {} characters", BUF_SIZE - 1));
+            throw(format!(
+                "input line longer than {} characters",
+                BUF_SIZE - 1
+            ));
         }
         self.kernel.bytes_save(&line, tib);
         self.kernel.set(self.tib_size_ptr, line.len() as i64); // update the TIB size pointer
@@ -151,18 +153,6 @@ impl ForthRuntime {
         flush();
     }
 
-    /// .s ( -- ) prints a copy of the computation stack
-    ///
-    pub fn f_dot_s(&mut self) {
-        let mut s = String::from("[ ");
-        for i in (0..self.kernel.stack_len()).rev() {
-            s += &format!("{} ", self.kernel.peek(i));
-        }
-        s += "] ";
-        out(s.as_bytes());
-        flush();
-    }
-
     /// include-file (s -- T | F ) Pushes a new reader for the file named at s, returning TRUE,
     ///     or FALSE if the file can't be opened.
     ///     The standard loop then continues, reading lines from the file.
@@ -179,7 +169,8 @@ impl ForthRuntime {
                     self.kernel.push(TRUE);
                 }
                 Err(e) => {
-                    self.msg.warning("include", &format!("{name}: {e}"), None::<bool>);
+                    self.msg
+                        .warning("include", &format!("{name}: {e}"), None::<bool>);
                     self.kernel.push(FALSE);
                 }
             }
@@ -222,7 +213,11 @@ impl ForthRuntime {
     /// file returns the open file with the given file-id, or throws
     ///
     fn file(&mut self, file_id: i64) -> &mut FileHandle {
-        match self.files.get_mut(file_id as usize).and_then(Option::as_mut) {
+        match self
+            .files
+            .get_mut(file_id as usize)
+            .and_then(Option::as_mut)
+        {
             Some(file) => file,
             None => throw(format!("invalid file-id {file_id}")),
         }
@@ -247,7 +242,8 @@ impl ForthRuntime {
                     self.kernel.push(0);
                 }
                 Err(e) => {
-                    self.msg.warning("open-file", &format!("{name}: {e}"), None::<bool>);
+                    self.msg
+                        .warning("open-file", &format!("{name}: {e}"), None::<bool>);
                     self.kernel.push(0);
                     self.kernel.push(-1);
                 }

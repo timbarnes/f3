@@ -12,8 +12,8 @@ use crate::internals::builtin::BuiltInFn;
 //
 //     0 ... HERE ->  DICT_LIMIT | <- data stack  STACK_START | <- return stack  RET_START
 //
-// DATA_SIZE must stay below the inner-interpreter opcodes (100000+, see runtime.rs),
-// because compiled code tells opcodes and word addresses apart by value.
+// Compiled code tells opcodes from word addresses by OPCODE_FLAG (see runtime.rs),
+// so DATA_SIZE can grow freely up to the address mask.
 pub const DATA_SIZE: usize = 65536;
 pub const STRING_SIZE: usize = 10000;
 pub const BUF_SIZE: usize = 256; // TIB, PAD, TMP. Counted strings hold at most 255 bytes.
@@ -151,16 +151,6 @@ impl Kernel {
     }
 
     #[inline(always)]
-    pub fn peek(&self, n: usize) -> i64 {
-        self.heap[self.stack_ptr + n]
-    }
-
-    // #[inline(always)]
-    // pub fn set_top(&mut self, val: i64) {
-    //     self.heap[self.stack_ptr] = val;
-    // }
-
-    #[inline(always)]
     pub fn stack_len(&self) -> usize {
         STACK_START - self.stack_ptr
     }
@@ -172,15 +162,6 @@ impl Kernel {
             throw(format!("{word}: stack underflow"));
         }
         true
-    }
-
-    pub fn print_return_stack(&mut self) {
-        print!("Return-stack pointer = {}:", self.return_ptr);
-        print!("{{ ");
-        for i in (self.return_ptr..DATA_SIZE - 1).rev() {
-            print!("{} ", self.heap[i])
-        }
-        print!("}} ");
     }
 
     #[inline(always)]
@@ -234,18 +215,12 @@ impl Kernel {
     /// /// This function assumes that the string is counted, i.e. the first byte is the length of the string.
     /// /// Returns the address of the new string in the string space.
     ///
-    pub fn string_new(&mut self, string: &str) -> usize {
-        // place a new str into string space and update the free pointer string_ptr
+    pub fn string_new(&mut self, string: &[u8]) -> usize {
+        // place a new string into string space and update the free pointer string_ptr
         let ptr = self.get(self.string_ptr) as usize;
-        self.string_save(string, ptr);
+        self.bytes_save(string, ptr);
         self.set(self.string_ptr, (ptr + 1 + string.len()) as i64);
         ptr
-    }
-
-    /// copy a string slice into string space adding a count byte
-    ///
-    pub fn string_save(&mut self, from: &str, to: usize) {
-        self.bytes_save(from.as_bytes(), to);
     }
 
     /// copy bytes into string space as a counted string
@@ -264,14 +239,9 @@ impl Kernel {
     /// string_get returns a string from a Forth string address
     /// Assumes the source string is counted (i.e. has its length in the first byte)
     ///
-    pub fn string_get(&mut self, addr: usize) -> String {
-        let str_addr = (addr & ADDRESS_MASK) + 1; //
-        let last = str_addr + self.strings[addr] as usize;
-        let mut result = String::new();
-        for i in str_addr..last {
-            result.push(self.strings[i] as char);
-        }
-        result
+    pub fn string_get(&self, addr: usize) -> String {
+        let bytes = self.counted_bytes(addr & ADDRESS_MASK);
+        bytes.iter().map(|&b| b as char).collect()
     }
 
     /// string_set saves a counted string to a Forth string address
@@ -295,26 +265,21 @@ impl Kernel {
         }
     }
 
-    /// Compare two Forth (counted) strings
-    /// First byte is the length, so we'll bail quickly if they don't match
+    /// counted_bytes returns the characters of the counted string at addr (without the count byte)
     ///
-    pub fn string_equal(&mut self, s_addr1: usize, s_addr2: usize) -> bool {
-        if self.strings[s_addr1] != self.strings[s_addr2] {
-            return false;
-        }
-        for i in 0..=self.strings[s_addr1] as usize {
-            if self.strings[s_addr1 + i] != self.strings[s_addr2 + i] {
-                return false;
-            }
-        }
-        true
+    pub fn counted_bytes(&self, addr: usize) -> &[u8] {
+        let len = self.byte_get(addr) as usize;
+        self.string_slice(addr + 1, len)
     }
 
-    /// Return the length of a counted string
-    /// This is the first byte of the string, so it is very fast
+    /// cmove copies n bytes within string space (overlapping ranges are fine)
     ///
-    pub fn string_length(&self, addr: usize) -> usize {
-        self.strings[addr] as usize
+    pub fn cmove(&mut self, from: usize, to: usize, n: usize) {
+        let fits = |a: usize| a.checked_add(n).is_some_and(|end| end <= STRING_SIZE);
+        if !fits(from) || !fits(to) {
+            throw("cmove: invalid string address or length");
+        }
+        self.strings.copy_within(from..from + n, to);
     }
 
     /// Get a read-only string slice. Assumes a non-counted string.
@@ -395,17 +360,9 @@ mod tests {
     #[test]
     fn test_string_new_and_get() {
         let mut k = kernel_with_string_ptr(100);
-        let addr = k.string_new("hello");
+        let addr = k.string_new(b"hello");
         assert_eq!(addr, 100);
         assert_eq!(k.string_get(addr), "hello");
-    }
-
-    #[test]
-    fn test_string_save_and_get() {
-        let mut k = Kernel::new();
-        let addr = 200;
-        k.string_save("world", addr);
-        assert_eq!(k.string_get(addr), "world");
     }
 
     #[test]
@@ -419,7 +376,7 @@ mod tests {
     #[test]
     fn test_string_copy_counted() {
         let mut k = Kernel::new();
-        k.string_save("forth", 50); // counted string at 50
+        k.string_set(50, "forth"); // counted string at 50
         k.string_copy(50, 60, 5, true); // copy to 60, counted
         assert_eq!(k.string_get(60), "forth");
     }
@@ -433,26 +390,12 @@ mod tests {
     }
 
     #[test]
-    fn test_string_equal_matches() {
+    fn test_counted_bytes_and_cmove() {
         let mut k = Kernel::new();
-        k.string_save("match", 10);
-        k.string_save("match", 30);
-        assert!(k.string_equal(10, 30));
-    }
-
-    #[test]
-    fn test_string_equal_mismatch() {
-        let mut k = Kernel::new();
-        k.string_save("abc", 10);
-        k.string_save("xyz", 20);
-        assert!(!k.string_equal(10, 20));
-    }
-
-    #[test]
-    fn test_string_length() {
-        let mut k = Kernel::new();
-        k.string_save("short", 400);
-        assert_eq!(k.string_length(400), 5);
+        k.string_set(10, "abc");
+        assert_eq!(k.counted_bytes(10), b"abc");
+        k.cmove(10, 20, 4); // count byte and characters
+        assert_eq!(k.counted_bytes(20), b"abc");
     }
 
     #[test]
@@ -479,7 +422,7 @@ mod tests {
     #[test]
     fn test_string_slice() {
         let mut k = Kernel::new();
-        k.string_save("abcdef", 600);
+        k.string_set(600, "abcdef");
         let slice = k.string_slice(601, 3); // skip count byte
         assert_eq!(slice, b"abc");
     }

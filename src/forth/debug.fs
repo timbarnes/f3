@@ -103,11 +103,7 @@ variable word-counter
 : dump-help
     ." dump ( addr cells -- addr ) dumps heap data." cr
     ." dump-here ( cells -- )      dumps the top of the heap" cr
-    ." Opcode reference: "
-    ." 100000=BUILTIN  100001=VARIABLE    100002=CONSTANT  100003=LITERAL" cr
-    ." 100004=STRLIT   100005=DEFINITION  100006=BRANCH    100007=BRANCH0" cr
-    ." 100008=ABORT    100009=EXIT        100010=BREAK     100011=EXEC" cr
-    ." 100012=ARRAY" cr
+    ." Opcodes are cells with OPCODE_FLAG set, and are shown by name." cr
     ;
 
 : dump-addr  ( addr -- addr ) dup 7 .r ;
@@ -134,9 +130,8 @@ variable word-counter
            next
         '|' emit drop ;
 
-\ The tokens are just integers in a specific range. They should probably be flag bits up high.
+\ The tokens are opcodes: cells with OPCODE_FLAG set.
 : dump-token   ( val -- val )
-    dup BUILTIN    = if ." BUILTIN              " exit then
     dup VARIABLE   = if ." VARIABLE             " exit then
     dup CONSTANT   = if ." CONSTANT             " exit then
     dup LITERAL    = if ." LITERAL              " exit then
@@ -149,6 +144,13 @@ variable word-counter
     dup EXIT       = if ." EXIT                 " exit then
     dup BREAK      = if ." BREAK                " exit then
     dup EXEC       = if ." EXEC                 " exit then
+    dup DO         = if ." DO                   " exit then
+    dup QDO        = if ." ?DO                  " exit then
+    dup LOOP       = if ." LOOP                 " exit then
+    dup PLOOP      = if ." +LOOP                " exit then
+    dup LEAVE      = if ." LEAVE                " exit then
+    dup FOR        = if ." FOR                  " exit then
+    dup NEXT       = if ." NEXT                 " exit then
     ." *UNKNOWN* " drop ;
 
 : dump-word ( addr -- )             \ Print the name of the word with compile reference at addr
@@ -167,7 +169,7 @@ variable word-counter
 
 \ Predicates to identify cell types
 
-: token-range? 100000 100012 range ;  \ determines if the value is likely to be a token
+: token-range? OPCODE_FLAG and 0<> ;  \ determines if the value is an opcode
 
 : string-range? 0 5000 range ;        \ determines if it 'could' be a string address
 

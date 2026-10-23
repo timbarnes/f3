@@ -49,7 +49,10 @@ mod tests {
         let builtin_fn = BuiltInFn::new(name, num_fn, doc);
         assert_eq!(builtin_fn.name, "test");
         assert_eq!(builtin_fn.doc, "This is a test function");
-        assert_eq!(builtin_fn.code as *const () as usize, num_fn as *const () as usize);
+        assert_eq!(
+            builtin_fn.code as *const () as usize,
+            num_fn as *const () as usize
+        );
         assert_eq!(get_val(&mut rt), 44);
     }
 }

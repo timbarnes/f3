@@ -4,3 +4,5 @@
 *.*#
 wrk.fs
 *.html
+.DS_Store
+src/forth/out.txt
