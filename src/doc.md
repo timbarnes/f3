@@ -53,7 +53,7 @@ The heap is 65,536 cells (`i64`), checked on every access:
 - **The data stack and the return stack** each have 1024 cells, and grow down. Overflow and underflow are errors.
 - **The stacks are addressable** from Forth: `sp@` is the address of the top item (the item `n` deep is at `sp@ + n`), and `sp0` is `sp@` when the stack is empty. `rp@` and `rp0` work the same for the return stack. `depth`, `pick`, `roll`, `clear`, `.s`, and `.rs` are written in Forth on top of these.
 - **Strings live in a separate byte space** of 10,000 bytes. Strings are counted: the first byte is the length, so at most 255. `c@`, `c!`, and `cmove` address string space; `@` and `!` address the heap. The first three buffers are TIB (input line), PAD, and TMP, at 256 bytes each. `s-here` is the next free byte, and `s-allot ( n -- s )` reserves bytes.
-- **The cell at HERE−1** is always the back pointer of the most recent finished word, which the next definition links to. `,` and `allot` after a finished word move it up, so `variable buf 10 allot` gives `buf` 11 contiguous cells and `variable x 1 , 2 ,` gives `x` three.
+- **The back pointer** of the most recent finished word sits just below `dp`, and the next definition links to it. `,` and `allot` after a finished word write over it and move it up, so `variable buf 10 allot` gives `buf` 11 contiguous cells, and `create x 1 , 2 ,` gives `x` two. `here` always gives the next free cell: `dp @ 1-` after a finished word, and `dp @` inside a definition.
 
 ## Errors
 
@@ -75,7 +75,7 @@ The heap is 65,536 cells (`i64`), checked on every access:
 ## Compiled code and execution tokens
 
 A compiled cell is one of:
-- **an opcode**: a value with `OPCODE_FLAG` (bit 59) set, such as `op:literal`, `op:branch`, `op:exit`, or the loop opcodes `op:do` `op:qdo` `op:loop` `op:ploop` `op:leave` `op:for` `op:next`, possibly followed by an operand;
+- **an opcode**: a value with `OPCODE_FLAG` (bit 59) set, such as `op:literal`, `op:branch`, `op:exit`, or the loop opcodes `op:do` `op:qdo` `op:loop` `op:ploop` `op:leave` `op:for` `op:next`, possibly followed by an operand. A `create`d word's code field is `op:created`, followed by the address of its `does>` code (0 for none); `does>` compiles `op:does`.
 - **a builtin**: its index in the Rust builtin table, with `BUILTIN_FLAG` (bit 61) set;
 - **the cfa** (code field address) of any other word.
 
@@ -98,7 +98,7 @@ Everything else is in `corelib.fs`: control structures, `see`, `.s`, `depth`, st
 
 ## Deviations from ANS Forth
 
-f3 follows ANS Forth where it can. `plan/ANS.md` has the full review and the roadmap; step 1 of it is done.
+f3 follows ANS Forth where it can. `plan/ANS.md` has the full review and the roadmap; steps 1 and 2 of it are done.
 
 What is standard now:
 - **Names are case-insensitive**, so standard (upper-case) programs work: `DUP`, `dup`, and `Dup` are the same word.
@@ -107,6 +107,7 @@ What is standard now:
 - **`rshift`** is logical; `2/` is the arithmetic shift.
 - **`abort" msg"`** takes a flag. `emit` sends any byte. `>in` is a 0-based offset into `source`.
 - **The return-stack pairs** `2>r 2r> 2r@ 2rdrop rdrop` follow the ANS order.
+- **Defining words are standard:** `create` makes a word that pushes its data-field address, and `, allot` fill it. `does>` gives it an action, `>body` finds its data field, and `evaluate` interprets a string, taking `( c-addr u )`: use `count` on f3's counted strings.
 - **Also present:** double-cell arithmetic (`s>d m* um* um/mod fm/mod sm/rem */ */mod`), pictured numeric output (`<# # #s #> hold sign`, on which `. u. .r u.r` are built), `postpone`, `:noname`, `[if] [else] [then]`, `value to`, `defer is`, `.(`, `refill`, `source`, `count`, `within`, `u>`, `2*`, `cell+`, `char+`, `chars`, `align`, `aligned`, `unused`, and `environment?`.
 
 What is still different, deliberately:
@@ -115,18 +116,17 @@ What is still different, deliberately:
   - `type ( s -- )` takes a counted-string address; `tell ( c-addr u -- )` is the ANS `type`.
   - `s" text"` returns `( s u )`, where `s` is the counted string in TMP; use `drop` for words that take `s`.
   - `parse` copies its token to PAD.
-- **`create` makes only a header** until `(close)` runs, and there is no `does>`; `evaluate` is missing too. These are step 2 of the roadmap.
 - **`/` and `mod` truncate toward zero** (symmetric division, which the standard allows). `fm/mod` is the floored version.
 - **Missing:** `word`, `>number`, `compare`, `search`, and most of the Double word set.
 - **File words** take counted strings. `open-file ( s fam -- id ior )` and `read-line ( u id -- u2 flag ior )` read into TMP.
 - **Numbers** accept `#` (decimal), `$` (hex), and `%` (binary) prefixes, and honour `base`.
-- **f3 extensions:** `."` also works outside definitions, and there are `for … next`, `compile-only`, and `forget`.
+- **f3 extensions:** `."` also works outside definitions, and there are `for … next`, `compile-only`, and `forget`. f3's own defining words (`constant`, `variable`, `string`, and the `sequences.fs` arrays) are built on the header-only `(create)` and `(close)`.
 
 ## Testing
 
 - `cargo test` runs the Rust unit tests and `tests/forth.rs`, which drives the real `f3` binary. That covers:
   - the regression suite (`src/forth/regression.fs`);
-  - Hayes-style core tests (`src/forth/tester.fs` with `src/forth/core-tests.fs`, about 280 `T{ ... -> ... }T` tests of the ANS-compatible words);
+  - Hayes-style core tests (`src/forth/tester.fs` with `src/forth/core-tests.fs`, about 310 `T{ ... -> ... }T` tests of the ANS-compatible words);
   - a 10,000-line fuzz test;
   - one test for each bug fixed in the review (`plan/ANALYSIS.md`).
 - `cargo clippy --all-targets -- -D warnings` must be clean.

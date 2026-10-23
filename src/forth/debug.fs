@@ -12,7 +12,7 @@ variable word-counter
 
 : words ( -- )
                     0 word-counter !
-                    here 1- @                                 \ Get the starting point: the top back pointer
+                    dp @ 1- @                                 \ Get the starting point: the top back pointer
                     begin                                       \ loops through the words in the dictionary
                         .word dup not                           \ print a word and test the next pointer
                     until
@@ -151,6 +151,8 @@ variable word-counter
     dup op:leave      = if ." LEAVE                " exit then
     dup op:for        = if ." FOR                  " exit then
     dup op:next       = if ." NEXT                 " exit then
+    dup op:created    = if ." CREATED              " exit then
+    dup op:does       = if ." DOES>                " exit then
     ." *UNKNOWN* " drop ;
 
 : dump-word ( addr -- )             \ Print the name of the word with compile reference at addr

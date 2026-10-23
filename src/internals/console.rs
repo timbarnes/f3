@@ -3,6 +3,7 @@ use crate::internals::files::{FileHandle, FileMode};
 use crate::kernel::{throw, throw_code, BUF_SIZE, FILE_ERROR};
 use crate::runtime::{ForthRuntime, FALSE, TRUE};
 use std::io::{self, Write};
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -114,6 +115,37 @@ impl ForthRuntime {
             }
         }
         line
+    }
+
+    /// evaluate ( c-addr u -- ) interprets the characters at c-addr as input, then carries on with
+    ///     the rest of the current line. An error propagates (to CATCH, or to QUIT) after the
+    ///     current input line has been restored.
+    ///
+    pub fn f_evaluate(&mut self) {
+        self.kernel.stack_check(2, "evaluate");
+        let len = self.kernel.pop() as usize;
+        let addr = self.kernel.pop() as usize;
+        let text = self.kernel.string_slice(addr, len).to_vec();
+        // save the current input line, to restore afterwards
+        let tib = self.kernel.get(self.tib_ptr) as usize;
+        let line = self.kernel.counted_bytes(tib).to_vec();
+        let size = self.kernel.get(self.tib_size_ptr);
+        let offset = self.kernel.get(self.tib_in_ptr);
+        let depth = self.reader.len();
+        self.reader.push(FileHandle::text(text));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            while self.reader.len() > depth && !self.should_exit() {
+                self.f_query();
+                self.f_eval();
+            }
+        }));
+        self.reader.truncate(depth);
+        self.kernel.bytes_save(&line, tib);
+        self.kernel.set(self.tib_size_ptr, size);
+        self.kernel.set(self.tib_in_ptr, offset);
+        if let Err(payload) = result {
+            resume_unwind(payload);
+        }
     }
 
     /// QUERY ( -- ) Load a new line of text into the TIB

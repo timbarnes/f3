@@ -2,9 +2,11 @@
 ///
 /// Executes compiled definitions
 ///
+use crate::kernel::throw;
 use crate::runtime::{
     ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN_FLAG, CONSTANT,
-    DEFINITION, DO, EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, PLOOP, QDO, STRLIT, VARIABLE,
+    CREATED, DEFINITION, DO, DOES, EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, PLOOP, QDO, STRLIT,
+    VARIABLE,
 };
 
 /// The address a branch-style operand at `pc` points to (operands are offsets from their own cell)
@@ -18,6 +20,16 @@ impl ForthRuntime {
     pub fn builtin(&mut self, code: usize) {
         let func = &self.kernel.get_builtin(code);
         (func.code)(self); // call the function pointer directly
+    }
+
+    /// set_does makes `code` the DOES> code of the latest word, which must have been made by CREATE
+    ///
+    fn set_does(&mut self, code: usize) {
+        let cfa = self.kernel.get(self.context_ptr) as usize + 1;
+        if self.kernel.get(cfa) != CREATED {
+            throw("does>: the latest word was not made by create");
+        }
+        self.kernel.set(cfa + 1, code as i64);
     }
 
     /// unloop ( -- ) ( R: exit limit index -- ) discards the innermost loop's return-stack frame
@@ -135,7 +147,7 @@ impl ForthRuntime {
                     self.kernel.pop_r(); // limit
                     pc = self.kernel.pop_r() as usize; // exit address
                 }
-                VARIABLE | ARRAY | CONSTANT | EXIT | BREAK => {
+                VARIABLE | ARRAY | CONSTANT | EXIT | BREAK | DOES => {
                     // VARIABLE etc. are reached by calling a data word: push its value, then return
                     match code {
                         VARIABLE | ARRAY => self.kernel.push(pc as i64 + 1),
@@ -143,6 +155,7 @@ impl ForthRuntime {
                             let val = self.kernel.get(pc + 1);
                             self.kernel.push(val);
                         }
+                        DOES => self.set_does(pc + 1), // the code after DOES> belongs to the new word
                         _ => {}
                     }
                     if self.kernel.get_return_ptr() == entry_rp {
@@ -175,6 +188,18 @@ impl ForthRuntime {
                             let val = self.kernel.get(xt + 1);
                             self.kernel.push(val);
                             pc += 1;
+                        }
+                        CREATED => {
+                            // push the data field, then run the word's DOES> code, if any
+                            self.kernel.push(xt as i64 + 2);
+                            let does = self.kernel.get(xt + 1) as usize;
+                            if does == 0 {
+                                pc += 1;
+                            } else {
+                                call_depth += 1;
+                                self.kernel.push_r(pc as i64 + 1);
+                                pc = does;
+                            }
                         }
                         _ if target as usize & BUILTIN_FLAG != 0 => {
                             // the cfa of a builtin word (e.g. compiled by ['] ... ,)

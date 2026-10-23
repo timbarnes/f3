@@ -2,7 +2,8 @@
 
 use crate::internals::messages::DebugLevel;
 use crate::runtime::{
-    ForthRuntime, ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BREAK, BUILTIN_FLAG, CONSTANT, DEFINITION,
+    ForthRuntime, ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BREAK, BUILTIN_FLAG, CONSTANT, CREATED,
+    DEFINITION, DOES,
     DO, EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, OPCODE_FLAG, PLOOP, QDO, STRLIT, VARIABLE,
 };
 
@@ -61,7 +62,7 @@ impl ForthRuntime {
         self.run_untraced(".s");
 
         match code {
-            VARIABLE | CONSTANT | DEFINITION => {
+            VARIABLE | CONSTANT | DEFINITION | CREATED => {
                 let val = self.kernel.get(pc.wrapping_sub(1)) as usize;
                 println!(" {} ", self.kernel.string_get(val))
             }
@@ -83,6 +84,7 @@ impl ForthRuntime {
                 )
             }
             LEAVE => println!(" LEAVE "),
+            DOES => println!(" DOES> "),
             ABORT => println!(" ABORT "),
             EXIT => println!(" EXIT "),
             BREAK => println!(" BREAK "),

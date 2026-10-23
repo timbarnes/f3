@@ -51,6 +51,8 @@ pub const PLOOP: i64 = OPCODE_FLAG | 16; // +LOOP
 pub const LEAVE: i64 = OPCODE_FLAG | 17; // jumps to the exit of the innermost loop
 pub const FOR: i64 = OPCODE_FLAG | 18; // starts a FOR loop; operand: offset to the loop exit
 pub const NEXT: i64 = OPCODE_FLAG | 19; // ends a FOR loop; operand: offset back to the loop body
+pub const CREATED: i64 = OPCODE_FLAG | 20; // a word made by CREATE; next cell: its DOES> code (0: none)
+pub const DOES: i64 = OPCODE_FLAG | 21; // compiled by DOES>: set the latest word's DOES> code, return
 
 // GENERAL constants
 pub const TRUE: i64 = -1; // forth convention for true and false
@@ -390,6 +392,8 @@ impl ForthRuntime {
             ("op:leave", LEAVE),
             ("op:for", FOR),
             ("op:next", NEXT),
+            ("op:created", CREATED),
+            ("op:does", DOES),
             ("OPCODE_FLAG", OPCODE_FLAG),
             ("IMMEDIATE_FLAG", IMMEDIATE_FLAG as i64),
             ("BUILTIN_FLAG", BUILTIN_FLAG as i64),
@@ -478,7 +482,8 @@ impl ForthRuntime {
             (":", Self::f_colon, ": <name> ( -- ) Start a new definition"),
             (":noname", Self::f_noname, ":noname ( -- xt ) Start a definition without a name; ; leaves its xt"),
             (";", Self::f_semicolon, "; ( -- ) End a definition, returning to interpret mode"),
-            ("create", Self::f_create, "create <name> ( -- ) Create a name field in the dictionary"),
+            ("(create)", Self::f_create, "(create) <name> ( -- ) Make a name field only; (close) finishes the word. CREATE is the standard word"),
+            ("evaluate", Self::f_evaluate, "evaluate ( c-addr u -- ) Interpret the characters at c-addr"),
             ("execute", Self::f_execute, "execute ( xt -- ) Run the word whose execution token is on the stack"),
             ("eval", Self::f_eval, "eval ( -- ) Interpret the rest of the line in the TIB"),
             ("quit", Self::f_quit, "quit ( -- ) Outer interpreter that repeatedly reads input lines and runs them"),

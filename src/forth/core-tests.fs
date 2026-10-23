@@ -348,4 +348,39 @@ T{ 0 [IF] 1 [IF] 2 [THEN] 3 [ELSE] 4 [THEN] -> 4 }T
 T{ : gab 0 abort" never" 5 ; gab -> 5 }T
 T{ : gab2 1 abort" always" ; ' gab2 catch -> -2 }T
 
+\ ---- create does> >body (from core.fr)
+T{ here 1 allot here swap - -> 1 }T
+T{ : does1 does> @ 1 + ; -> }T
+T{ : does2 does> @ 2 + ; -> }T
+T{ create cr1 -> }T
+T{ cr1 -> here }T
+T{ ' cr1 >body -> here }T
+T{ 1 , -> }T
+T{ cr1 @ -> 1 }T
+T{ does1 -> }T
+T{ cr1 -> 2 }T
+T{ does2 -> }T
+T{ cr1 -> 3 }T
+T{ : weird: create does> 1 + does> 2 + ; -> }T
+T{ weird: w1 -> }T
+T{ ' w1 >body -> here }T
+T{ w1 -> here 1 + }T
+T{ w1 -> here 2 + }T
+T{ : gcon create , does> @ ; 42 gcon g42 g42 -> 42 }T
+T{ : garr create cells allot does> swap cells + ; 5 garr ga 9 2 ga ! 2 ga @ -> 9 }T
+T{ create gbuf 3 , 4 , gbuf @ gbuf 1+ @ -> 3 4 }T
+T{ variable gv1 3 allot here gv1 4 + = -> <true> }T
+
+\ ---- evaluate (strings are made at interpret time: s" is not yet compiled inside definitions)
+s" 123" drop s-create constant ges1
+s" 1 2 +" drop s-create constant ges2
+s" : ge5 77 ;" drop s-create constant ges3
+s" nosuch" drop s-create constant ges4
+T{ ges1 count evaluate -> 123 }T
+T{ ges2 count evaluate -> 3 }T
+T{ : ge3 ges1 count evaluate ; ge3 -> 123 }T
+T{ ges3 count evaluate ge5 -> 77 }T
+T{ ges2 count evaluate 10 * -> 30 }T              \ the rest of the line still runs
+T{ : ge6 ges4 count evaluate ; ' ge6 catch 5 -> -13 5 }T
+
 ." core tests: " #errors @ 0 .r ."  errors" cr

@@ -134,6 +134,22 @@ What it does:
 
 **Payoff:** `create … does>` defining words, `create buf n cells allot`, and `evaluate`-based code all work.
 
+**Status: done (2026-10-23).**
+
+How it was built:
+* **The layout:** a `create`d word is `[name][op:created][does> code][data…]`, and it is closed at once, so `,` and `allot` extend its data (relying on the F30 fix).
+* **`does>`** compiles `op:does`. At run time that opcode stores the address of the code after it into the latest word, then returns, so a `does>` inside `does>` code works (core.fr's `WEIRD:` test).
+* **`evaluate`** interprets a text source from the reader stack. It saves and restores the current input line around that, so the rest of the line still runs, and errors propagate to `catch` after the line is restored.
+* **f3's own defining words** (`constant`, `variable`, `string`, `defer`, and the `sequences.fs` arrays) moved to the internal `(create)`.
+
+Found and fixed along the way:
+* **`here`** now gives the next free cell, as ANS requires (`CR1 -> HERE` right after `CREATE CR1`). With f3's trailing back pointer, that is `dp @ 1-` after a finished word. Two internal uses that meant "the back pointer's address" (`forget-last`, and `words` in `debug.fs`) now use `dp @ 1-`.
+
+Results:
+* **Tests:** 309 core tests, including the CREATE/DOES>/>BODY/EVALUATE sections of core.fr, plus 1 new black-box test. All pass.
+* **Benchmarks:** unchanged except variable reads, which are about 8% slower in the microbenchmark (0.4 ns each), from the extra `op:created` case in call dispatch.
+* **Still missing for `evaluate`:** `s"` inside a definition still parses at run time rather than compiling a literal. That's step 3, so for now strings for `evaluate` are made at interpret time, then `count evaluate`.
+
 ### Step 3: `( c-addr u )` strings (M, about 3 days)
 
 What it does: C1–C8. The counted-string versions stay available as `ctype` and the like for f3's own code.

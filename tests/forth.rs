@@ -418,6 +418,17 @@ fn f32_return_stack_pairs() {
     assert_eq!(stack("1 2 2>r 2r>"), "1 2");
 }
 
+// ------------------------------------------- ANS step 2 (plan/ANS.md)
+
+#[test]
+fn ans_create_does() {
+    let r = run(": const create , does> @ ; 42 const answer see answer answer .");
+    assert!(r.out.contains("Created: answer data at") && r.out.contains("does> code at"), "{}", r.out);
+    assert!(r.out.contains("42 "), "{}", r.out);
+    let r = run("variable x : d does> ; : t x d ; t\n12345 .");
+    assert!(r.out.contains("does>: the latest word was not made by create") && r.out.contains("12345"), "{}", r.out);
+}
+
 // ------------------------------------------------------------- Phase 5
 
 #[test]

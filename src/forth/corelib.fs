@@ -1,12 +1,14 @@
 : immediate context @ dup @ IMMEDIATE_FLAG or swap ! ;
 : compile-only context @ dup @ COMPILE_ONLY_FLAG or swap ! ;
-: here dp @ ;
+: here dp @ last @ context @ = + ;
 : pad 'pad @ ;
 : parse pad swap parse-to ;
 : \ 1 parse drop drop ; immediate
 : ( 41 parse drop drop ; immediate     \ Implements in-line comments
 
 \ The words above come first, because comments need them.
+\ here is the next free cell. dp points past the latest finished word's back pointer, which
+\ , and allot move up as they extend that word, so then here is dp - 1 (LAST = CONTEXT gives -1).
 \ immediate and compile-only set a flag on the most recently defined word.
 \ The engine defines the opcodes (VARIABLE, LITERAL, BRANCH, ...), the flags (IMMEDIATE_FLAG, ...),
 \ ADDRESS_MASK, and the empty-stack addresses sp0 and rp0 as constants (runtime.rs insert_constants).
@@ -22,6 +24,13 @@
         last @ context !              \ update CONTEXT
         ;
 
+\ create <name> makes a word that pushes the address of its data field, which , and allot fill.
+\ does> gives the latest such word an action: the code after does> runs with that address.
+\ f3's own defining words (constant, variable, ...) use the header-only (create) and (close).
+: create ( <name> -- ) (create) op:created , 0 , (close) ;   \ cfa: op:created, then the does> code
+: does> ( -- )      op:does , ; immediate compile-only
+: >body ( xt -- a ) 2 + ;                              \ a created word's data field
+
 \ String space. Strings are counted: the first byte is the length (at most 255).
 \ s-here is the next free byte. c@ c! cmove address string space; @ ! address the heap.
 
@@ -30,11 +39,11 @@
 : s-create ( from -- to )                                  \ copy a counted string to new string space
     dup c@ 1 + dup s-allot swap over >r cmove r> ;
 
-: constant ( n -- ) create op:constant , ,      \ v constant <name> creates a constant with value v
+: constant ( n -- ) (create) op:constant , ,      \ v constant <name> creates a constant with value v
     (close) ;
 
 : string ( n -- )
-    create op:strlit ,
+    (create) op:strlit ,
     s-create dup 0 swap c! , (close) ;
 
 \ Boolean constants. In fact any non-zero value is interpreted as true, but -1 is traditional.
@@ -82,7 +91,7 @@
 : literal ( x -- )  op:literal , , ; immediate compile-only   \ compile x from the stack as a literal
 
 \ variable <name> creates a variable, initialized to zero
-: variable ( -- ) create op:variable , 0 ,
+: variable ( -- ) (create) op:variable , 0 ,
     (close) ;
 
 : decimal 10 base ! ;
@@ -387,7 +396,7 @@
 : ?  ( addr -- )    @ . ;
 
 : forget-last ( -- )                            \ delete the most recent definitions
-                    here 1- @ dup 1+ dp !   \ resets HERE to the previous back pointer
+                    dp @ 1- @ dup 1+ dp !   \ resets HERE to the previous back pointer
                     @ 1+ dup context ! last !   \ resets CONTEXT and LAST
                     ;
 
@@ -434,6 +443,7 @@
         op:abort   of ." abort " TRUE endof
         op:break   of ." exit " TRUE endof
         op:exec    of ." exec " TRUE endof
+        op:does    of ." does> " TRUE endof
         op:exit    of ." ; " FALSE endof
         dup BUILTIN_FLAG and
         if dup ADDRESS_MASK and builtin-name type space else dup .name then
@@ -444,6 +454,8 @@
     dup @ BUILTIN_FLAG and if @ ADDRESS_MASK and ." Builtin: " builtin-doc type cr exit then
     dup @ op:constant = if ." Constant: " dup .name ." = " 1+ @ . cr exit then
     dup @ op:variable = if ." Variable: " dup .name ." = " 1+ @ . cr exit then
+    dup @ op:created = if ." Created: " dup .name ." data at " dup >body .
+                          1+ @ ?dup if ." does> code at " . then cr exit then
     dup @ op:definition <> if drop ." not a colon definition" cr exit then
     ." : " dup .name
     dup 1- @ IMMEDIATE_FLAG and >r
@@ -473,7 +485,7 @@ variable '[if]  variable '[else]
 : to ( x <name> -- ) ' 1+ state @ if postpone literal postpone ! else ! then ; immediate
 : (unset) ( -- )    true abort" deferred word not set" ;
 : defer ( <name> -- )                                  \ a word that runs the xt stored by IS
-                    create op:definition , op:literal , here 4 + , ['] @ , ['] execute , op:exit ,
+                    (create) op:definition , op:literal , here 4 + , ['] @ , ['] execute , op:exit ,
                     ['] (unset) , (close) ;            \ the xt cell: 6 cells after the cfa
 : is ( xt <name> -- ) ' 6 + state @ if postpone literal postpone ! else ! then ; immediate
 

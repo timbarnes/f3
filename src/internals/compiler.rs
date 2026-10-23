@@ -7,7 +7,7 @@
 use crate::kernel::{throw, throw_code, COMPILE_ONLY, NAME_EXPECTED, UNDEFINED_WORD};
 use crate::runtime::PendingDef;
 use crate::runtime::{
-    ForthRuntime, ADDRESS_MASK, ARRAY, BUILTIN_FLAG, COMPILE_ONLY_FLAG, CONSTANT, DEFINITION, EXIT,
+    ForthRuntime, ADDRESS_MASK, ARRAY, BUILTIN_FLAG, COMPILE_ONLY_FLAG, CONSTANT, CREATED, DEFINITION, EXIT,
     FALSE, IMMEDIATE_FLAG, LITERAL, TRUE, VARIABLE,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -93,6 +93,13 @@ impl ForthRuntime {
             CONSTANT => {
                 let val = self.kernel.get(xt + 1);
                 self.kernel.push(val);
+            }
+            CREATED => {
+                self.kernel.push(xt as i64 + 2); // the data field
+                let does = self.kernel.get(xt + 1) as usize;
+                if does != 0 {
+                    self.i_definition(does);
+                }
             }
             _ if code as usize & BUILTIN_FLAG != 0 => self.builtin(code as usize & ADDRESS_MASK),
             _ => throw(format!("execute: {} is not an execution token", xt as i64)),
@@ -278,7 +285,8 @@ impl ForthRuntime {
         self.set_compile_mode(false);
     }
 
-    /// CREATE <name> ( -- ) makes a new dictionary entry, using a postfix name
+    /// (create) <name> ( -- ) makes a new dictionary entry (a name field only), using a postfix name.
+    ///     The standard CREATE, defined in corelib.fs, builds a complete word on top of this.
     ///     References HERE, and assumes back pointer is in place already.
     ///     Sets LAST and HERE; the word becomes visible (CONTEXT) when it is closed by ; or (close).
     ///
