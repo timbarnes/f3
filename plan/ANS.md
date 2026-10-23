@@ -180,26 +180,18 @@ To reproduce: put `tester.fr` and `core.fr` in `target/ans/`, then run `include 
 
 Tests: 333 f3 core tests, 50 black-box tests, and 31 unit tests. All pass, and the benchmarks are unchanged.
 
-### Step 4 (decide first): one byte-addressed memory (L, about 1–2 weeks)
+### Step 4: one byte-addressed memory (L, about 2 weeks): planned
 
-B1 Option 2:
-* Replace `heap: [i64]` plus `strings: [u8]` with one `Vec<u8>`.
-* Cells are 8-byte, little-endian, and aligned.
-* Every address held in compiled code, the dictionary links, and the stacks becomes a byte address.
-* `cells` = 8.
-* Names and string literals move into the dictionary, or into a byte region of the same space.
-* The memory map in `doc.md` changes: dictionary, then PAD, TIB, and stacks, all in one space.
+**Decided (2026-10-23): do it.** The aim is a memory model that matches the Forth books, so the code can be studied against them, and the reference `core.fr` passes in full.
 
-What it costs:
-* Every address calculation in `corelib.fs`, `sequences.fs`, `debug.fs`, and `editor.fs` (`1+` to the next cell becomes `cell+`, and so on).
-* The opcode-operand offsets (in bytes or in cells: pick cells and scale).
-* The inner interpreter fetches with `i64::from_le_bytes`. That's about the same speed: one bounds check, then an unaligned-safe load.
+Performance was checked first and is not a factor. On this machine, a cell load from a byte array takes 0.58 ns against 0.57 ns from the current `i64` array, and f3 spends 1.5–2.5 ns per executed cell on dispatch.
 
-What it buys:
-* `here c!`, `c,`, `move`, `fill`, and buffers created with `create` all work as standard code expects.
-* The full Core word set, and passing the reference `core.fr`, become achievable.
-
-**Recommendation:** do steps 1–3 first. They're worth doing regardless, and most of their work carries over. Take step 4 only if passing the reference suite, or running third-party Forth code, is a goal. If f3 is a personal, minimal Forth, its two-space model is coherent and documented, and steps 1–3 already remove most of the day-to-day friction.
+The detailed plan is in [STEP4.md](STEP4.md): eleven design decisions, then five stages.
+0. Make the code cell-size-agnostic in today's model.
+1. Switch to a byte-addressed heap.
+2. Merge string space into it.
+3. Adopt the classic link/name/code/parameter header layout.
+4. Document it for study.
 
 ### What stays a documented difference
 
@@ -209,4 +201,3 @@ What it buys:
 * `for … next`.
 * `compile-only`.
 * The `#`, `$`, and `%` number prefixes (these are standard in Forth-2012).
-* Without step 4: the two address spaces.
