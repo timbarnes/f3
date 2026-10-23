@@ -61,6 +61,22 @@ This is the de-risking step. Every address calculation is rewritten to say what 
 
 Then, as an experiment only (not committed), set `CELL = 2` with a 2-wide cell index. It flushes out any arithmetic stage 0 missed, before the real switch.
 
+**Status: done (2026-10-23).**
+
+What changed:
+* **Rust:** `kernel::CELL` (1) is used for every cell step and offset: the stacks, the inner interpreter's `pc`, the code-field and link offsets, the hand-built system variables, and the memory-map constants (`DATA_SIZE`, `STACK_START`, `DICT_LIMIT`). It is exported to Forth as the constant `cell`.
+* **`top_cells`**, which handed out a slice of the cell array, is replaced by `nth` and `set_nth` (the cell `n` deep), so the primitives no longer depend on the heap being an `i64` array. Same speed.
+* **Forth:** `cells`, `cell+`, and `cell-` are defined on `cell`. Every heap-address calculation in `corelib.fs`, `debug.fs`, `sequences.fs`, `tester.fs`, the core tests, and the black-box tests uses them.
+  * String-space arithmetic (bytes) and plain numbers were left alone, after a line-by-line review.
+  * `editor.fs`, `terminal.fs`, and `regression.fs` needed no changes; their `1+` and `1-` are character positions and numbers.
+
+Results:
+* **The `CELL = 2` experiment** found two misses: `find_word`'s start offset (a `wrapping_sub(1)` the search pattern didn't match), and the offsets in the `test_make_word` unit test. With both fixed, every test passes at `CELL = 2`. The reference core.fr then stops only at `1 A-ADDR C!`, which uses a heap address as character memory. That's the two-space limitation stage 2 removes. (At `CELL = 1` that test "passes" by writing to an unrelated string-space address.)
+* **F34**, found during the review: `sequences.fs`'s stack words `>s` and `s>` had never worked (`!: stack underflow`). They are fixed, using a shared `(elem)` helper, and tested along with arrays.
+* **`debug.fs`:** `dump` now loops over cells with `?do` (it used `incr-for` on raw addresses), and `dump-stringspace` used the stale buffer size 132; it is now 256.
+
+Tests: 31 unit, 51 black-box, and 333 core tests, all passing at `CELL = 1`. The benchmarks are unchanged.
+
 ### Stage 1: byte-addressed heap, string space still separate (M, about 2 days)
 
 * **`Kernel::heap` becomes `Vec<u8>`** (1 MB), with `cell(addr) -> i64` and `set_cell(addr, v)` using `from_le_bytes` and `to_le_bytes`, and checks for bounds and alignment (−23).

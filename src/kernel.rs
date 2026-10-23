@@ -14,14 +14,15 @@ use crate::internals::builtin::BuiltInFn;
 //
 // Compiled code tells opcodes from word addresses by OPCODE_FLAG (see runtime.rs),
 // so DATA_SIZE can grow freely up to the address mask.
-pub const DATA_SIZE: usize = 65536;
+pub const CELL: usize = 1; // address units per cell (step 4 makes addresses bytes, and this 8)
+pub const DATA_SIZE: usize = 65536 * CELL;
 pub const STRING_SIZE: usize = 10000;
 pub const BUF_SIZE: usize = 256; // TIB, PAD, TMP. Counted strings hold at most 255 bytes.
 pub const RET_SIZE: usize = 1024;
 pub const STACK_SIZE: usize = 1024;
 pub const RET_START: usize = DATA_SIZE - 1; // return stack counts downwards
-pub const STACK_START: usize = RET_START - RET_SIZE; // data stack counts downwards
-pub const DICT_LIMIT: usize = STACK_START - STACK_SIZE; // the dictionary grows up to here
+pub const STACK_START: usize = RET_START - RET_SIZE * CELL; // data stack counts downwards
+pub const DICT_LIMIT: usize = STACK_START - STACK_SIZE * CELL; // the dictionary grows up to here
 pub const WORD_START: usize = 0; // data area counts up from the bottom (builtins, words, variables etc.)
 pub const ADDRESS_MASK: usize = 0x00FFFFFFFFFFFFFF; // to get rid of flags
 
@@ -160,7 +161,7 @@ impl Kernel {
         if self.stack_ptr <= DICT_LIMIT {
             throw_code(STACK_OVERFLOW, "stack overflow");
         }
-        self.stack_ptr -= 1;
+        self.stack_ptr -= CELL;
         self.heap[self.stack_ptr] = val;
     }
 
@@ -170,13 +171,13 @@ impl Kernel {
             throw_code(STACK_UNDERFLOW, "stack underflow");
         }
         let r = self.heap[self.stack_ptr];
-        self.stack_ptr += 1;
+        self.stack_ptr += CELL;
         r
     }
 
     #[inline(always)]
     pub fn stack_len(&self) -> usize {
-        STACK_START - self.stack_ptr
+        (STACK_START - self.stack_ptr) / CELL
     }
 
     /// stack_check checks if there are enough items on the stack for an operation
@@ -193,7 +194,7 @@ impl Kernel {
         if self.return_ptr <= STACK_START {
             throw_code(RSTACK_OVERFLOW, "return stack overflow");
         }
-        self.return_ptr -= 1;
+        self.return_ptr -= CELL;
         self.heap[self.return_ptr] = val;
     }
 
@@ -203,30 +204,34 @@ impl Kernel {
             throw_code(RSTACK_UNDERFLOW, "return stack underflow");
         }
         let val = self.heap[self.return_ptr];
-        self.return_ptr += 1;
+        self.return_ptr += CELL;
         val
     }
 
     #[inline(always)]
     pub fn stack_check_r(&self, needed: usize, word: &str) -> bool {
-        if RET_START - self.return_ptr < needed {
+        if (RET_START - self.return_ptr) / CELL < needed {
             throw_code(RSTACK_UNDERFLOW, format!("{word}: return stack underflow"));
         }
         true
     }
 
-    /// top returns the top n cells of the data stack, top first, after one depth check.
-    ///     Primitives work on this slice directly instead of popping and pushing.
+    /// nth and set_nth read and write the cell n deep in the data stack (0 is the top).
+    ///     Primitives check the depth once with stack_check, then work on the cells in place.
     #[inline(always)]
-    pub fn top_cells(&mut self, n: usize, word: &str) -> &mut [i64] {
-        self.stack_check(n, word);
-        &mut self.heap[self.stack_ptr..self.stack_ptr + n]
+    pub fn nth(&self, n: usize) -> i64 {
+        self.heap[self.stack_ptr + n * CELL]
+    }
+
+    #[inline(always)]
+    pub fn set_nth(&mut self, n: usize, val: i64) {
+        self.heap[self.stack_ptr + n * CELL] = val;
     }
 
     /// drop_cells removes n cells from the data stack (the caller has checked the depth)
     #[inline(always)]
     pub fn drop_cells(&mut self, n: usize) {
-        self.stack_ptr += n;
+        self.stack_ptr += n * CELL;
     }
 
     #[inline(always)]
@@ -234,8 +239,9 @@ impl Kernel {
     where
         F: Fn(i64, i64) -> i64,
     {
-        let cells = self.top_cells(2, word);
-        cells[1] = f(cells[1], cells[0]);
+        self.stack_check(2, word);
+        let result = f(self.nth(1), self.nth(0));
+        self.set_nth(1, result);
         self.drop_cells(1);
     }
 
@@ -244,8 +250,9 @@ impl Kernel {
     where
         F: Fn(i64) -> i64,
     {
-        let cells = self.top_cells(1, word);
-        cells[0] = f(cells[0]);
+        self.stack_check(1, word);
+        let result = f(self.nth(0));
+        self.set_nth(0, result);
     }
 
     /// string_new writes a new string into the next empty space, updating the free space pointer

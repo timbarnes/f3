@@ -5,21 +5,21 @@
 variable word-counter
 
 : .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
-                    dup dup 1+ dim 4 u.r t-reset space 1+ @ 13 ltype
+                    dup dup cell+ dim 4 u.r t-reset space cell+ @ 13 ltype
                     1 word-counter +!
                     word-counter @ 8 mod
                     if space else cr then @ ;
 
 : words ( -- )
                     0 word-counter !
-                    dp @ 1- @                                 \ Get the starting point: the top back pointer
+                    dp @ cell- @                              \ Get the starting point: the top back pointer
                     begin                                       \ loops through the words in the dictionary
                         .word dup not                           \ print a word and test the next pointer
                     until
                         drop cr ;
 
 : print-word ( xt -- )
-                    1- @ 13 ltype ;                             \ print a word name, given the xt as produced by '
+                    cell- @ 13 ltype ;                          \ print a word name, given the xt as produced by '
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ String Dump capability
@@ -85,7 +85,7 @@ variable word-counter
     pad dump-buffer
     ." TMP " cr
     tmp @ dump-buffer
-    tmp @ 132 + dump-strings
+    tmp @ 256 + dump-strings
     ;
 
 
@@ -156,7 +156,7 @@ variable word-counter
     ." *UNKNOWN* " drop ;
 
 : dump-word ( addr -- )             \ Print the name of the word with compile reference at addr
-    @ 1 - @ ctype
+    @ cell- @ ctype
     ;
 
 : dump-builtin ( addr -- )
@@ -179,23 +179,23 @@ variable word-counter
     @ BUILTIN_FLAG and ;            \ A non-zero value is a yes
 
 : builtin-name? ( addr -- bool )     \ Builtin nfa is before the builtin reference
-    1 + builtin?
+    cell+ builtin?
     ;
 
 : definition-name? ( addr -- bool )
-    1 + @                           \ Look at the next cell
+    cell+ @                         \ Look at the next cell
     op:definition = ;
 
 : variable-name?    ( addr -- bool )
-    1 + @
+    cell+ @
     op:variable = ;
 
 : constant-name?    ( addr -- bool )
-    1 + @
+    cell+ @
     op:constant = ;
 
 : array-name?    ( addr -- bool )
-    1 + @
+    cell+ @
     op:array = ;
 
 : _nfa?  ( addr -- bool )            \ Attempts to identify if an addr contains an nfa
@@ -210,12 +210,12 @@ variable word-counter
         ;
 
 : bp?   ( addr -- bool )            \ Identifies back pointer by adjacency to dictionary entries
-    1 +
+    cell+
     dup @ token-range? if
         drop FALSE
     else
-        1 +
-        dup dup builtin? swap 1 - _nfa? and
+        cell+
+        dup dup builtin? swap cell- _nfa? and
         swap @ dup op:definition =
         swap dup op:array =
         swap dup op:variable =
@@ -224,7 +224,7 @@ variable word-counter
     then ;
 
 : nfa?  ( addr -- bool )
-    1 - bp?
+    cell- bp?
     ;
 
 : immediate? ( addr -- bool )
@@ -232,25 +232,25 @@ variable word-counter
     ;
 
 : compiled-value? ( addr -- bool )  \ Identifies non-nfa values, typically in immediate words
-    dup 1 - bp? not                     \ These values appear inside a word, not after a back pointer
+    dup cell- bp? not                   \ These values appear inside a word, not after a back pointer
     swap bp? not
     and
     ;
 
 : offset-value? ( addr -- bool )          \ Identifies branch offsets
-    1 - @ dup op:branch = swap op:branch0 = or    ;
+    cell- @ dup op:branch = swap op:branch0 = or    ;
 
 : lit-value? ( addr -- bool )         \ Identifies integer literals
-    1 - @ op:literal =    ;
+    cell- @ op:literal =    ;
 
 : strlit-value?                           \ Identifies string literals
-    1 - @ op:strlit = ;
+    cell- @ op:strlit = ;
 
 : var-value? ( addr -- bool )        \ Identifies a variable's storage cell
-    1 - @ op:variable =    ;
+    cell- @ op:variable =    ;
 
 : const-value? ( addr -- bool )        \ Identifies a constant's storage cell
-    1 - @ op:constant =    ;
+    cell- @ op:constant =    ;
 
 : def-call?  ( addr -- )           \ Identifies a compiled call to a Forth definition
     @ @ op:definition =
@@ -310,14 +310,12 @@ variable word-counter
 \ Display the contents of a number of cells
 : dump       ( addr cells -- addr )
     dump-header
-    incr-for for dup i -
-        dump-cell
-    next
-    drop drop ;
+    0 ?do dup i cells + dump-cell loop
+    drop ;
 
 \ dump-here dumps the top n cells. Useful for seeing recent dictionary entries.
 : dump-here     ( n -- )
-    dup here 1 - swap - swap dump
+    dup here cell- swap cells - swap dump
     dim ." **************** HERE ********** TOP OF HEAP *********************" t-reset cr
     here 2 dump ;
 

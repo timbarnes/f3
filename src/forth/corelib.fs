@@ -1,11 +1,15 @@
 : immediate context @ dup @ IMMEDIATE_FLAG or swap ! ;
 : compile-only context @ dup @ COMPILE_ONLY_FLAG or swap ! ;
-: here dp @ last @ context @ = + ;
+: here dp @ last @ context @ = cell * + ;
 : pad 'pad @ ;
+: cells cell * ;
+: cell+ cell + ;
+: cell- cell - ;
 : \ 1 parse drop drop ; immediate
 : ( 41 parse drop drop ; immediate     \ Implements in-line comments
 
 \ The words above come first, because comments need them.
+\ cell (from the engine) is the number of address units per cell; cells cell+ cell- use it.
 \ here is the next free cell. dp points past the latest finished word's back pointer, which
 \ , and allot move up as they extend that word, so then here is dp - 1 (LAST = CONTEXT gives -1).
 \ immediate and compile-only set a flag on the most recently defined word.
@@ -18,8 +22,8 @@
 \ last and context point to the previous word's name field address
 
 : (close) ( -- )                      \ terminate a definition, writing a back pointer and updating context, last, and here
-        last @ 1 - here !           \ write the new back pointer
-        here 1 + dp !             \ update HERE
+        last @ cell- here !           \ write the new back pointer
+        here cell+ dp !             \ update HERE
         last @ context !              \ update CONTEXT
         ;
 
@@ -28,7 +32,7 @@
 \ f3's own defining words (constant, variable, ...) use the header-only (create) and (close).
 : create ( <name> -- ) (create) op:created , 0 , (close) ;   \ cfa: op:created, then the does> code
 : does> ( -- )      op:does , ; immediate compile-only
-: >body ( xt -- a ) 2 + ;                              \ a created word's data field
+: >body ( xt -- a ) 2 cells + ;                              \ a created word's data field
 
 \ String space. Strings are counted: the first byte is the length (at most 255).
 \ s-here is the next free byte. c@ c! cmove address string space; @ ! address the heap.
@@ -128,7 +132,7 @@
 : ] TRUE state ! ;                                  \ Turns compile mode on
 
 : recurse ( -- )                                    \ Simply compiles the cfa of the word being defined
-                    last @ 1 + , ; immediate compile-only \ last points to the latest nfa, so increment
+                    last @ cell+ , ; immediate compile-only \ last points to the latest nfa, so step a cell
 
 : nip ( a b -- b )  swap drop ;
 : tuck ( a b -- b a b ) swap over ;
@@ -149,7 +153,7 @@
 : [']               op:literal , ' , ; immediate compile-only \ compiles a word's cfa into a definition as a literal
 
 : postpone ( <name> -- )                              \ compile the compilation behaviour of <name>:
-                    ' dup 1 - @ IMMEDIATE_FLAG and      \ an immediate word is compiled as a call,
+                    ' dup cell- @ IMMEDIATE_FLAG and    \ an immediate word is compiled as a call,
                     if , else op:literal , , ['] , , then ; immediate compile-only  \ others compile a ,
 
 : abort" ( x -- )   op:branch0 , here 0 ,               \ if x is non-zero, abort with the message (ANS)
@@ -158,11 +162,11 @@
 
 \ Movement within a word definition
 
-: cfa>nfa           1 - ;                                 \ converts an cfa to an nfa
-: cfa>val           1 + ;                                 \ from cfa to first parameter cell
-: nfa>cfa           1 + ;                                 \ converts an nfa to a cfa
-: bp>nfa            1 + ;                                 \ from preceding back pointer to nfa
-: bp>cfa            2 + ;
+: cfa>nfa           cell- ;                               \ converts an cfa to an nfa
+: cfa>val           cell+ ;                               \ from cfa to first parameter cell
+: nfa>cfa           cell+ ;                               \ converts an nfa to a cfa
+: bp>nfa            cell+ ;                               \ from preceding back pointer to nfa
+: bp>cfa            2 cells + ;
 
 \ Arithmetic and logical operations
 
@@ -180,8 +184,7 @@
 : 2* ( n -- 2n )    1 lshift ;
 : u> ( u1 u2 -- f ) swap u< ;
 : within ( n lo hi -- f ) over - >r - r> u< ;         \ lo <= n < hi, also across the wrap
-: cell+ ( a -- a' ) 1+ ;                              \ heap addresses count cells, so these are
-: char+ ( c -- c' ) 1+ ;                              \ simple, and chars, align, aligned do nothing
+: char+ ( c -- c' ) 1+ ;                              \ characters are bytes; chars, align, aligned do nothing
 : chars ( n -- n ) ;
 : align ( -- ) ;
 : aligned ( a -- a ) ;
@@ -208,18 +211,18 @@ variable 's-buf
 : ?dup              dup 0= if else dup then ;
 
 \ The data stack lives in the heap and grows down: sp@ is the address of the top item,
-\ the item n deep is at sp@ + n, and sp0 is sp@ when the stack is empty.
-: depth ( -- n )    sp@ sp0 swap - ;
+\ the item n deep is at sp@ + n cells, and sp0 is sp@ when the stack is empty.
+: depth ( -- n )    sp@ sp0 swap - cell / ;
 : pick ( xn..x0 n -- xn..x0 xn )
                     dup depth 2 - u< 0= abort" pick: stack underflow"
-                    1 + sp@ + @ ;
+                    1 + cells sp@ + @ ;
 : roll ( xn..x0 n -- xn-1..x0 xn )
                     dup depth 2 - u< 0= abort" roll: stack underflow"
                     ?dup if swap >r 1- recurse r> swap then ;
 : 2swap ( a b c d -- c d a b ) rot >r rot r> ;
 : 2over ( a b c d -- a b c d a b ) 3 pick 3 pick ;
-: 2! ( x1 x2 a -- ) swap over ! 1+ ! ;                \ x2 at a, x1 at a+1
-: 2@ ( a -- x1 x2 ) dup 1+ @ swap @ ;
+: 2! ( x1 x2 a -- ) swap over ! cell+ ! ;              \ x2 at a, x1 in the next cell
+: 2@ ( a -- x1 x2 ) dup cell+ @ swap @ ;
 
 \ Return stack operations
 
@@ -232,7 +235,7 @@ variable 's-buf
 
 \ Used to convert to specify cells in Forths that have byte or other addressing modes (e.g. 8 bit processors with 16-bit addresses)
 \           Not required, but included for completeness.
-: cells ;
+
 
 \ Numeric operations
 
@@ -271,7 +274,7 @@ variable 's-buf
                     , here MARK_DO 0 , ;              \ placeholder for the exit offset
 : (loop-end) ( a tag opcode -- )
                     , MARK_DO ?pairs                    \ a: address of the exit-offset placeholder
-                    dup 1+ here - ,                   \ offset back to the loop body
+                    dup cell+ here - ,                \ offset back to the loop body
                     here over - swap ! ;              \ patch the exit offset
 
 : for ( n -- )      op:for (loop-start) ; immediate compile-only   \ runs the body n times, with i = n .. 1
@@ -375,7 +378,7 @@ variable 's-buf
                                                                             \ unsigned value: correct
 : .s ( -- )         ." [ " depth for i 1- pick . next ." ] " flush ;   \ print the data stack
 : .rs ( -- )        ." R: [ "                           \ print the return stack, below .rs's own return
-                    rp@ 1+ rp0 over - for dup i + 1- @ . next drop ." ] " ;
+                    rp@ cell+ rp0 over - cell / for dup i cells + cell- @ . next drop ." ] " ;
 
 : stop"  ( -- )     '"' parse state @                          \ Compile or print a string
                     if
@@ -398,16 +401,16 @@ variable 's-buf
 : ?  ( addr -- )    @ . ;
 
 : forget-last ( -- )                            \ delete the most recent definitions
-                    dp @ 1- @ dup 1+ dp !   \ resets HERE to the previous back pointer
-                    @ 1+ dup context ! last !   \ resets CONTEXT and LAST
+                    dp @ cell- @ dup cell+ dp !   \ resets HERE to the previous back pointer
+                    @ cell+ dup context ! last !   \ resets CONTEXT and LAST
                     ;
 
 : forget ( <name> )                             \ delete <name> and any words since
                     trace-off step-off          \ we're messing with the dictionary, so we don't want to run FIND
                     (') dup
                     if
-                        1- dup dup dp ! @ s-here !            \ move to nfa and set HERE and S-HERE
-                        1- @ 1+ dup context ! last !            \ go back a link and set CONTEXT and LAST
+                        cell- dup dup dp ! @ s-here !            \ move to nfa and set HERE and S-HERE
+                        cell- @ cell+ dup context ! last !        \ go back a link and set CONTEXT and LAST
                     else
                         drop
                     then ;
@@ -424,15 +427,15 @@ variable 's-buf
 
 \ Dictionary inspection
 
-: immed? ( cfa -- f ) 1- @ IMMEDIATE_FLAG and 0<> ;              \ is the word at cfa immediate?
+: immed? ( cfa -- f ) cell- @ IMMEDIATE_FLAG and 0<> ;              \ is the word at cfa immediate?
 : ?unique ( s -- s ) dup find nip if ." redefining " dup ctype cr then ;
 
-: .name ( cfa -- )  1- @ ADDRESS_MASK and ctype space ;          \ print the name of the word at cfa
-: .operand ( a -- a+1 ) 1+ dup @ . ;
+: .name ( cfa -- )  cell- @ ADDRESS_MASK and ctype space ;          \ print the name of the word at cfa
+: .operand ( a -- a' ) cell+ dup @ . ;
 : see-cell ( a -- a' more? )                                    \ print the compiled cell at a
     dup @ case
         op:literal of .operand TRUE endof
-        op:strlit  of 1+ '"' emit space dup @ ctype '"' emit space TRUE endof
+        op:strlit  of cell+ '"' emit space dup @ ctype '"' emit space TRUE endof
         op:branch  of ." branch:" .operand TRUE endof
         op:branch0 of ." branch0:" .operand TRUE endof
         op:do      of ." do:" .operand TRUE endof
@@ -451,17 +454,17 @@ variable 's-buf
         if dup ADDRESS_MASK and builtin-name ctype space else dup .name then
         TRUE swap                                               \ endcase drops the key
     endcase
-    swap 1+ swap ;
+    swap cell+ swap ;
 : (see) ( cfa -- )                                              \ decompile the word at cfa
     dup @ BUILTIN_FLAG and if @ ADDRESS_MASK and ." Builtin: " builtin-doc ctype cr exit then
-    dup @ op:constant = if ." Constant: " dup .name ." = " 1+ @ . cr exit then
-    dup @ op:variable = if ." Variable: " dup .name ." = " 1+ @ . cr exit then
+    dup @ op:constant = if ." Constant: " dup .name ." = " cell+ @ . cr exit then
+    dup @ op:variable = if ." Variable: " dup .name ." = " cell+ @ . cr exit then
     dup @ op:created = if ." Created: " dup .name ." data at " dup >body .
-                          1+ @ ?dup if ." does> code at " . then cr exit then
+                          cell+ @ ?dup if ." does> code at " . then cr exit then
     dup @ op:definition <> if drop ." not a colon definition" cr exit then
     ." : " dup .name
-    dup 1- @ IMMEDIATE_FLAG and >r
-    1+ begin see-cell while repeat drop
+    dup cell- @ IMMEDIATE_FLAG and >r
+    cell+ begin see-cell while repeat drop
     r> if ." immediate" then cr ;
 : see ( <name> -- ) ' (see) ;
 
@@ -484,12 +487,12 @@ variable '[if]  variable '[else]
 
 \ value / to, defer / is
 : value ( x <name> -- ) constant ;                     \ a constant whose value TO can change
-: to ( x <name> -- ) ' 1+ state @ if postpone literal postpone ! else ! then ; immediate
+: to ( x <name> -- ) ' cell+ state @ if postpone literal postpone ! else ! then ; immediate
 : (unset) ( -- )    true abort" deferred word not set" ;
 : defer ( <name> -- )                                  \ a word that runs the xt stored by IS
-                    (create) op:definition , op:literal , here 4 + , ['] @ , ['] execute , op:exit ,
+                    (create) op:definition , op:literal , here 4 cells + , ['] @ , ['] execute , op:exit ,
                     ['] (unset) , (close) ;            \ the xt cell: 6 cells after the cfa
-: is ( xt <name> -- ) ' 6 + state @ if postpone literal postpone ! else ! then ; immediate
+: is ( xt <name> -- ) ' 6 cells + state @ if postpone literal postpone ! else ! then ; immediate
 
 : .( ( -- )         ')' parse type ; immediate          \ print the text up to the next )
 \ String words. Characters live in string space; c@ c! cmove address it.

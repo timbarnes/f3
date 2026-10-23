@@ -4,7 +4,7 @@
 // Rust values. The Forth words of the same names (parse-to, find, number?, create, ...) are thin
 // wrappers that move values between the Forth stack and these functions.
 
-use crate::kernel::{throw, throw_code, COMPILE_ONLY, NAME_EXPECTED, UNDEFINED_WORD};
+use crate::kernel::{throw, throw_code, CELL, COMPILE_ONLY, NAME_EXPECTED, UNDEFINED_WORD};
 use crate::runtime::PendingDef;
 use crate::runtime::{
     ForthRuntime, ADDRESS_MASK, ARRAY, BUILTIN_FLAG, COMPILE_ONLY_FLAG, CONSTANT, CREATED, DEFINITION, EXIT,
@@ -88,15 +88,15 @@ impl ForthRuntime {
         }
         let code = self.kernel.get(xt);
         match code {
-            DEFINITION => self.i_definition(xt + 1),
-            VARIABLE | ARRAY => self.kernel.push(xt as i64 + 1),
+            DEFINITION => self.i_definition(xt + CELL),
+            VARIABLE | ARRAY => self.kernel.push((xt + CELL) as i64),
             CONSTANT => {
-                let val = self.kernel.get(xt + 1);
+                let val = self.kernel.get(xt + CELL);
                 self.kernel.push(val);
             }
             CREATED => {
-                self.kernel.push(xt as i64 + 2); // the data field
-                let does = self.kernel.get(xt + 1) as usize;
+                self.kernel.push((xt + 2 * CELL) as i64); // the data field
+                let does = self.kernel.get(xt + CELL) as usize;
                 if does != 0 {
                     self.i_definition(does);
                 }
@@ -119,7 +119,7 @@ impl ForthRuntime {
             let compiling = self.get_compile_mode();
             match self.find_word(self.kernel.string_slice(addr, len)) {
                 Some(cfa) => {
-                    let flags = self.kernel.get(cfa - 1) as usize;
+                    let flags = self.kernel.get(cfa - CELL) as usize;
                     if compiling && flags & IMMEDIATE_FLAG == 0 {
                         // builtins are compiled as their flagged index, other words as their cfa
                         let code = self.kernel.get(cfa);
@@ -198,13 +198,13 @@ impl ForthRuntime {
     /// find_word searches the dictionary, newest first, and returns the cfa of the word with this name
     ///
     pub fn find_word(&self, name: &[u8]) -> Option<usize> {
-        let mut link = (self.kernel.get(self.context_ptr) as usize).wrapping_sub(1);
+        let mut link = (self.kernel.get(self.context_ptr) as usize).wrapping_sub(CELL);
         while link > 0 {
             // the name field is immediately after the link
-            let nfa = self.kernel.get(link + 1) as usize & ADDRESS_MASK;
+            let nfa = self.kernel.get(link + CELL) as usize & ADDRESS_MASK;
             if self.kernel.counted_bytes(nfa).eq_ignore_ascii_case(name) {
                 // names are case-insensitive, so standard (upper-case) programs work
-                return Some(link + 2);
+                return Some(link + 2 * CELL);
             }
             link = self.kernel.get(link) as usize;
         }
@@ -220,7 +220,7 @@ impl ForthRuntime {
         let addr = self.kernel.pop() as usize;
         match self.find_word(self.kernel.counted_bytes(addr)) {
             Some(cfa) => {
-                let immediate = self.kernel.get(cfa - 1) as usize & IMMEDIATE_FLAG != 0;
+                let immediate = self.kernel.get(cfa - CELL) as usize & IMMEDIATE_FLAG != 0;
                 self.kernel.push(cfa as i64);
                 self.kernel.push(if immediate { 1 } else { -1 });
             }
@@ -299,7 +299,7 @@ impl ForthRuntime {
     pub fn f_semicolon(&mut self) {
         self.emit_cell(EXIT);
         let back = self.kernel.get(self.last_ptr); // get the current LAST pointer
-        self.emit_cell(back - 1); // write the back pointer
+        self.emit_cell(back - CELL as i64); // write the back pointer
         self.kernel.set(self.context_ptr, back); // adds the new definition to FIND
         self.set_compile_mode(false);
     }

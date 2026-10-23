@@ -188,10 +188,10 @@ T{ v1 @ -> 123 }T
 T{ 1 v1 +! v1 @ -> 124 }T
 T{ -1 v1 +! v1 @ -> 123 }T
 T{ 99 constant c1 c1 -> 99 }T
-variable buf 3 allot                            \ buf has 4 cells
-T{ 1 buf ! 2 buf 1+ ! 3 buf 2 + ! 4 buf 3 + ! -> }T
-T{ buf @ buf 1+ @ buf 2 + @ buf 3 + @ -> 1 2 3 4 }T
-T{ here 1 , here swap - -> 1 }T             \ f3: HERE is a variable, so `here @`
+variable buf 3 cells allot                      \ buf has 4 cells
+T{ 1 buf ! 2 buf cell+ ! 3 buf 2 cells + ! 4 buf 3 cells + ! -> }T
+T{ buf @ buf cell+ @ buf 2 cells + @ buf 3 cells + @ -> 1 2 3 4 }T
+T{ here 1 , here swap - -> 1 cells }T
 T{ 65 tmp @ c! tmp @ c@ -> 65 }T                \ c@ and c! address string space
 T{ char A -> 65 }T
 T{ : gc1 [char] X ; gc1 -> 88 }T
@@ -327,7 +327,8 @@ T{ 1 0 1 within -> <false> }T
 T{ -1 0 1 within -> <false> }T
 T{ 1 2 u> -> <false> }T
 T{ -1 1 u> -> <true> }T
-T{ 1 cell+ 1 char+ 3 chars -> 2 2 3 }T
+T{ 0 cell+ -> 1 cells }T
+T{ 1 char+ 3 chars -> 2 3 }T
 T{ c" abc" count nip -> 3 }T
 T{ unused 0 > -> <true> }T
 T{ s" x" environment? -> <false> }T
@@ -368,8 +369,8 @@ T{ w1 -> here 1 + }T
 T{ w1 -> here 2 + }T
 T{ : gcon create , does> @ ; 42 gcon g42 g42 -> 42 }T
 T{ : garr create cells allot does> swap cells + ; 5 garr ga 9 2 ga ! 2 ga @ -> 9 }T
-T{ create gbuf 3 , 4 , gbuf @ gbuf 1+ @ -> 3 4 }T
-T{ variable gv1 3 allot here gv1 4 + = -> <true> }T
+T{ create gbuf 3 , 4 , gbuf @ gbuf cell+ @ -> 3 4 }T
+T{ variable gv1 3 cells allot here gv1 4 cells + = -> <true> }T
 
 \ ---- evaluate
 T{ s" 123" evaluate -> 123 }T

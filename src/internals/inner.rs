@@ -2,7 +2,7 @@
 ///
 /// Executes compiled definitions
 ///
-use crate::kernel::throw;
+use crate::kernel::{throw, CELL};
 use crate::runtime::{
     ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN_FLAG, CONSTANT,
     CREATED, DEFINITION, DO, DOES, EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, PLOOP, QDO, STRLIT,
@@ -25,11 +25,11 @@ impl ForthRuntime {
     /// set_does makes `code` the DOES> code of the latest word, which must have been made by CREATE
     ///
     fn set_does(&mut self, code: usize) {
-        let cfa = self.kernel.get(self.context_ptr) as usize + 1;
+        let cfa = self.kernel.get(self.context_ptr) as usize + CELL;
         if self.kernel.get(cfa) != CREATED {
             throw("does>: the latest word was not made by create");
         }
-        self.kernel.set(cfa + 1, code as i64);
+        self.kernel.set(cfa + CELL, code as i64);
     }
 
     /// unloop ( -- ) ( R: exit limit index -- ) discards the innermost loop's return-stack frame
@@ -70,32 +70,32 @@ impl ForthRuntime {
             if code as usize & BUILTIN_FLAG != 0 {
                 // the most common cell: a builtin, compiled as its flagged index
                 self.builtin(code as usize & ADDRESS_MASK);
-                pc += 1;
+                pc += CELL;
                 continue;
             }
             match code {
-                DEFINITION => pc += 1, // entering a called colon definition
+                DEFINITION => pc += CELL, // entering a called colon definition
                 LITERAL | STRLIT => {
-                    pc += 1;
+                    pc += CELL;
                     let val = self.kernel.get(pc);
                     self.kernel.push(val); // a number, or the string address of the data
-                    pc += 1;
+                    pc += CELL;
                 }
                 BRANCH => {
-                    pc += 1;
+                    pc += CELL;
                     pc = target(pc, self.kernel.get(pc));
                 }
                 BRANCH0 => {
-                    pc += 1;
+                    pc += CELL;
                     if self.kernel.pop() == 0 {
                         pc = target(pc, self.kernel.get(pc));
                     } else {
-                        pc += 1; // skip over the offset
+                        pc += CELL; // skip over the offset
                     }
                 }
                 DO | QDO | FOR => {
                     // operand: offset to the first cell after the loop
-                    pc += 1;
+                    pc += CELL;
                     let exit = target(pc, self.kernel.get(pc));
                     let (limit, index) = if code == FOR {
                         (0, self.kernel.pop())
@@ -114,16 +114,16 @@ impl ForthRuntime {
                         self.kernel.push_r(exit as i64);
                         self.kernel.push_r(limit);
                         self.kernel.push_r(index);
-                        pc += 1;
+                        pc += CELL;
                     }
                 }
                 LOOP | PLOOP | NEXT => {
                     // operand: offset back to the first cell of the loop body
-                    pc += 1;
+                    pc += CELL;
                     self.kernel.stack_check_r(3, "loop");
                     let rp = self.kernel.get_return_ptr();
                     let index = self.kernel.get(rp);
-                    let limit = self.kernel.get(rp + 1);
+                    let limit = self.kernel.get(rp + CELL);
                     let (next, done) = if code == NEXT {
                         (index - 1, index <= 1) // FOR counts down from n to 1
                     } else {
@@ -135,7 +135,7 @@ impl ForthRuntime {
                     };
                     if done {
                         self.f_unloop();
-                        pc += 1;
+                        pc += CELL;
                     } else {
                         self.kernel.set(rp, next);
                         pc = target(pc, self.kernel.get(pc));
@@ -150,12 +150,12 @@ impl ForthRuntime {
                 VARIABLE | ARRAY | CONSTANT | EXIT | BREAK | DOES => {
                     // VARIABLE etc. are reached by calling a data word: push its value, then return
                     match code {
-                        VARIABLE | ARRAY => self.kernel.push(pc as i64 + 1),
+                        VARIABLE | ARRAY => self.kernel.push((pc + CELL) as i64),
                         CONSTANT => {
-                            let val = self.kernel.get(pc + 1);
+                            let val = self.kernel.get(pc + CELL);
                             self.kernel.push(val);
                         }
-                        DOES => self.set_does(pc + 1), // the code after DOES> belongs to the new word
+                        DOES => self.set_does(pc + CELL), // the code after DOES> belongs to the new word
                         _ => {}
                     }
                     if self.kernel.get_return_ptr() == entry_rp {
@@ -167,7 +167,7 @@ impl ForthRuntime {
                 ABORT => self.f_abort(),
                 EXEC => {
                     self.f_execute();
-                    pc += 1;
+                    pc += CELL;
                 }
                 _ => {
                     // a word's cfa: dispatch on its code field, without an extra trip round the loop
@@ -177,39 +177,39 @@ impl ForthRuntime {
                         DEFINITION => {
                             // call: save the return address and continue in the word's body
                             call_depth += 1;
-                            self.kernel.push_r(pc as i64 + 1);
-                            pc = xt + 1;
+                            self.kernel.push_r((pc + CELL) as i64);
+                            pc = xt + CELL;
                         }
                         VARIABLE | ARRAY => {
-                            self.kernel.push(xt as i64 + 1);
-                            pc += 1;
+                            self.kernel.push((xt + CELL) as i64);
+                            pc += CELL;
                         }
                         CONSTANT => {
-                            let val = self.kernel.get(xt + 1);
+                            let val = self.kernel.get(xt + CELL);
                             self.kernel.push(val);
-                            pc += 1;
+                            pc += CELL;
                         }
                         CREATED => {
                             // push the data field, then run the word's DOES> code, if any
-                            self.kernel.push(xt as i64 + 2);
-                            let does = self.kernel.get(xt + 1) as usize;
+                            self.kernel.push((xt + 2 * CELL) as i64);
+                            let does = self.kernel.get(xt + CELL) as usize;
                             if does == 0 {
-                                pc += 1;
+                                pc += CELL;
                             } else {
                                 call_depth += 1;
-                                self.kernel.push_r(pc as i64 + 1);
+                                self.kernel.push_r((pc + CELL) as i64);
                                 pc = does;
                             }
                         }
                         _ if target as usize & BUILTIN_FLAG != 0 => {
                             // the cfa of a builtin word (e.g. compiled by ['] ... ,)
                             self.builtin(target as usize & ADDRESS_MASK);
-                            pc += 1;
+                            pc += CELL;
                         }
                         _ => {
                             // anything else: run it as code, as a call
                             call_depth += 1;
-                            self.kernel.push_r(pc as i64 + 1);
+                            self.kernel.push_r((pc + CELL) as i64);
                             pc = xt;
                         }
                     }

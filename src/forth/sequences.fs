@@ -59,21 +59,24 @@
         (create) op:array ,          \ install the nfa and type token
         dup ,                   \ the number of elements
         0 , 0 ,                 \ the two pointers used for stacks, deques etc.
-        allot (close)           \ allocate the required cells, and update pointers
+        cells allot (close)     \ allocate the required cells, and update pointers
 ;
 
 \ Get the number of elements in an array
 : ac@ ( addr -- n )
         @ ;                     \ the use of the array name returns the address of the count
 
+\ The address of element n: past the count and the two pointers. This does no bounds checking!
+: (elem) ( n addr -- a )
+        swap 2 + cells + ;
+
 \ Return the value of cell n in an array
 : a@ ( n addr -- v )
-        + 2 +                   \ advance past the count and the two pointers
-        @ ;                     \ this does no bounds checking!
+        (elem) @ ;
 
 \ Set cell n in an array
 : a! ( v n addr -- )
-        + 2 + ! ;
+        (elem) ! ;
 
 \ Create a stack of n cells. Stacks use pointer1 as the stack pointer
 \    The stack pointer is an offset into the array, zero based
@@ -82,21 +85,21 @@
 
 \ Increment the stack pointer by the value on the stack
 : (s+!) ( v addr -- )     \ addr is the address of the array (counter), not the stack pointer
-        1 + +! ;
+        cell+ +! ;
 
 \ Get the stack pointer
 : (sp@) ( addr -- v )     \ addr is the address of the array (counter), not the stack pointer
-        1 + @ ;
+        cell+ @ ;
 
-\ Push an element onto the stack
+\ Push an element onto the stack: store it at element sp, then increment sp
 : >s ( v addr -- )
-        1 over (s+!)            \ increment the stack pointer
-        (sp@) @ + ! ;           \ store the value into the address
+        tuck dup (sp@) swap (elem) !
+        1 swap (s+!) ;
 
-\ Pop an element off the stack
+\ Pop an element off the stack: decrement sp, then fetch element sp
 : s> ( addr -- v )
-        -1 over (s+!)           \ decrement the stack pointer
-        (sp@) + 1 + @ ;         \ get the value previously pointed to by the stack pointer.
+        -1 over (s+!)
+        dup (sp@) swap (elem) @ ;
 
 \ Get the stack size
 : sc@ ( addr -- n )

@@ -1,6 +1,7 @@
 // Debugging help
 
 use crate::internals::messages::DebugLevel;
+use crate::kernel::CELL;
 use crate::runtime::{
     ForthRuntime, ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BREAK, BUILTIN_FLAG, CONSTANT, CREATED,
     DEFINITION, DOES,
@@ -63,24 +64,24 @@ impl ForthRuntime {
 
         match code {
             VARIABLE | CONSTANT | DEFINITION | CREATED => {
-                let val = self.kernel.get(pc.wrapping_sub(1)) as usize;
+                let val = self.kernel.get(pc.wrapping_sub(CELL)) as usize;
                 println!(" {} ", self.kernel.string_get(val))
             }
-            LITERAL => println!(" {} ", self.kernel.get(pc + 1)),
+            LITERAL => println!(" {} ", self.kernel.get(pc + CELL)),
             STRLIT => {
-                let val = self.kernel.get(pc + 1) as usize;
+                let val = self.kernel.get(pc + CELL) as usize;
                 println!(" {} ", self.kernel.string_get(val))
             }
             BRANCH => {
-                let val = self.kernel.get(pc + 1);
+                let val = self.kernel.get(pc + CELL);
                 println!(" BRANCH:{}", val)
             }
-            BRANCH0 => println!(" BRANCH0:{}", self.kernel.get(pc + 1)),
+            BRANCH0 => println!(" BRANCH0:{}", self.kernel.get(pc + CELL)),
             DO | QDO | LOOP | PLOOP | FOR | NEXT => {
                 println!(
                     " LOOP-OP {}:{}",
                     code & !OPCODE_FLAG,
-                    self.kernel.get(pc + 1)
+                    self.kernel.get(pc + CELL)
                 )
             }
             LEAVE => println!(" LEAVE "),
@@ -97,7 +98,7 @@ impl ForthRuntime {
             }
             _ => {
                 // it's a word address: step-in about to occur
-                let val = self.kernel.get((code as usize).wrapping_sub(1));
+                let val = self.kernel.get((code as usize).wrapping_sub(CELL));
                 println!(" ->{}", self.kernel.string_get(val as usize));
             }
         }

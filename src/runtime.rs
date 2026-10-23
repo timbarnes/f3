@@ -17,7 +17,7 @@ use crate::internals::terminal;
 /// Everything else is defined in Forth, in corelib.fs.
 ///
 use crate::kernel::{
-    throw_code, ForthError, ABORT_CODE, ABORT_QUOTE, DICTIONARY_FULL, Kernel, BUF_SIZE, DICT_LIMIT, RET_START, STACK_START, WORD_START,
+    throw_code, CELL, ForthError, ABORT_CODE, ABORT_QUOTE, DICTIONARY_FULL, Kernel, BUF_SIZE, DICT_LIMIT, RET_START, STACK_START, WORD_START,
 };
 use std::any::Any;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
@@ -145,13 +145,13 @@ impl ForthRuntime {
             throw_code(DICTIONARY_FULL, "dictionary full");
         }
         if self.word_closed() {
-            let back = self.kernel.get(addr - 1);
-            self.kernel.set(addr - 1, value);
+            let back = self.kernel.get(addr - CELL);
+            self.kernel.set(addr - CELL, value);
             self.kernel.set(addr, back);
         } else {
             self.kernel.set(addr, value);
         }
-        self.kernel.incr(self.here_ptr);
+        self.kernel.delta(self.here_ptr, CELL as i64);
     }
 
     /// word_closed is true when the latest word is finished (LAST = CONTEXT), so the cell at
@@ -293,7 +293,7 @@ impl ForthRuntime {
     /// make-variable creates a variable, returning the address of the variable's value
     fn make_variable(&mut self, name: &str) -> usize {
         let code_ptr = self.make_word(name, &[VARIABLE, 0]); // install the name
-        code_ptr + 1 // the location of the variable's value
+        code_ptr + CELL // the location of the variable's value
     }
 
     /// make_word installs a new word with provided name and arguments
@@ -303,50 +303,52 @@ impl ForthRuntime {
     ///     return pointer to first parameter field - the code field pointer or cfa
     ///     This is used for making headers for words, variables, and constants.
     fn make_word(&mut self, name: &str, args: &[i64]) -> usize {
-        let back = self.kernel.get(self.here_ptr) as usize - 1; // the top-of-stack back pointer's location
-        let mut ptr = back + 1;
+        let back = self.kernel.get(self.here_ptr) as usize - CELL; // the top-of-stack back pointer's location
+        let mut ptr = back + CELL;
         let val = self.kernel.string_new(name.as_bytes()) as i64;
         self.kernel.set(ptr, val);
         for val in args {
-            ptr += 1;
+            ptr += CELL;
             self.kernel.set(ptr, *val);
         }
-        ptr += 1;
+        ptr += CELL;
         self.kernel.set(ptr, back as i64); // the new back pointer
-        self.kernel.set(self.here_ptr, ptr as i64 + 1); // start of free space = HERE
-        self.kernel.set(self.context_ptr, back as i64 + 1); // context is the name_pointer field of this word
-        back + 2 // address of first parameter field
+        self.kernel.set(self.here_ptr, (ptr + CELL) as i64); // start of free space = HERE
+        self.kernel.set(self.context_ptr, (back + CELL) as i64); // context is the name_pointer field of this word
+        back + 2 * CELL // address of first parameter field
     }
 
     pub fn insert_variables(&mut self) {
         // install system variables in data area
         // hand craft S-HERE (free string pointer) so write_string() can work
-        self.kernel.set(0, 0);
-        self.kernel.set(1, 0);
-        self.kernel.set(2, STR_START as i64); //
+        // (cell k is at address k * CELL; values that are addresses are scaled the same way)
+        let c = |k: usize| k * CELL;
+        self.kernel.set(c(0), 0);
+        self.kernel.set(c(1), 0);
+        self.kernel.set(c(2), STR_START as i64); // name field of s-here
 
         self.kernel.string_set(STR_START, "s-here");
 
-        self.kernel.set_string_ptr(4);
-        self.kernel.set(3, VARIABLE);
-        self.kernel.set(4, (STR_START + 7) as i64); // update the value of S-HERE
-        self.kernel.set(5, 1); // back pointer
-                               // hand craft HERE, because it's needed by make_word
+        self.kernel.set_string_ptr(c(4));
+        self.kernel.set(c(3), VARIABLE);
+        self.kernel.set(c(4), (STR_START + 7) as i64); // update the value of S-HERE
+        self.kernel.set(c(5), c(1) as i64); // back pointer
+                                            // hand craft HERE, because it's needed by make_word
         let name_pointer = self.kernel.string_new(b"dp"); // the dictionary pointer; HERE is `dp @`
-        self.kernel.set(6, name_pointer as i64);
-        self.kernel.set(7, VARIABLE);
-        self.kernel.set(8, 10); // the value of HERE
-        self.kernel.set(9, 5); // back pointer
-        self.here_ptr = 8; // the address of the HERE variable
+        self.kernel.set(c(6), name_pointer as i64);
+        self.kernel.set(c(7), VARIABLE);
+        self.kernel.set(c(8), c(10) as i64); // the value of HERE
+        self.kernel.set(c(9), c(5) as i64); // back pointer
+        self.here_ptr = c(8); // the address of the HERE variable
 
         // hand craft CONTEXT, because it's needed by make_word
         let str_addr = self.kernel.string_new(b"context");
-        self.kernel.set(10, str_addr as i64);
-        self.kernel.set(11, VARIABLE);
-        self.kernel.set(12, 10);
-        self.kernel.set(13, 9); // back pointer
-        self.context_ptr = 12;
-        self.kernel.set(self.here_ptr, 14);
+        self.kernel.set(c(10), str_addr as i64);
+        self.kernel.set(c(11), VARIABLE);
+        self.kernel.set(c(12), c(10) as i64);
+        self.kernel.set(c(13), c(9) as i64); // back pointer
+        self.context_ptr = c(12);
+        self.kernel.set(self.here_ptr, c(14) as i64);
 
         self.pad_ptr = self.make_variable("'pad"); // PAD is `'pad @`
         self.kernel.set(self.pad_ptr, PAD_START as i64);
@@ -400,6 +402,7 @@ impl ForthRuntime {
             ("COMPILE_ONLY_FLAG", COMPILE_ONLY_FLAG as i64),
             ("ADDRESS_MASK", ADDRESS_MASK as i64),
             ("DICT_LIMIT", DICT_LIMIT as i64), // the dictionary can grow up to here
+            ("cell", CELL as i64),             // address units per cell
             ("sp0", STACK_START as i64), // sp@ when the data stack is empty
             ("rp0", RET_START as i64),   // rp@ when the return stack is empty
         ];
@@ -535,8 +538,8 @@ impl ForthRuntime {
         }
         // ; ends definitions, so it must run while compiling, and only then
         let semicolon = self.find_word(b";").expect("; is a builtin");
-        let nfa = self.kernel.get(semicolon - 1) as usize | IMMEDIATE_FLAG | COMPILE_ONLY_FLAG;
-        self.kernel.set(semicolon - 1, nfa as i64);
+        let nfa = self.kernel.get(semicolon - CELL) as usize | IMMEDIATE_FLAG | COMPILE_ONLY_FLAG;
+        self.kernel.set(semicolon - CELL, nfa as i64);
     }
 
     /// should_exit determines whether or not the user has executed BYE
@@ -610,12 +613,12 @@ mod tests {
         runtime.cold_start();
 
         let code_ptr = runtime.make_word("test", &[1, 2, 3]);
-        let name = runtime.kernel.get(code_ptr - 1) as usize;
+        let name = runtime.kernel.get(code_ptr - CELL) as usize;
         assert_eq!(runtime.kernel.counted_bytes(name), b"test");
         assert_eq!(runtime.find_word(b"test"), Some(code_ptr));
         assert_eq!(runtime.kernel.get(code_ptr), 1);
-        assert_eq!(runtime.kernel.get(code_ptr + 1), 2);
-        assert_eq!(runtime.kernel.get(code_ptr + 2), 3);
+        assert_eq!(runtime.kernel.get(code_ptr + CELL), 2);
+        assert_eq!(runtime.kernel.get(code_ptr + 2 * CELL), 3);
     }
 
     #[test]

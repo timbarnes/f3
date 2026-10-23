@@ -458,16 +458,24 @@ fn ans_accept() {
     assert!(r.out.contains("hello there"), "{}", r.out);
 }
 
+// ------------------------------------------- step 4 stage 0 (plan/STEP4.md)
+
+#[test]
+fn f34_sequences_stacks_and_arrays() {
+    assert_eq!(stack("3 stack st 10 st >s 20 st >s st s> st s>"), "20 10");
+    assert_eq!(stack("5 array ar 7 2 ar a! 9 4 ar a! 2 ar a@ 4 ar a@ ar ac@"), "7 9 5");
+}
+
 // ------------------------------------------------------------- Phase 5
 
 #[test]
 fn f30_allot_after_a_variable_keeps_the_dictionary() {
     // buf gets 11 cells; words defined afterwards, and all earlier words, still work
-    let src = "variable buf 10 allot : foo 7 ; 42 buf 10 + ! foo buf 10 + @ 1 2 +";
+    let src = "variable buf 10 cells allot : foo 7 ; 42 buf 10 cells + ! foo buf 10 cells + @ 1 2 +";
     assert_eq!(stack(src), "7 42 3");
     assert_eq!(stack("here 10 allot -10 allot here = 1 2 +"), "-1 3");
     // the same for , after a finished word
-    assert_eq!(stack("variable x 1 , 2 , : foo 7 ; foo x 2 + @ 1 2 +"), "7 2 3");
+    assert_eq!(stack("variable x 1 , 2 , : foo 7 ; foo x 2 cells + @ 1 2 +"), "7 2 3");
 }
 
 #[test]

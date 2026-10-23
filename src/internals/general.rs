@@ -2,7 +2,7 @@
 
 use crate::internals::builtin::BuiltInFn;
 use crate::kernel::{
-    throw_code, DICTIONARY_FULL, DICT_LIMIT, DIVISION_BY_ZERO, INVALID_ADDRESS, OUT_OF_RANGE,
+    throw_code, CELL, DICTIONARY_FULL, DICT_LIMIT, DIVISION_BY_ZERO, INVALID_ADDRESS, OUT_OF_RANGE,
 };
 use crate::runtime::ForthRuntime;
 use std::thread;
@@ -153,25 +153,32 @@ impl ForthRuntime {
         self.kernel.pop1_push1("0<", |a| if a < 0 { -1 } else { 0 });
     }
 
-    // Stack primitives work on the top cells in place (top_cells: one depth check, cell 0 is the top).
+    // Stack primitives check the depth once, then work on the cells in place (nth 0 is the top).
     pub fn f_dup(&mut self) {
-        let top = self.kernel.top_cells(1, "dup")[0];
-        self.kernel.push(top);
+        self.kernel.stack_check(1, "dup");
+        self.kernel.push(self.kernel.nth(0));
     }
     pub fn f_drop(&mut self) {
-        self.kernel.top_cells(1, "drop");
+        self.kernel.stack_check(1, "drop");
         self.kernel.drop_cells(1);
     }
     pub fn f_swap(&mut self) {
-        self.kernel.top_cells(2, "swap").swap(0, 1);
+        self.kernel.stack_check(2, "swap");
+        let (a, b) = (self.kernel.nth(0), self.kernel.nth(1));
+        self.kernel.set_nth(0, b);
+        self.kernel.set_nth(1, a);
     }
     pub fn f_over(&mut self) {
-        let second = self.kernel.top_cells(2, "over")[1];
-        self.kernel.push(second);
+        self.kernel.stack_check(2, "over");
+        self.kernel.push(self.kernel.nth(1));
     }
     pub fn f_rot(&mut self) {
-        // ( i j k -- j k i ): top first, [k j i] becomes [i k j]
-        self.kernel.top_cells(3, "rot").rotate_right(1);
+        // ( i j k -- j k i ): i is 2 deep, and goes to the top
+        self.kernel.stack_check(3, "rot");
+        let (k, j, i) = (self.kernel.nth(0), self.kernel.nth(1), self.kernel.nth(2));
+        self.kernel.set_nth(2, j);
+        self.kernel.set_nth(1, k);
+        self.kernel.set_nth(0, i);
     }
     pub fn f_and(&mut self) {
         self.kernel.pop2_push1("and", |a, b| a & b);
@@ -282,7 +289,7 @@ impl ForthRuntime {
     pub fn f_2_r_get(&mut self) {
         self.kernel.stack_check_r(2, "2r@");
         let rp = self.kernel.get_return_ptr();
-        let (x2, x1) = (self.kernel.get(rp), self.kernel.get(rp + 1));
+        let (x2, x1) = (self.kernel.get(rp), self.kernel.get(rp + CELL));
         self.kernel.push(x1);
         self.kernel.push(x2);
     }
@@ -313,7 +320,7 @@ impl ForthRuntime {
     ///
     pub fn f_j(&mut self) {
         self.kernel.stack_check_r(6, "j");
-        let val = self.kernel.get(self.kernel.get_return_ptr() + 3);
+        let val = self.kernel.get(self.kernel.get_return_ptr() + 3 * CELL);
         self.kernel.push(val);
     }
 
@@ -334,8 +341,8 @@ impl ForthRuntime {
             throw_code(INVALID_ADDRESS, "allot: below the start of memory");
         }
         if self.word_closed() {
-            let back = self.kernel.get(old as usize - 1);
-            self.kernel.set(here as usize - 1, back);
+            let back = self.kernel.get(old as usize - CELL);
+            self.kernel.set(here as usize - CELL, back);
         }
         self.kernel.set(self.here_ptr, here);
     }

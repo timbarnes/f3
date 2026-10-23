@@ -6,12 +6,12 @@
 variable #errors
 variable start-depth
 variable actual-depth
-variable actual-results 31 allot                \ room for 32 results
+variable actual-results 31 cells allot          \ room for 32 results
 
 : T{ ( -- )         depth start-depth ! ;
 
 : -> ( ... -- )     depth start-depth @ - dup actual-depth !
-                    0 ?do actual-results i + ! loop ;   \ top of stack goes to cell 0
+                    0 ?do actual-results i cells + ! loop ;   \ top of stack goes to cell 0
 
 : (fail) ( -- )     1 #errors +!  'tib @ ctype cr  clear ;
 
@@ -19,6 +19,6 @@ variable actual-results 31 allot                \ room for 32 results
     depth start-depth @ - actual-depth @ <>
     if ." WRONG NUMBER OF RESULTS: " (fail) exit then
     actual-depth @ 0 ?do
-        actual-results i + @ <>
+        actual-results i cells + @ <>
         if ." INCORRECT RESULT: " (fail) unloop exit then
     loop ;
