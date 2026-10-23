@@ -2,22 +2,20 @@
 use crossterm::event::{poll, read, Event, KeyCode, KeyEvent};
 /// File: src/files.rs
 ///
-/// This module provides functionality for reading and writing files,
-///      Read tokens from a file or stdin, one line at a time.
-///      Return one space-delimited token at a time.
-///      Cache the remainder of the line.
-use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read};
+/// This module provides functionality for reading and writing files:
+///      source code is read from a file or stdin one line at a time,
+///      and the file words (open-file etc.) read and write lines.
+use std::fs::{File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
-
-use crate::internals::messages::{DebugLevel, Msg};
 
 // Check if a key is available. Only works properly in raw mode
 pub fn key_available() -> bool {
     poll(Duration::from_millis(0)).unwrap_or(false)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum FileMode {
     RW, // -1 => Read-write
     RO, //  0 => Read-only
@@ -32,54 +30,70 @@ pub enum FType {
 
 pub struct FileHandle {
     pub source: FType, // Stdin, File, or BufReader
-    pub file_mode: FileMode,
-    pub file_size: usize,
     pub file_position: usize,
+    pub dir: Option<PathBuf>, // the file's directory, so includes can be relative to it
+}
+
+/// Read one line of at most `max` bytes, without the newline. None at end of file.
+///     A longer line is returned in pieces by successive calls.
+fn read_line_max(r: &mut impl Read, max: usize) -> io::Result<Option<(Vec<u8>, usize)>> {
+    let mut line = Vec::new();
+    let mut consumed = 0;
+    let mut byte = [0u8; 1];
+    while line.len() < max {
+        if r.read(&mut byte)? == 0 {
+            break; // end of file
+        }
+        consumed += 1;
+        if byte[0] == b'\n' {
+            break;
+        }
+        line.push(byte[0]);
+    }
+    if line.last() == Some(&b'\r') {
+        line.pop();
+    }
+    Ok(if consumed == 0 && max > 0 { None } else { Some((line, consumed)) })
 }
 
 impl FileHandle {
-    pub fn new_file(
-        file_path: Option<&std::path::PathBuf>,
-        msg_handler: Msg,
-        mode: FileMode,
-    ) -> Option<FileHandle> {
-        // Initialize a tokenizer.
-        let mut message_handler = Msg::new();
-        message_handler.set_level(DebugLevel::Warning);
-        match file_path {
-            Some(file_path) => {
-                let file = File::open(file_path);
-                match file {
-                    Ok(file) => match mode {
-                        FileMode::RO => Some(FileHandle {
-                            source: FType::BReader(BufReader::new(file)),
-                            file_mode: FileMode::RO,
-                            file_size: 0,
-                            file_position: 0,
-                        }),
-                        FileMode::RW | FileMode::WO => Some(FileHandle {
-                            source: FType::File(file),
-                            file_mode: mode,
-                            file_size: 0,
-                            file_position: 0,
-                        }),
-                    },
-                    Err(_) => {
-                        msg_handler.error("Reader::new", "Unable to open file", Some(file_path));
-                        None
-                    }
-                }
-            }
-            None => Some(FileHandle {
-                source: FType::Stdin,
-                file_mode: FileMode::RO,
-                file_size: 0,
-                file_position: 0,
-            }),
+    pub fn stdin() -> FileHandle {
+        FileHandle {
+            source: FType::Stdin,
+            file_position: 0,
+            dir: None,
         }
     }
 
-    /// get_line returns the next line as raw bytes, without trailing whitespace.
+    /// open opens a file: read-only files are buffered for line reading;
+    ///     write-only files are created or truncated; read-write files are created if necessary.
+    pub fn open(path: &Path, mode: FileMode) -> io::Result<FileHandle> {
+        let source = match mode {
+            FileMode::RO => FType::BReader(BufReader::new(File::open(path)?)),
+            FileMode::WO => FType::File(
+                OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(path)?,
+            ),
+            FileMode::RW => FType::File(
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .truncate(false)
+                    .open(path)?,
+            ),
+        };
+        Ok(FileHandle {
+            source,
+            file_position: 0,
+            dir: path.parent().map(Path::to_path_buf),
+        })
+    }
+
+    /// get_line returns the next line of source as raw bytes, without trailing whitespace.
     ///     None means end of input (or a read error).
     pub fn get_line(&mut self) -> Option<Vec<u8>> {
         let mut line = Vec::new();
@@ -96,6 +110,32 @@ impl FileHandle {
                 Some(line)
             }
             _ => None,
+        }
+    }
+
+    /// read_line reads a line of at most `max` bytes for READ-LINE. None at end of file.
+    pub fn read_line(&mut self, max: usize) -> io::Result<Option<Vec<u8>>> {
+        let result = match &mut self.source {
+            FType::BReader(br) => read_line_max(br, max)?,
+            FType::File(f) => read_line_max(f, max)?,
+            FType::Stdin => read_line_max(&mut io::stdin().lock(), max)?,
+        };
+        Ok(result.map(|(line, consumed)| {
+            self.file_position += consumed;
+            line
+        }))
+    }
+
+    /// write_line writes the bytes followed by a newline, for WRITE-LINE.
+    pub fn write_line(&mut self, bytes: &[u8]) -> io::Result<()> {
+        match &mut self.source {
+            FType::File(f) => {
+                f.write_all(bytes)?;
+                f.write_all(b"\n")?;
+                self.file_position += bytes.len() + 1;
+                Ok(())
+            }
+            _ => Err(io::Error::other("file is not open for writing")),
         }
     }
 
@@ -153,77 +193,64 @@ impl FileHandle {
 
     pub fn file_size(&self) -> usize {
         // Returns the size of the file, or 0 for stdin
-        self.file_size
-    }
-
-    #[allow(dead_code)]
-    pub fn file_mode(&self) -> &FileMode {
-        // Returns the file mode
-        &self.file_mode
-    }
-
-    #[allow(dead_code)]
-    pub fn set_file_mode(&mut self, mode: FileMode) {
-        // Sets the file mode
-        self.file_mode = mode;
+        let metadata = match &self.source {
+            FType::File(f) => f.metadata(),
+            FType::BReader(br) => br.get_ref().metadata(),
+            FType::Stdin => return 0,
+        };
+        metadata.map(|m| m.len() as usize).unwrap_or(0)
     }
 }
 
 //////////////////////////////////////////
-/// TESTS
-///
+// TESTS
+//
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
-    #[test]
-    fn test_file_handle_new() {
-        let msg = Msg::new();
-        let buf = &PathBuf::from("src/test.fs");
-        let file_path = Some(buf);
-        let handle = FileHandle::new_file(file_path, msg, FileMode::RO);
-        assert!(handle.is_some());
-    }
 
     #[test]
     fn test_get_line() {
-        let buf = &PathBuf::from("src/test.fs");
-        let file_path = Some(buf);
-        let mut handle = FileHandle::new_file(file_path, Msg::new(), FileMode::RO).unwrap();
-        let line = handle.get_line();
-        assert!(line.is_some());
-        println!("Read line: {:?}", line.unwrap());
+        let mut handle = FileHandle::open(Path::new("src/test.fs"), FileMode::RO).unwrap();
+        assert!(handle.get_line().is_some());
     }
 
     #[test]
     #[ignore = "needs interactive stdin"]
     fn test_read_char() {
         // This test requires interactive input
-        let mut handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
+        let mut handle = FileHandle::stdin();
         println!("Please enter a character:");
-        let ch = handle.read_char();
-        assert!(ch.is_some());
-        println!("Read character: {:?}", ch.unwrap());
+        assert!(handle.read_char().is_some());
     }
 
     #[test]
-    fn test_file_position() {
-        let handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
+    fn test_stdin_handle() {
+        let handle = FileHandle::stdin();
         assert_eq!(handle.file_position(), 0);
-    }
-
-    #[test]
-    fn test_file_size() {
-        let handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
         assert_eq!(handle.file_size(), 0);
     }
 
     #[test]
-    fn test_file_mode() {
-        let mut handle = FileHandle::new_file(None, Msg::new(), FileMode::RO).unwrap();
-        assert_eq!(handle.file_mode(), &FileMode::RO);
-        handle.set_file_mode(FileMode::RW);
-        assert_eq!(handle.file_mode(), &FileMode::RW);
+    fn test_read_line_max() {
+        let mut input: &[u8] = b"abcdef\r\nxy\n\nz";
+        let mut lines = vec![];
+        while let Some((line, _)) = read_line_max(&mut input, 4).unwrap() {
+            lines.push(String::from_utf8(line).unwrap());
+        }
+        assert_eq!(lines, ["abcd", "ef", "xy", "", "z"]);
+    }
+
+    #[test]
+    fn test_write_then_read() {
+        let path = std::env::temp_dir().join("f3_files_test.txt");
+        let mut w = FileHandle::open(&path, FileMode::WO).unwrap();
+        w.write_line(b"hello").unwrap();
+        drop(w);
+        let mut r = FileHandle::open(&path, FileMode::RO).unwrap();
+        assert_eq!(r.file_size(), 6);
+        assert_eq!(r.read_line(100).unwrap().unwrap(), b"hello");
+        assert_eq!(r.file_position(), 6);
+        assert!(r.read_line(100).unwrap().is_none());
     }
 }

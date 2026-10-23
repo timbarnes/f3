@@ -75,7 +75,7 @@ tmp @ s" min" drop ?unique test-single
 71 test-[char] test-single
 
 ." ' and flags and mask " cr
-2305843009213693971 ' dup test-single
+2305843009213693971 ' dup @ test-single \ ' gives the cfa; a builtin's cfa holds its flagged index
 19 2305843009213693971 ADDRESS_MASK and test-single
 2305843009213693952 2305843009213693971 BUILTIN_FLAG and test-single
 

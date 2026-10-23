@@ -325,7 +325,7 @@ variable word-counter
 \ Debug print commands.
 \   These only produce output if the dbg variable is set to 4 (debug).
 \
-: debug? debuglevel 4 = ;
+: debug? debuglevel 3 = ;
 
 : d. debug?     ( n -- n )
     if dup . then ;

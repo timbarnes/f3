@@ -1,205 +1,170 @@
-use crate::kernel::RET_START;
-/// Inner Interpreters
+/// Inner Interpreter
 ///
-/// Core functions to execute specific types of objects
+/// Executes compiled definitions
 ///
 use crate::runtime::{
-    ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN, BUILTIN_FLAG,
-    CONSTANT, DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE,
+    ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN_FLAG, CONSTANT,
+    DEFINITION, DO, EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, PLOOP, QDO, STRLIT, VARIABLE,
 };
 
+/// The address a branch-style operand at `pc` points to (operands are offsets from their own cell)
+fn target(pc: usize, offset: i64) -> usize {
+    (pc as i64).wrapping_add(offset) as usize // a bad offset gives a bad address, which get() rejects
+}
+
 impl ForthRuntime {
-    /// Executes the builtin at the next address in DATA
-    ///
-    ///    [ index of i_builtin ] [ index of builtin ] in a compiled word
+    /// Executes the builtin with the given index
     ///
     pub fn builtin(&mut self, code: usize) {
         let func = &self.kernel.get_builtin(code);
         (func.code)(self); // call the function pointer directly
     }
 
-    /// Places the address of the adjacent variable on the stack
+    /// unloop ( -- ) ( R: exit limit index -- ) discards the innermost loop's return-stack frame
     ///
-    ///    [ index of i_variable ] [ index of builtin ] in a compiled word
-    ///
-    pub fn i_variable(&mut self) {
-        let val = self.kernel.pop();
-        self.kernel.push(val); // address of the value
+    pub fn f_unloop(&mut self) {
+        self.kernel.stack_check_r(3, "unloop");
+        for _ in 0..3 {
+            self.kernel.pop_r();
+        }
     }
 
-    /// Places the value of the adjacent constant on the stack
-    ///
-    ///    [ index of i_constant ] [ constant value ] in a compiled word
-    ///
-    pub fn i_constant(&mut self) {
-        let val = self.kernel.pop();
-        let val = self.kernel.get(val as usize);
-        self.kernel.push(val);
-    }
-
-    pub fn i_array(&mut self) {
-        self.i_variable();
-    }
-
-    /// Places the number in data[d] on the stack
-    ///
-    ///    [ index of i_literal ] [ number ] in a compiled word
-    ///
-    pub fn i_literal(&mut self) {} // Number is already on the stack
-
-    /// Places the address (in string space) of the adjacent string on the stack
-    ///
-    ///    [ i_string ] [ index into string space ] in a compiled word
-    ///
-    pub fn i_strlit(&mut self) {} // Address is already on the stack
-
-    /// i_definition ( cfa -- ) Loops through the adjacent definition, running their inner interpreters
-    ///
-    ///    [ index of i_definition ] [ sequence of compiled words ]
+    /// i_definition runs the compiled code starting at pc (the cell after a DEFINITION opcode)
     ///
     ///    A program counter is used to step through the entries in the definition.
     ///    Each entry is one or two cells, and may be an inner interpreter code (opcode), with or without an argument,
-    ///    or a defined word. For space efficiency, builtin words and user defined (colon) words are
-    ///    represented by the cfa of their definition, overlaid with a flag. The interpreter calls the builtin code.
-    ///    For nested definitions, the inner interpreter pushes the program counter (PC) and continues.
-    ///    When the end of a definition is found, the PC is restored from the previous caller.
+    ///    or a defined word. For space efficiency, builtin words are compiled as their builtin index,
+    ///    overlaid with BUILTIN_FLAG; other words are compiled as their cfa.
+    ///    Calling a word pushes the return address on the return stack; EXIT pops it.
+    ///    The call returns when an EXIT brings the return stack back to where it was on entry,
+    ///    so i_definition can be re-entered safely (e.g. by EXECUTE inside a definition).
     ///
-    ///    Most data is represented by an address, so self.data[pc] is the cfa of the word referenced.
-    ///    Each operation advances the pc to the next token.
+    ///    Loops (DO, ?DO, FOR) keep a three-cell frame on the return stack: exit address, limit, index.
+    ///    The index is on top, so I reads it directly, and J reads the index three cells further down.
     ///
     ///    cfa means the code field address (the address in data space of the opcode to be executed)
     ///    nfa means the name field address (a pointer to the string naming the word)
-    ///    xt  means the execution token - a value that tells the engine what to do
+    ///    xt  means the execution token: a cfa, or a builtin index overlaid with BUILTIN_FLAG
     ///
-    pub fn i_definition(&mut self) {
-        let mut pc = self.kernel.pop() as usize; // This is the start of the definition: first word after the inner interpreter opcode
+    pub fn i_definition(&mut self, start: usize) {
+        let entry_rp = self.kernel.get_return_ptr();
+        let mut pc = start;
         let mut call_depth: usize = 1;
-        self.kernel.push(0); // this is how we know when we're done
-        self.f_to_r();
         loop {
-            // each time round the loop should be one word
-            if pc == 0 {
-                self.kernel.set_return_ptr(RET_START); // clear the return stack
-                return; // we've completed the last exit
-            }
             let code = self.kernel.get(pc); // throws if pc has left the heap
             self.debug_step(pc, call_depth);
             match code {
-                BUILTIN => {
-                    self.msg
-                        .error("i_definition", "Found BUILTIN???", Some(code));
-                    self.f_r_from();
-                    pc = self.kernel.pop() as usize;
-                }
-                VARIABLE | ARRAY => {
-                    // this means we've pushed into a variable or an array reference
-                    pc += 1;
-                    self.kernel.push(pc as i64); // the address of the variable's data
-                    self.f_r_from();
-                    pc = self.kernel.pop() as usize;
-                }
-                CONSTANT => {
+                DEFINITION => pc += 1, // entering a called colon definition
+                LITERAL | STRLIT => {
                     pc += 1;
                     let val = self.kernel.get(pc);
-                    self.kernel.push(val); // the value of the constant
-                    self.f_r_from();
-                    pc = self.kernel.pop() as usize;
-                }
-                LITERAL => {
+                    self.kernel.push(val); // a number, or the string address of the data
                     pc += 1;
-                    let val = self.kernel.get(pc);
-                    self.kernel.push(val); // the data stored in the current definition
-                    pc += 1;
-                }
-                STRLIT => {
-                    pc += 1;
-                    let val = self.kernel.get(pc);
-                    self.kernel.push(val); // the string address of the data
-                    pc += 1;
-                }
-                DEFINITION => {
-                    pc += 1;
-                    // Continue to work through the definition
-                    // at the end, EXIT will pop back to the previous definition
                 }
                 BRANCH => {
-                    // Unconditional jump based on self.data[pc + 1]
                     pc += 1;
-                    let offset = self.kernel.get(pc);
-                    if offset < 0 {
-                        pc -= offset.unsigned_abs() as usize;
-                    } else {
-                        pc += offset as usize;
-                    }
+                    pc = target(pc, self.kernel.get(pc));
                 }
                 BRANCH0 => {
                     pc += 1;
                     if self.kernel.pop() == 0 {
-                        let offset = self.kernel.get(pc);
-                        if offset < 0 {
-                            pc -= offset.unsigned_abs() as usize;
-                        } else {
-                            pc += offset as usize;
-                        }
+                        pc = target(pc, self.kernel.get(pc));
                     } else {
                         pc += 1; // skip over the offset
                     }
                 }
-                ABORT => {
-                    self.f_abort();
-                    break;
+                DO | QDO | FOR => {
+                    // operand: offset to the first cell after the loop
+                    pc += 1;
+                    let exit = target(pc, self.kernel.get(pc));
+                    let (limit, index) = if code == FOR {
+                        (0, self.kernel.pop())
+                    } else {
+                        let index = self.kernel.pop();
+                        (self.kernel.pop(), index)
+                    };
+                    let skip = match code {
+                        QDO => index == limit,
+                        FOR => index <= 0,
+                        _ => false,
+                    };
+                    if skip {
+                        pc = exit;
+                    } else {
+                        self.kernel.push_r(exit as i64);
+                        self.kernel.push_r(limit);
+                        self.kernel.push_r(index);
+                        pc += 1;
+                    }
                 }
-                EXIT => {
-                    // Current definition is finished, so pop the PC from the return stack
-                    self.f_r_from();
-                    pc = self.kernel.pop() as usize;
+                LOOP | PLOOP | NEXT => {
+                    // operand: offset back to the first cell of the loop body
+                    pc += 1;
+                    self.kernel.stack_check_r(3, "loop");
+                    let rp = self.kernel.get_return_ptr();
+                    let index = self.kernel.get(rp);
+                    let limit = self.kernel.get(rp + 1);
+                    let (next, done) = if code == NEXT {
+                        (index - 1, index <= 1) // FOR counts down from n to 1
+                    } else {
+                        let step = if code == PLOOP { self.kernel.pop() } else { 1 };
+                        // finished when the index crosses the boundary between limit-1 and limit
+                        let diff = index.wrapping_sub(limit);
+                        let crossed = (diff ^ diff.wrapping_add(step)) < 0 && (diff ^ step) < 0;
+                        (index.wrapping_add(step), crossed)
+                    };
+                    if done {
+                        self.f_unloop();
+                        pc += 1;
+                    } else {
+                        self.kernel.set(rp, next);
+                        pc = target(pc, self.kernel.get(pc));
+                    }
+                }
+                LEAVE => {
+                    self.kernel.stack_check_r(3, "leave");
+                    self.kernel.pop_r(); // index
+                    self.kernel.pop_r(); // limit
+                    pc = self.kernel.pop_r() as usize; // exit address
+                }
+                VARIABLE | ARRAY | CONSTANT | EXIT | BREAK => {
+                    // VARIABLE etc. are reached by calling a data word: push its value, then return
+                    match code {
+                        VARIABLE | ARRAY => self.kernel.push(pc as i64 + 1),
+                        CONSTANT => {
+                            let val = self.kernel.get(pc + 1);
+                            self.kernel.push(val);
+                        }
+                        _ => {}
+                    }
+                    if self.kernel.get_return_ptr() == entry_rp {
+                        return; // the word we were called for is finished
+                    }
+                    pc = self.kernel.pop_r() as usize;
                     call_depth -= 1;
                 }
-                BREAK => {
-                    // Breaks out of a word by popping the PC from the return stack
-                    self.f_r_from();
-                    pc = self.kernel.pop() as usize;
-                }
+                ABORT => self.f_abort(),
                 EXEC => {
                     self.f_execute();
                     pc += 1;
                 }
                 _ => {
-                    // we have a word address
-                    // see if it's a builtin:
-                    let builtin_flag = code as usize & BUILTIN_FLAG;
-                    let address = code as usize & ADDRESS_MASK;
-                    if builtin_flag != 0 && (address <= self.kernel.max_builtin()) {
-                        self.builtin(address);
+                    let xt = code as usize;
+                    if xt & BUILTIN_FLAG != 0 {
+                        self.builtin(xt & ADDRESS_MASK);
+                        pc += 1;
+                    } else if self.kernel.get(xt) as usize & BUILTIN_FLAG != 0 {
+                        // the cfa of a builtin word (e.g. compiled by ['] ... ,)
+                        self.builtin(self.kernel.get(xt) as usize & ADDRESS_MASK);
                         pc += 1;
                     } else {
+                        // call a word: save the return address and continue at its cfa
                         call_depth += 1;
-                        self.kernel.push(pc as i64 + 1); // the return address is the next object in the list
-                        self.f_to_r(); // save it on the return stack
-                        pc = code as usize;
+                        self.kernel.push_r(pc as i64 + 1);
+                        pc = xt;
                     }
                 }
             }
         }
-    }
-
-    /// Unconditional branch, used by condition and loop structures
-    ///
-    pub fn i_branch(&mut self) {}
-
-    /// Branch if zero, used by condition and loop structures
-    ///
-    pub fn i_branch0(&mut self) {}
-
-    /// Force an abort
-    ///
-    pub fn i_abort(&mut self) {}
-
-    /// Leave the current word
-    ///     *** doesn't work, because there's no way to reset the program counter from here
-    ///
-    pub fn i_exit(&mut self) {
-        self.f_r_from();
-        // pc = self.kernel.pop() as usize;
     }
 }

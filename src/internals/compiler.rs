@@ -1,25 +1,54 @@
 // Compiler and Interpreter
 
-use crate::internals::general::u_is_integer;
 use crate::kernel::throw;
 use crate::runtime::PendingDef;
 use crate::runtime::{
-    ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, BUILTIN, CONSTANT,
-    DEFINITION, EXEC, EXIT, LITERAL, STRLIT, VARIABLE,
+    ForthRuntime, ABORT, ADDRESS_MASK, ARRAY, BRANCH, BRANCH0, BREAK, CONSTANT, DEFINITION, DO,
+    EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, PLOOP, QDO, STRLIT, VARIABLE,
 };
-use crate::runtime::{BUILTIN_FLAG, FALSE, IMMEDIATE_FLAG, TRUE};
+use crate::runtime::{BUILTIN_FLAG, COMPILE_ONLY_FLAG, FALSE, IMMEDIATE_FLAG, TRUE};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+/// parse_number converts a token to a number in the given base.
+///     A prefix overrides the base: # decimal, $ hex, % binary. A leading - makes it negative.
+///     Values up to 2^64-1 are accepted, and wrap to negative like any other cell.
+///
+pub fn parse_number(text: &str, base: i64) -> Option<i64> {
+    let (radix, digits) = match text.as_bytes().first() {
+        Some(b'#') => (10, &text[1..]),
+        Some(b'$') => (16, &text[1..]),
+        Some(b'%') => (2, &text[1..]),
+        _ => (base, text),
+    };
+    if !(2..=36).contains(&radix) || digits.starts_with('+') {
+        return None;
+    }
+    let radix = radix as u32;
+    i64::from_str_radix(digits, radix)
+        .ok()
+        .or_else(|| u64::from_str_radix(digits, radix).ok().map(|n| n as i64))
+}
+
 impl ForthRuntime {
-    /// immediate ( -- ) sets the immediate flag on the most recently defined word
+    /// set_flag sets a flag (IMMEDIATE_FLAG, COMPILE_ONLY_FLAG) on the most recently defined word
     ///     Context pointer links to the most recent name field
     ///
+    fn set_flag(&mut self, flag: usize) {
+        let addr = self.kernel.get(self.context_ptr) as usize;
+        let name = self.kernel.get(addr) as usize | flag;
+        self.kernel.set(addr, name as i64);
+    }
+
+    /// immediate ( -- ) sets the immediate flag on the most recently defined word
+    ///
     pub fn f_immediate(&mut self) {
-        let addr = self.kernel.get(self.context_ptr) as usize;
-        let mut str_addr = self.kernel.get(addr) as usize;
-        str_addr |= IMMEDIATE_FLAG;
-        let addr = self.kernel.get(self.context_ptr) as usize;
-        self.kernel.set(addr, str_addr as i64);
+        self.set_flag(IMMEDIATE_FLAG);
+    }
+
+    /// compile-only ( -- ) marks the most recently defined word as an error outside a definition
+    ///
+    pub fn f_compile_only(&mut self) {
+        self.set_flag(COMPILE_ONLY_FLAG);
     }
 
     /// immediate? ( cfa -- flag ) checks if the word at cfa is immediate
@@ -44,11 +73,19 @@ impl ForthRuntime {
     ///     quit also issues the prompt and checks for a shutdown (exit) condition
     ///     Any error raised while handling a line unwinds to here, and is handled by recover
     pub fn f_quit(&mut self) {
-        while !self.should_exit() {
+        self.run_lines(0);
+    }
+
+    /// run_lines reads and interprets lines until input drops back to `depth` readers,
+    ///     or BYE is executed. Depth 0 means: until BYE (or the end of stdin).
+    ///
+    pub fn run_lines(&mut self, depth: usize) {
+        while !self.should_exit() && self.reader.len() > depth {
+            let console = self.reader.len() == 1; // prompt only for lines typed at the console
             let result = catch_unwind(AssertUnwindSafe(|| {
                 self.f_query();
                 self.f_eval(); // interpret the contents of the line
-                if self.reader.len() == 1 {
+                if console {
                     if self.show_stack {
                         self.f_dot_s();
                     }
@@ -62,34 +99,25 @@ impl ForthRuntime {
         }
     }
 
-    /// EXECUTE ( cfa -- ) interpret a word with addr on the stack
-    /// stack value is the address of an inner interpreter
+    /// EXECUTE ( xt -- ) runs the word whose execution token is on the stack:
+    ///     a cfa, or a builtin index overlaid with BUILTIN_FLAG (as compiled into definitions)
+    ///
     pub fn f_execute(&mut self) {
-        if self.kernel.stack_check(1, "execute") {
-            // call the appropriate inner interpreter
-            let xt = self.kernel.pop();
-            self.kernel.push(xt + 1);
-            let opcode = self.kernel.get(xt as usize & ADDRESS_MASK);
-            // println!("f_execute: opcode = {opcode} xt = {xt}");
-            match opcode {
-                BUILTIN => self.msg.error("f_execute", "BUILTIN found", Some(xt)), //self.i_builtin(),
-                VARIABLE => self.i_variable(),
-                CONSTANT => self.i_constant(),
-                LITERAL => self.i_literal(),
-                STRLIT => self.i_strlit(),
-                DEFINITION => self.i_definition(),
-                BRANCH => self.i_branch(),
-                BRANCH0 => self.i_branch0(),
-                ABORT => self.i_abort(),
-                EXIT => self.i_exit(),
-                BREAK => self.i_exit(),
-                ARRAY => self.i_array(),
-                _ => {
-                    self.kernel.pop();
-                    let cfa = self.kernel.get(xt as usize) as usize & ADDRESS_MASK;
-                    self.builtin(cfa);
-                }
+        self.kernel.stack_check(1, "execute");
+        let xt = self.kernel.pop() as usize;
+        if xt & BUILTIN_FLAG != 0 {
+            return self.builtin(xt & ADDRESS_MASK);
+        }
+        let code = self.kernel.get(xt);
+        match code {
+            DEFINITION => self.i_definition(xt + 1),
+            VARIABLE | ARRAY => self.kernel.push(xt as i64 + 1),
+            CONSTANT => {
+                let val = self.kernel.get(xt + 1);
+                self.kernel.push(val);
             }
+            _ if code as usize & BUILTIN_FLAG != 0 => self.builtin(code as usize & ADDRESS_MASK),
+            _ => throw(format!("execute: {} is not an execution token", xt as i64)),
         }
     }
 
@@ -165,6 +193,12 @@ impl ForthRuntime {
             self.f_find(); // (s -- nfa, cfa, T | s F )
             if self.kernel.pop() == TRUE {
                 // we have a definition
+                let cfa = self.kernel.top() as usize;
+                let name = self.kernel.get(cfa - 1) as usize;
+                if name & COMPILE_ONLY_FLAG != 0 && !self.get_compile_mode() {
+                    let name = self.kernel.string_get(name & ADDRESS_MASK);
+                    throw(format!("{name} is only valid inside a definition"));
+                }
                 self.f_execute();
             } else {
                 // try number?
@@ -215,10 +249,10 @@ impl ForthRuntime {
     ///
     pub fn f_number_q(&mut self) {
         let buf_addr = self.kernel.pop();
-        let numtext = self.kernel.string_get(buf_addr as usize);
-        if u_is_integer(numtext.as_str()) {
-            let result = numtext.parse().unwrap();
-            self.kernel.push(result);
+        let text = self.kernel.string_get(buf_addr as usize);
+        let base = self.kernel.get(self.base_ptr);
+        if let Some(n) = parse_number(&text, base) {
+            self.kernel.push(n);
             self.kernel.push(TRUE);
         } else {
             self.kernel.push(buf_addr);
@@ -259,10 +293,8 @@ impl ForthRuntime {
         }
     }
 
-    /// (') (TICK) <name> ( -- a | FALSE ) Searches for a word, places cfa on stack if found; otherwise FALSE
-    ///     Looks for a (postfix) word in the dictionary
-    ///     places it's execution token / address on the stack
-    ///     Pushes 0 if not found
+    /// (') (TICK) <name> ( -- cfa ) Searches for a (postfix) word, and places its cfa on the stack.
+    ///     It is an error if the word is not found.
     ///
     pub fn f_tick_p(&mut self) {
         let val = self.kernel.get(self.pad_ptr);
@@ -272,16 +304,9 @@ impl ForthRuntime {
         self.kernel.pop(); // don't need the delim
         self.f_find(); // look for the token
         if self.kernel.pop() == FALSE {
-            // write an error message
-            let addr = self.kernel.get(self.pad_ptr) as usize;
-            let mut msg = self.kernel.string_get(addr);
-            msg = format!("Word not found: {} ", msg);
-            let addr = self.kernel.get(self.pad_ptr) as usize;
-            self.kernel.string_set(addr, &msg);
-            self.kernel.pop();
-            self.kernel.push(FALSE);
+            let addr = self.kernel.pop() as usize;
+            throw(format!("{} ?", self.kernel.string_get(addr)));
         }
-        // self.kernel.pop();
     }
 
     /// (parse) - ( b u c -- b u delta )
@@ -429,11 +454,9 @@ impl ForthRuntime {
     ///     Taking a postfix word name (normally used interactively), this is the Forth decompiler.
     ///
     pub fn f_see(&mut self) {
-        self.f_tick_p(); // finds the address of the word
+        self.f_tick_p(); // finds the address of the word, or throws
         let cfa = self.kernel.pop();
-        if cfa == FALSE {
-            self.msg.warning("see", "Word not found", None::<bool>);
-        } else {
+        {
             let mut nfa = self.kernel.get(cfa as usize - 1) as usize;
             let is_immed = nfa & IMMEDIATE_FLAG;
             let xt = self.kernel.get(cfa as usize) as usize;
@@ -478,7 +501,20 @@ impl ForthRuntime {
                                     print!("branch0:{} ", self.kernel.get(index + 1));
                                     index += 1;
                                 }
-                                ABORT => println!("abort "),
+                                DO | QDO | LOOP | PLOOP | FOR | NEXT => {
+                                    let name = match xt {
+                                        DO => "do",
+                                        QDO => "?do",
+                                        LOOP => "loop",
+                                        PLOOP => "+loop",
+                                        FOR => "for",
+                                        _ => "next",
+                                    };
+                                    print!("{name}:{} ", self.kernel.get(index + 1));
+                                    index += 1;
+                                }
+                                LEAVE => print!("leave "),
+                                ABORT => print!("abort "),
                                 BREAK => print!("exit "),
                                 EXIT => {
                                     print!("; ");
@@ -512,8 +548,11 @@ impl ForthRuntime {
                         }
                     }
                     CONSTANT => {
-                        let addr = self.kernel.get(cfa as usize - 1) as usize;
-                        println!("Constant: {} = {}", addr, self.kernel.get(cfa as usize + 1),);
+                        println!(
+                            "Constant: {} = {}",
+                            self.kernel.string_get(nfa),
+                            self.kernel.get(cfa as usize + 1),
+                        );
                     }
                     VARIABLE => {
                         let addr = self.kernel.get(cfa as usize - 1) as usize;

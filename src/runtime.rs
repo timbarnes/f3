@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////
 use crate::internals::builtin::BuiltInFn;
-use crate::internals::files::{FType, FileHandle, FileMode}; // Import FileHandle and FType for file handling
+use crate::internals::files::FileHandle;
 use crate::internals::messages::Msg;
 use crate::internals::terminal;
 /// runtime.rs
@@ -22,7 +22,7 @@ pub const TMP_START: usize = PAD_START + BUF_SIZE; // Temporary buffer, used for
 pub const STR_START: usize = TMP_START + BUF_SIZE; // Free space for additional strings
 
 // Indices into builtins to drive execution of each data type
-pub const BUILTIN: i64 = 100000;
+// 100000 was BUILTIN, no longer used
 pub const VARIABLE: i64 = 100001;
 pub const CONSTANT: i64 = 100002;
 pub const LITERAL: i64 = 100003;
@@ -35,33 +35,30 @@ pub const EXIT: i64 = 100009; // returns from a word
 pub const BREAK: i64 = 100010; // breaks out of a word
 pub const EXEC: i64 = 100011; // calls the word with address on the stack
 pub const ARRAY: i64 = 100012;
+pub const DO: i64 = 100013; // starts a DO loop; operand: offset to the loop exit
+pub const QDO: i64 = 100014; // ?DO: like DO, but skips the loop if index = limit
+pub const LOOP: i64 = 100015; // ends a DO loop; operand: offset back to the loop body
+pub const PLOOP: i64 = 100016; // +LOOP
+pub const LEAVE: i64 = 100017; // jumps to the exit of the innermost loop
+pub const FOR: i64 = 100018; // starts a FOR loop; operand: offset to the loop exit
+pub const NEXT: i64 = 100019; // ends a FOR loop; operand: offset back to the loop body
 
 pub const MARK_BEGIN: i64 = 200000; // marks the beginning of a control structure
-pub const MARK_WHILE: i64 = 200001; // marks the beginning of a WHILE control structure
-pub const MARK_FOR: i64 = 200002; // marks the beginning of a FOR control structure
-pub const MARK_CASE: i64 = 200003; // marks the beginning of a CASE control structure
-pub const MARK_OF: i64 = 200004; // marks the beginning of an OF control structure
+// 200001..200004 mark WHILE, FOR, CASE and OF; corelib.fs names each tag
+pub const MARK_DO: i64 = 200005; // marks the beginning of a DO or FOR loop
 
 // GENERAL constants
 pub const TRUE: i64 = -1; // forth convention for true and false
 pub const FALSE: i64 = 0;
 pub const IMMEDIATE_FLAG: usize = 0x4000000000000000; // the immediate flag bit
 pub const BUILTIN_FLAG: usize = 0x2000000000000000; // the builtin flag bit
+pub const COMPILE_ONLY_FLAG: usize = 0x1000000000000000; // the word is an error outside a definition
 pub const ADDRESS_MASK: usize = 0x00FFFFFFFFFFFFFF; // to get rid of flags
-pub const FILEMODE_RO: i64 = 0; // Read-only file mode
 
-#[derive(Debug)]
-pub enum ControlMarker {
-    Begin(usize), // address of begin
-    While(usize), // unresolved BRANCH0 location
-    For(usize),   // address of FOR loop
-    Case(usize),  // address of CASE
-    Of(usize),    // address of OF
-}
 
 pub struct ForthRuntime {
     pub kernel: Kernel, // the kernel that contains the Forth runtime
-    pub control_stack: Vec<ControlMarker>, // stack for control structures like IF, BEGIN, WHILE
+    pub control_stack: Vec<(i64, usize)>, // (MARK_* tag, address) for control structures like BEGIN, WHILE
     pub here_ptr: usize, // first free cell at top of dictionary
     pub context_ptr: usize, // nfa of most recent word
     pub base_ptr: usize, // for numeric I/O
@@ -77,7 +74,7 @@ pub struct ForthRuntime {
     pub exit_flag: bool, // set when the "bye" word is executed.
     pub msg: Msg,
     pub reader: Vec<FileHandle>, // allows for nested file processing
-    pub files: Vec<FileHandle>,  // keeps track of open files
+    pub files: Vec<Option<FileHandle>>, // open files, indexed by file-id; None once closed
     pub show_stack: bool,        // show the stack at the completion of a line of interaction
     pub stepper_ptr: usize,      // indicates trace, step, or continuous execution
     pub step_depth_ptr: usize,   // number of levels deep to step or trace
@@ -120,13 +117,7 @@ impl ForthRuntime {
             timer: Instant::now(),
             pending_def: None,
         };
-        let fh = FileHandle {
-            source: FType::Stdin, // Use standard input
-            file_mode: FileMode::RO,
-            file_size: 0,
-            file_position: 0,
-        };
-        runtime.reader.push(fh); // Set fh as the active reader
+        runtime.reader.push(FileHandle::stdin()); // stdin is always the bottom reader
         runtime
     }
 
@@ -148,47 +139,22 @@ impl ForthRuntime {
         self.kernel.incr(self.here_ptr);
     }
 
+    /// >c ( addr tag -- ) push a control marker onto the control stack
     fn f_to_c(&mut self) {
-        let tag = self.kernel.pop(); // e.g. 1 = Begin, 2 = While, etc.
-        let addr = self.kernel.pop() as usize; // Optionally, could take another item from stack
-        let marker = match tag {
-            MARK_BEGIN => ControlMarker::Begin(addr),
-            MARK_WHILE => ControlMarker::While(addr),
-            MARK_FOR => ControlMarker::For(addr),
-            MARK_CASE => ControlMarker::Case(addr),
-            MARK_OF => ControlMarker::Of(addr),
-            _ => throw(format!(">c: unknown control tag {tag}")),
-        };
-        //println!(">c pushing {:?}", marker);
-        self.control_stack.push(marker);
+        let tag = self.kernel.pop();
+        let addr = self.kernel.pop() as usize;
+        if !(MARK_BEGIN..=MARK_DO).contains(&tag) {
+            throw(format!(">c: unknown control tag {tag}"));
+        }
+        self.control_stack.push((tag, addr));
     }
 
+    /// c> ( -- addr tag ) pop a control marker from the control stack
     fn f_from_c(&mut self) {
         match self.control_stack.pop() {
-            Some(ControlMarker::Begin(addr)) => {
-                //println!("c> popping Begin({addr})");
+            Some((tag, addr)) => {
                 self.kernel.push(addr as i64);
-                self.kernel.push(MARK_BEGIN);
-            }
-            Some(ControlMarker::While(addr)) => {
-                //println!("c> popping While({addr})");
-                self.kernel.push(addr as i64);
-                self.kernel.push(MARK_WHILE);
-            }
-            Some(ControlMarker::For(addr)) => {
-                //println!("c> popping For({addr})");
-                self.kernel.push(addr as i64);
-                self.kernel.push(MARK_FOR);
-            }
-            Some(ControlMarker::Case(addr)) => {
-                //println!("c> popping Case({addr})");
-                self.kernel.push(addr as i64);
-                self.kernel.push(MARK_CASE);
-            }
-            Some(ControlMarker::Of(addr)) => {
-                //println!("c> popping Of({addr})");
-                self.kernel.push(addr as i64);
-                self.kernel.push(MARK_OF);
+                self.kernel.push(tag);
             }
             None => throw("c>: control stack underflow"),
         }
@@ -353,7 +319,6 @@ impl ForthRuntime {
         self.kernel.set(self.tib_in_ptr, TIB_START as i64 + 1);
         self.hld_ptr = self.make_variable("hld");
         self.last_ptr = self.make_variable("last"); // points to nfa of new definition
-        self.state_ptr = self.make_variable("'eval");
         self.abort_ptr = self.make_variable("abort?");
         self.state_ptr = self.make_variable("state");
         self.stepper_ptr = self.make_variable("stepper"); // turns the stepper on or off
@@ -683,6 +648,7 @@ impl ForthRuntime {
             "; ( -- ) terminate a definition, resetting to interpret mode",
         );
         self.f_immediate(); // set the immediate flag on the most recent word
+        self.f_compile_only();
 
         self.add_builtin(
             "immed?",
@@ -773,6 +739,21 @@ impl ForthRuntime {
             "c>",
             ForthRuntime::f_from_c,
             ">c ( -- tag ) Pop a control marker from the control stack and push its address",
+        );
+        self.add_builtin(
+            "compile-only",
+            ForthRuntime::f_compile_only,
+            "compile-only ( -- ) marks the most recently defined word as usable only inside a definition",
+        );
+        self.add_builtin(
+            "unloop",
+            ForthRuntime::f_unloop,
+            "unloop ( -- ) discards the innermost loop's parameters, e.g. before EXIT inside a loop",
+        );
+        self.add_builtin(
+            "allot",
+            ForthRuntime::f_allot,
+            "allot ( n -- ) reserve n cells of data space, or release them if n is negative",
         );
         self.add_builtin(
             "builtin-name",

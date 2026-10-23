@@ -1,8 +1,8 @@
 //! Black-box tests: run the f3 binary on a script and inspect what it prints.
 //!
-//! Tests marked `#[ignore = "F<n> ..."]` pin down known bugs from plan/ANALYSIS.md.
-//! They assert the *correct* behaviour, so they fail today.
-//! Run them with `cargo test -- --ignored`, and un-ignore each one as it is fixed.
+//! Tests named f<n>_... pin down bugs from plan/ANALYSIS.md. To track a newly found bug,
+//! add a test asserting the correct behaviour, marked `#[ignore = "F<n> ..."]`
+//! (`cargo test -- --ignored` runs them), and un-ignore it when the bug is fixed.
 
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
@@ -124,13 +124,11 @@ fn regression_suite() {
 // ------------------------------------------- known bugs (plan/ANALYSIS.md)
 
 #[test]
-#[ignore = "F1 execute inside a definition clobbers the return stack"]
 fn f1_execute_colon_word_inside_definition() {
     assert_eq!(stack(": inc 1 + ; : t ['] inc execute 100 + ; 1 t"), "102");
 }
 
 #[test]
-#[ignore = "F2 execute of a builtin xt"]
 fn f2_execute_builtin_xt() {
     assert_eq!(stack("3 ' dup execute"), "3 3");
 }
@@ -170,13 +168,11 @@ fn f8_runaway_recursion_is_an_error() {
 }
 
 #[test]
-#[ignore = "F9 number? ignores BASE"]
 fn f9_number_honours_base() {
     assert_eq!(stack("hex ff decimal"), "255");
 }
 
 #[test]
-#[ignore = "F10 do ... loop unfinished"]
 fn f10_do_loop() {
     assert_eq!(stack(": lp 3 0 do i loop ; lp"), "0 1 2");
 }
@@ -192,7 +188,6 @@ fn f24_clear_inside_definition() {
 }
 
 #[test]
-#[ignore = "F25 -f file runs before the core library"]
 fn f25_loaded_file_sees_core_words() {
     let path = std::env::temp_dir().join("f3_f25.fs");
     std::fs::write(&path, "hide-stack 12345 .\n").unwrap(); // hide-stack: don't let .s output match
@@ -201,20 +196,17 @@ fn f25_loaded_file_sees_core_words() {
 }
 
 #[test]
-#[ignore = "F26 abort\" is defined before type, so it does nothing"]
 fn f26_abort_quote() {
     let r = run(": t abort\" oops\" ; 1 2 t\n.s");
     assert!(r.ok && r.out.contains("oops") && r.out.contains("[ ]"), "{}", r.out);
 }
 
 #[test]
-#[ignore = "F27 negative allot grows the dictionary"]
 fn f27_negative_allot() {
     assert_eq!(stack("here @ 10 allot -10 allot here @ ="), "-1");
 }
 
 #[test]
-#[ignore = "F29 ' and ['] of an unknown word return 0 silently"]
 fn f29_tick_unknown_word_is_an_error() {
     let r = run(": t ['] nosuch ;");
     assert!(r.ok && r.out.contains("nosuch"), "{}", r.out);
@@ -233,6 +225,79 @@ fn divide_by_zero_is_recoverable() {
 #[test]
 fn arithmetic_wraps() {
     assert_eq!(stack("9223372036854775807 1 +"), "-9223372036854775808");
+}
+
+// ------------------------------------------------------------- Phase 2
+
+#[test]
+fn do_loop_variants() {
+    assert_eq!(stack(": t 10 0 do i 3 +loop ; t"), "0 3 6 9");
+    // a negative step stops after crossing the boundary between limit-1 and limit
+    assert_eq!(stack(": t 0 10 do i -3 +loop ; t"), "10 7 4 1");
+    assert_eq!(stack(": t 0 3 do i -1 +loop ; t"), "3 2 1 0");
+    assert_eq!(stack(": t 5 5 ?do i loop 99 ; t"), "99");
+    assert_eq!(stack(": t 10 0 do i dup 3 = if leave then loop ; t"), "0 1 2 3");
+    assert_eq!(stack(": t 3 1 do 13 11 do j i loop loop ; t"), "1 11 1 12 2 11 2 12");
+    assert_eq!(stack(": t 10 0 do i 2 = if unloop exit then loop 99 ; t 7"), "7");
+}
+
+#[test]
+fn for_next() {
+    assert_eq!(stack(": t 3 for i next ; t"), "3 2 1");
+    assert_eq!(stack(": t 0 for i next 99 ; t"), "99"); // used to run ~2^64 times
+    assert_eq!(stack(": t 2 for 2 for j i next next ; t"), "2 2 2 1 1 2 1 1");
+}
+
+#[test]
+fn f21_compile_only_words_error_when_interpreted() {
+    let r = run("5 for i . next\n12345 .");
+    assert!(r.ok && r.out.contains("only valid inside a definition") && r.out.contains("12345 "), "{}", r.out);
+}
+
+#[test]
+fn number_prefixes() {
+    assert_eq!(stack("$ff #10 %101 $-10 hex 10 decimal"), "255 10 5 -16 16");
+    assert_eq!(stack("$ffffffffffffffff"), "-1");
+}
+
+#[test]
+fn execute_data_words() {
+    assert_eq!(stack("variable v 5 v ! ' v execute @ 7 constant c ' c execute"), "5 7");
+}
+
+#[test]
+fn f13_file_words() {
+    let dir = std::env::temp_dir();
+    let (a, b) = (dir.join("f3_fw_a.txt"), dir.join("f3_fw_b.txt"));
+    let (a, b) = (a.to_str().unwrap(), b.to_str().unwrap());
+    let src = format!(
+        "s\" {a}\" drop W/O open-file drop constant fa\n\
+         s\" {b}\" drop W/O open-file drop constant fb\n\
+         s\" hello\" fa write-line\n\
+         fa close-file\n\
+         s\" more\" fb write-line\n\
+         fb close-file drop drop drop drop\n\
+         s\" {a}\" drop R/O open-file drop constant fr\n\
+         fr file-size drop 100 fr read-line 100 fr read-line fr file-position drop"
+    );
+    // sizes and lengths: 6 bytes; "hello" read (5 TRUE 0); then end of file (0 FALSE 0); position 6
+    assert_eq!(stack(&src), "6 5 -1 0 0 0 0 6");
+}
+
+#[test]
+fn f16_see_constant() {
+    let r = run("7 constant seven see seven");
+    assert!(r.out.contains("Constant: seven = 7"), "{}", r.out);
+}
+
+#[test]
+fn f17_debuglevel_matches_dbg() {
+    assert_eq!(stack("2 dbg debuglevel 1 dbg"), "2");
+}
+
+#[test]
+fn f28_builtin_name_uses_tmp() {
+    assert_eq!(stack("0 builtin-name tmp @ = 0 builtin-name c@"), "-1 1");
 }
 
 /// Phase 1 exit check: 10k lines of random words and numbers (plus small colon definitions)

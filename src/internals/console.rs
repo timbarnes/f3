@@ -1,9 +1,9 @@
-use crate::internals::files::{FType, FileHandle, FileMode};
-use crate::internals::messages::Msg;
 /// Input-output words
+use crate::internals::files::{FileHandle, FileMode};
 use crate::kernel::{throw, BUF_SIZE};
-use crate::runtime::{ForthRuntime, FALSE, FILEMODE_RO, TRUE};
-use std::io::{self, BufRead, Write};
+use crate::runtime::{ForthRuntime, FALSE, TRUE};
+use std::io::{self, Write};
+use std::path::PathBuf;
 use std::process::Command;
 
 /// Write to stdout; if stdout is gone (e.g. a closed pipe) there is no one left to talk to, so exit.
@@ -47,10 +47,7 @@ impl ForthRuntime {
                 Some(c) => cmd = Command::new(c),
                 None => return,
             }
-            for arg in args {
-                println!("Adding {}", arg);
-                cmd.arg(arg);
-            }
+            cmd.args(args);
             let output = match cmd.output() {
                 Ok(output) => output,
                 Err(e) => throw(format!("(system): {e}")),
@@ -166,171 +163,172 @@ impl ForthRuntime {
         flush();
     }
 
-    /// include-file (s -- T | F ) Pushes a new reader, pointing to the file named at s, calling ABORT if unsuccessful
-    ///     The intent is that the standard loop will continue, now reading lines from the file
-    ///     At the end of the file, the reader will be popped off the stack.
-    ///     This allows for nested file reads.
+    /// include-file (s -- T | F ) Pushes a new reader for the file named at s, returning TRUE,
+    ///     or FALSE if the file can't be opened.
+    ///     The standard loop then continues, reading lines from the file.
+    ///     At the end of the file, the reader is popped off the stack. This allows for nested file reads.
+    ///     A relative path is looked up next to the including file first, then in the current directory.
     ///
     pub fn f_include_file(&mut self) {
         if self.kernel.stack_check(1, "include-file") {
             let addr = self.kernel.pop() as usize;
-            let file_name = self.kernel.string_get(addr);
-            let mode = FILEMODE_RO; // Read-only mode for included files
-            let handle = self.u_open_file(&file_name, mode);
-            match handle {
-                Some(handle) => {
+            let name = self.kernel.string_get(addr);
+            match FileHandle::open(&self.resolve_path(&name), FileMode::RO) {
+                Ok(handle) => {
                     self.reader.push(handle);
                     self.kernel.push(TRUE);
                 }
-                None => {
+                Err(e) => {
+                    self.msg.warning("include", &format!("{name}: {e}"), None::<bool>);
                     self.kernel.push(FALSE);
                 }
             }
         }
     }
 
-    /// open-file ( s fam -- file-id ior ) Open the file named at s, length u, with file access mode fam.
-    pub fn f_open_file(&mut self) {
-        if self.kernel.stack_check(2, "open-file") {
-            let mode = self.kernel.pop();
-            let addr = self.kernel.pop() as usize;
-            let name = self.kernel.string_get(addr);
-            println!("open-file: name={}, mode={}", name, mode);
-            let handle = self.u_open_file(&name, mode);
-            match handle {
-                Some(handle) => {
-                    self.files.push(handle);
-                    self.kernel.push(self.files.len() as i64 - 1); // Push the index as a file-id
-                    self.kernel.push(0); // 0 means success in this case
-                }
-                None => {
-                    self.kernel.push(0);
-                    self.kernel.push(-1); // Signals an error condition
+    /// resolve_path expands a leading ~, and tries a relative path next to the file being read
+    ///
+    fn resolve_path(&self, name: &str) -> PathBuf {
+        let path = match name.strip_prefix("~/") {
+            Some(rest) => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(rest),
+            None => PathBuf::from(name),
+        };
+        if path.is_relative() {
+            if let Some(dir) = self.reader.last().and_then(|r| r.dir.as_ref()) {
+                let beside = dir.join(&path);
+                if beside.exists() {
+                    return beside;
                 }
             }
+        }
+        path
+    }
+
+    /// load_file interprets a whole source file before returning. Used at startup.
+    ///     Returns false if the file can't be opened.
+    ///
+    pub fn load_file(&mut self, name: &str) -> bool {
+        match FileHandle::open(&self.resolve_path(name), FileMode::RO) {
+            Ok(handle) => {
+                let depth = self.reader.len();
+                self.reader.push(handle);
+                self.run_lines(depth);
+                true
+            }
+            Err(_) => false,
         }
     }
-    /// u_open-file  Open the named file with file access mode mode.
-    ///    Returns a file handle and 0 if successful.
-    pub fn u_open_file(&mut self, name: &str, mode: i64) -> Option<FileHandle> {
-        let full_path = std::fs::canonicalize(name);
-        let mode = match mode {
-            -1 => FileMode::RW,
-            1 => FileMode::WO,
-            _ => FileMode::RO,
-        };
-        match full_path {
-            Ok(full_path) => {
-                let file_handle = FileHandle::new_file(Some(&full_path), Msg::new(), mode);
-                match file_handle {
-                    Some(fh) => {
-                        return Some(fh);
-                    }
-                    None => {
-                        self.msg
-                            .error("open-file", "Failed to create new reader", None::<bool>);
-                    }
+
+    /// file returns the open file with the given file-id, or throws
+    ///
+    fn file(&mut self, file_id: i64) -> &mut FileHandle {
+        match self.files.get_mut(file_id as usize).and_then(Option::as_mut) {
+            Some(file) => file,
+            None => throw(format!("invalid file-id {file_id}")),
+        }
+    }
+
+    /// open-file ( s fam -- file-id ior ) Open the file named by the counted string at s,
+    ///     with file access mode fam (R/O, W/O, R/W). W/O and R/W create the file if necessary;
+    ///     W/O truncates it. ior is 0 on success, -1 on failure.
+    pub fn f_open_file(&mut self) {
+        if self.kernel.stack_check(2, "open-file") {
+            let mode = match self.kernel.pop() {
+                -1 => FileMode::RW,
+                1 => FileMode::WO,
+                _ => FileMode::RO,
+            };
+            let addr = self.kernel.pop() as usize;
+            let name = self.kernel.string_get(addr);
+            match FileHandle::open(&self.resolve_path(&name), mode) {
+                Ok(handle) => {
+                    self.files.push(Some(handle));
+                    self.kernel.push(self.files.len() as i64 - 1); // the index is the file-id
+                    self.kernel.push(0);
+                }
+                Err(e) => {
+                    self.msg.warning("open-file", &format!("{name}: {e}"), None::<bool>);
+                    self.kernel.push(0);
+                    self.kernel.push(-1);
                 }
             }
-            Err(error) => {
-                self.msg
-                    .warning("open-file", error.to_string().as_str(), None::<bool>);
-            }
         }
-        None
     }
 
     ///  close-file ( file-id -- ior ) Close a file, returning the I/O status code.
-    ///     In rust, we just need it to go out of scope, so delete it from the vector
+    ///     Dropping the handle closes the file; other file-ids are unaffected.
     pub fn f_close_file(&mut self) {
         if self.kernel.stack_check(1, "close-file") {
-            let file_id = self.kernel.pop() as usize;
-            if file_id < self.files.len() {
-                self.files.remove(file_id);
-                self.kernel.push(0);
-            }
+            let file_id = self.kernel.pop();
+            self.file(file_id); // throws if not open
+            self.files[file_id as usize] = None;
+            self.kernel.push(0);
         }
     }
 
-    /// read-line ( u file-id -- u flag ior ) Read up to u characters from a file.
-    ///     Returns the number of characters read, a flag indicating success or failure, and an i/o result code.
-    ///     Starts from FILE_POSITION, and updates FILE_POSITION on completion
-    ///     Characters are read into TMP
+    /// read-line ( u file-id -- u2 flag ior ) Read a line of up to u characters (at most 255) into TMP.
+    ///     u2 is the number of characters read, without the newline. A longer line is
+    ///     returned in pieces by successive calls. At end of file, u2 is 0 and flag is FALSE.
+    ///     ior is 0 on success, -1 on a read error.
     pub fn f_read_line(&mut self) {
         if self.kernel.stack_check(2, "read-line") {
-            let file_id = self.kernel.pop() as usize;
-            let _chars = self.kernel.pop() as usize;
-            if file_id < self.files.len() {
-                let mut result = String::new();
-                if let FType::BReader(ref mut br) = self.files[file_id].source {
-                    match br.read_line(&mut result) {
-                        Ok(r) => {
-                            if r == 0 {
-                                // EOF
-                                self.kernel.push(0);
-                                self.kernel.push(FALSE);
-                                self.kernel.push(-1);
-                            } else {
-                                let addr = self.kernel.get(self.tmp_ptr) as usize;
-                                self.kernel.string_save(&result, addr);
-                                self.kernel.push(r as i64); // Chars read
-                                self.kernel.push(TRUE);
-                                self.kernel.push(0);
-                            }
-                        }
-                        Err(e) => {
-                            self.msg
-                                .error("read-line", e.to_string().as_str(), None::<bool>)
-                        }
-                    }
+            let file_id = self.kernel.pop();
+            let max = self.kernel.pop().clamp(0, BUF_SIZE as i64 - 1) as usize;
+            match self.file(file_id).read_line(max) {
+                Ok(Some(line)) => {
+                    let addr = self.kernel.get(self.tmp_ptr) as usize;
+                    self.kernel.bytes_save(&line, addr);
+                    self.kernel.push(line.len() as i64);
+                    self.kernel.push(TRUE);
+                    self.kernel.push(0);
+                }
+                Ok(None) => {
+                    self.kernel.push(0);
+                    self.kernel.push(FALSE);
+                    self.kernel.push(0);
+                }
+                Err(_) => {
+                    self.kernel.push(0);
+                    self.kernel.push(FALSE);
+                    self.kernel.push(-1);
                 }
             }
         }
     }
 
-    ///  write-line ( s u file-id -- ior ) Write u characters from s to a file, returning an i/o result code.
-    ///     Not intended to work with stdout
+    ///  write-line ( s u file-id -- ior ) Write u characters of the counted string at s, and a newline.
+    ///     ior is 0 on success, -1 on a write error (or if the file isn't open for writing).
     pub fn f_write_line(&mut self) {
         if self.kernel.stack_check(3, "write-line") {
-            let file_id = self.kernel.pop() as usize;
+            let file_id = self.kernel.pop();
             let chars = self.kernel.pop() as usize;
             let addr = self.kernel.pop() as usize;
-            if file_id < self.files.len() {
-                // ponytail: drops the last character, as before; Phase 2 fixes write-line (F13)
-                let string: String = self.kernel.string_get(addr).chars().take(chars.saturating_sub(1)).collect();
-                // write the string to the file
-                if let FType::File(ref mut f) = self.files[file_id].source {
-                    if let Err(e) = f.write_all(string.as_bytes()) {
-                        throw(format!("write-line: {e}"));
-                    }
-                }
-            }
+            let bytes = self.kernel.string_slice(addr + 1, chars).to_vec();
+            let ior = match self.file(file_id).write_line(&bytes) {
+                Ok(()) => 0,
+                Err(_) => -1,
+            };
+            self.kernel.push(ior);
         }
     }
 
     ///  file-size ( file-id -- u ior ) Returns the size in characters of the file, plus an i/o result code
     pub fn f_file_size(&mut self) {
         if self.kernel.stack_check(1, "file-size") {
-            let file_id = self.kernel.pop() as usize;
-            if file_id < self.files.len() {
-                self.kernel.push(self.files[file_id].file_size() as i64);
-            } else {
-                self.msg
-                    .error("file-size", "No such file-id", Some(file_id));
-            }
+            let file_id = self.kernel.pop();
+            let size = self.file(file_id).file_size();
+            self.kernel.push(size as i64);
+            self.kernel.push(0);
         }
     }
 
     /// file-position ( file-id -- u ior ) Returns the current file position and an i/o result
     pub fn f_file_position(&mut self) {
         if self.kernel.stack_check(1, "file-position") {
-            let file_id = self.kernel.pop() as usize;
-            if file_id < self.files.len() {
-                self.kernel.push(self.files[file_id].file_position() as i64);
-            } else {
-                self.msg
-                    .error("file-position", "No such file-id", Some(file_id));
-            }
+            let file_id = self.kernel.pop();
+            let position = self.file(file_id).file_position();
+            self.kernel.push(position as i64);
+            self.kernel.push(0);
         }
     }
 }

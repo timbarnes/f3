@@ -230,11 +230,6 @@ impl Kernel {
         }
     }
 
-    /// Returns the number of builtins
-    pub fn max_builtin(&mut self) -> usize {
-        self.builtins.len() - 1
-    }
-
     /// string_new writes a new string into the next empty space, updating the free space pointer
     /// /// This function assumes that the string is counted, i.e. the first byte is the length of the string.
     /// /// Returns the address of the new string in the string space.
@@ -326,7 +321,10 @@ impl Kernel {
     /// Used for detailed parsing of strings
     ///
     pub fn string_slice(&self, addr: usize, len: usize) -> &[u8] {
-        &self.strings[addr..addr + len]
+        match self.strings.get(addr..addr.saturating_add(len)) {
+            Some(slice) => slice,
+            None => throw("invalid string address or length"),
+        }
     }
 
     /// byte_get returns a byte from a string address
@@ -368,9 +366,6 @@ impl Kernel {
 
     pub fn get_return_ptr(&self) -> usize {
         self.return_ptr
-    }
-    pub fn set_return_ptr(&mut self, val: usize) {
-        self.return_ptr = val;
     }
     pub fn get_string_ptr(&self) -> usize {
         self.string_ptr

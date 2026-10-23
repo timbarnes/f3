@@ -1,15 +1,9 @@
 // General-purpose builtin words
 
-use crate::kernel::throw;
+use crate::kernel::{throw, DICT_LIMIT};
 use crate::runtime::ForthRuntime;
 use std::thread;
 use std::time::{Duration, Instant};
-
-/// u_is_integer determines whether a string parses correctly as an integer
-///
-pub fn u_is_integer(s: &str) -> bool {
-    s.parse::<i64>().is_ok()
-}
 
 impl ForthRuntime {
     /// Basic Forth operations on the stack.
@@ -207,8 +201,10 @@ impl ForthRuntime {
     }
 
     /// i ( -- n ) Pushes the current loop index to the calculation stack
+    ///     Loops keep three cells on the return stack: exit address, limit, index (on top)
     ///
     pub fn f_i(&mut self) {
+        self.kernel.stack_check_r(3, "i");
         let val = self.kernel.get(self.kernel.get_return_ptr());
         self.kernel.push(val);
     }
@@ -216,8 +212,22 @@ impl ForthRuntime {
     /// j ( -- n ) Pushes the second level (outer) loop index to the calculation stack
     ///
     pub fn f_j(&mut self) {
-        let val = self.kernel.get(self.kernel.get_return_ptr() + 1);
+        self.kernel.stack_check_r(6, "j");
+        let val = self.kernel.get(self.kernel.get_return_ptr() + 3);
         self.kernel.push(val);
+    }
+
+    /// allot ( n -- ) reserves n cells of data space at HERE, or releases them if n is negative.
+    ///     Allot updates HERE, but does not create a back pointer.
+    ///
+    pub fn f_allot(&mut self) {
+        self.kernel.stack_check(1, "allot");
+        let n = self.kernel.pop();
+        let here = self.kernel.get(self.here_ptr).wrapping_add(n);
+        if here < 0 || here as usize > DICT_LIMIT {
+            throw(if n > 0 { "dictionary full" } else { "allot: below the start of memory" });
+        }
+        self.kernel.set(self.here_ptr, here);
     }
 
     /// c@ - ( s -- c ) read a character from a string address and place on the stack
@@ -317,7 +327,7 @@ impl ForthRuntime {
             let index = self.kernel.pop() as usize;
             let builtin = self.kernel.get_builtin(index).name.clone();
             let name = builtin.as_str();
-            let destination = self.tmp_ptr;
+            let destination = self.kernel.get(self.tmp_ptr) as usize;
             self.kernel.string_save(name, destination);
             self.kernel.push(destination as i64);
         }

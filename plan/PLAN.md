@@ -75,7 +75,7 @@ One design decision differs from item 1 above:
 * Phase 5 `catch`/`throw` maps directly onto this: `catch` = `catch_unwind` around `execute`.
 
 Other notes:
-* Memory is now 64K cells. The dictionary runs up to `DICT_LIMIT`, and the data stack and return stack each have 1024 cells, all bounds-checked. This is the interim layout for Phase 3.1.
+* Memory is now 64K cells. The dictionary runs up to `DICT_LIMIT`, and the data stack and return stack each have 1024 cells, all bounds-checked. Phase 3.1 keeps this layout and exposes the stacks to Forth through `sp@` and `rp@`.
 * `BUF_SIZE` is now 256, so the largest input line is 255 bytes. A longer line is an error, not a silent truncation.
 * An unknown token is now an error in interpret mode as well, and the rest of the line is skipped.
 * `abort` is now silent (`throw("")`). The `abort?` variable is no longer used, and the per-instruction abort-flag check is gone.
@@ -110,50 +110,110 @@ Other notes:
 
 Exit: all Phase 0 bug tests are un-ignored and passing.
 
+**Status: done (2026-10-22).** F1–F29 are all fixed. No test is ignored (apart from one unit test that needs keyboard input), and the fuzz test still passes. Benchmarks: `fib(27)` 21 ms, the empty 10M `for` loop 27 ms (it was 251 ms; native `NEXT`).
+
+How each item was done:
+* **Inner interpreter:**
+  * `i_definition(start)` returns when an EXIT brings the return stack back to its depth on entry.
+  * Calls push the return address straight onto the return stack, which brings Phase 4.1 forward.
+  * The empty `i_*` helpers are gone.
+  * `execute` dispatches on the xt itself, and throws for anything that isn't an execution token.
+* **One xt format:** `'` and `[']` return the cfa for every word. `i_definition` also runs the cfa of a builtin, so `['] dup ,` compiles working code. `$compile` still compiles builtins as their flagged index.
+* **Loops:**
+  * `do ?do loop +loop leave unloop` and `for next` are now native opcodes (DO, QDO, LOOP, PLOOP, LEAVE, FOR, NEXT; 100013–100019), so Phase 4.3 is done too.
+  * Every loop keeps the same three-cell return-stack frame: exit address, limit, index. `i` and `j` therefore work the same for both loop kinds, and `leave` works in `for` loops.
+  * `+loop` uses the standard boundary-crossing rule.
+  * `0 for` and negative counts now skip the loop. They used to run about 2^64 times.
+* **Compile-only words:** a `COMPILE_ONLY_FLAG` (bit 60) and a `compile-only` word mark them. All control-flow words, `;`, `exit`, `[']`, `[char]`, `recurse`, and `abort"` are marked.
+* **Number parsing:** `parse_number` honours BASE and the `#`, `$`, and `%` prefixes. Values up to 2^64−1 wrap.
+* **File words:**
+  * Files open with `OpenOptions` per mode. W/O and R/W create the file.
+  * File ids stay stable after `close-file`.
+  * `file-size` and `file-position` return `u ior`.
+  * `read-line` honours `u` and returns lines longer than `u` in pieces. At end of file it returns `0 FALSE 0`.
+  * `write-line` writes exactly `u` characters plus a newline, and returns `ior`.
+* **Boot:**
+  * Each file is interpreted to the end in order: core first, then the `-f` file.
+  * Only the first core file found is loaded, and `~` is expanded.
+  * `include` looks next to the including file first, so `corelib.fs` now includes `terminal.fs` and friends by bare name.
+  * The startup check that the stack is empty is gone; a user file may leave values.
+* **Behaviour changes users may notice:**
+  * `'` of a builtin now gives its cfa. Use `' x @` for the flagged index.
+  * `'` of an unknown word is an error, and so is `forget` of one.
+  * `debuglevel` now returns 0–3, the same numbering `dbg` takes.
+  * `allot` is now a builtin.
+
 ---
 
-## Phase 3: Architecture cleanup (M–L)
+## Phase 3: Architecture cleanup and the Forth/Rust split (M–L)
 
-Do these in order. Each step is a refactor guarded by the Phase 0 tests.
+**The split ("pragmatic minimal", decided 2026-10-22).** A word is written in Rust only if:
+1. it needs the host (I/O, files, time, terminal, shell);
+2. it's a hot primitive, whose Forth version costs about 5× more per call (arithmetic, comparison, basic stack and memory words); or
+3. it's needed before Forth exists, or by error recovery (parsing, `find`, number conversion, `:` `;` `create` `,`, the `quit`/`eval` loop).
 
-1. **Take the stacks out of the heap.**
-   * `data: [i64; N]` + `sp` and `ret: [i64; M]` + `rp`, as `Kernel` fields with one bounds check each.
-   * The dictionary then gets the whole heap. Size it at 64K cells and let the return stack be about 1K.
-   * Nothing in the `.fs` sources addresses the stacks through the heap (checked), so the only users are `.s`, `depth`, `pick`, `roll`, `i`, `j`, `r@`, and `.rs`.
-   * This removes the dictionary/stack collision as a class of bug, and the `STACK_START` arithmetic with it.
-2. **Make opcodes self-describing.** Replace the `100000+` magic numbers with a flag-bit encoding (for example `OPCODE_FLAG = 1<<60 | n`) so the heap can grow past 100000 cells without ambiguity. Export the values to Forth from Rust (`compile_builtins` defines the constants) instead of duplicating literals in `corelib.fs:33-56`.
-3. **Make the internals plain Rust functions.** Rewrite `find`, `parse`/`(parse)`, `number?`, `immediate?`, `create`, `query`/`accept`, and `include` as Rust functions with Rust arguments and returns (`fn find(&self, name: &[u8]) -> Option<Cfa>`, `fn parse_word(&mut self, delim: u8) -> Option<Range<usize>>`). The builtin of the same name becomes a 3-line wrapper that moves values between Forth and Rust. The outer interpreter calls the Rust versions directly. This removes most of the internal pushing and popping, and the class of "junk left on the stack" bugs.
-4. **Tighten the kernel API.**
-   * Make `kernel` private, and have `ForthRuntime` expose `include(path)` and `eval(line)` so that `main.rs` stops building strings in `tmp` by hand.
-   * Cache only the system-variable addresses that are really needed. Several `*_ptr` fields (`hld_ptr`, `tib_ptr`) could become constants, because their addresses never change.
-5. **Settle the string model.** Keep the separate byte space, which is simpler than packing bytes into cells, but write it down:
+Everything else is written in Forth. Measured (release build): a builtin call costs about 3 ns, and a colon-word call adds about 15–20 ns. `rot` as `>r swap r> swap` costs 20 ns against 3.4 ns as a builtin.
+
+Do these in order. Each step is a refactor guarded by the tests.
+
+1. **Keep the stacks in the heap, and expose them to Forth.** This reverses the earlier plan to move them into Rust arrays. Phase 1 already gave each stack a bounded, checked region, so the original reason (collisions) is gone, and addressable stacks let Forth define the stack-inspection words.
+   * Add the primitives `sp@` and `rp@`, and the constants `sp0` and `rp0` (the empty-stack positions).
+   * Remember the data stack grows down, so the item `n` deep is at `sp@ + n`.
+   * Then move these words to Forth: `depth`, `pick`, `roll`, `.s`, `clear`, `.rs`.
+   * `i`, `j`, and `r@` stay primitives, because they are hot.
+   * The prompt's stack display calls the Forth `.s` by name. `show-stack`/`hide-stack` become a Forth variable that `quit` reads.
+2. **Drop the Rust control stack.** Compile-time markers go on the data stack as `addr tag` pairs, which is how `if`/`then` already work. `begin`, `while`, `repeat`, `until`, `again`, `case`, `of`, `endof`, `endcase`, and the loop words change accordingly in `corelib.fs`. Delete `control_stack`, `>c`, `c>`, and their part of `recover`; recovery already clears the data stack.
+3. **Move the remaining cold words to Forth.**
+   * `see`: the decompiler is about 110 lines of Rust, and `debug.fs` already has the dump machinery.
+   * `immediate` and `compile-only` become `last @ dup @ FLAG or swap !`. They are defined at the top of `corelib.fs`, before their first use. Rust keeps a private helper for `;` at cold start.
+   * `immed?` and `?unique`. `create` calls the Forth `?unique` by name, or the warning moves into `:`.
+   * `s-copy` and `s-create`, on top of a new `cmove` primitive.
+   * Delete `interpret`, which is a duplicate name for `eval`, and make `s-move` an internal Rust function rather than a word.
+4. **Add the primitives that make Forth versions practical.** `xor` (it's missing; `invert`, `negate`, and others need it), `cmove ( src dst n -- )` in string space, and `u<`. Then define `invert`, `negate`, `abs`, and friends in Forth on top of them.
+5. **Make opcodes self-describing.**
+   * Replace the `100000+` magic numbers with a flag-bit encoding (for example `OPCODE_FLAG = 1<<59 | n`), so the heap can grow past 100000 cells without ambiguity.
+   * Export the opcode and flag values to Forth from Rust (`compile_builtins` defines them as constants), instead of duplicating literals in `corelib.fs`.
+6. **Make the outer-interpreter internals plain Rust functions.**
+   * `find`, `parse`/`(parse)`, `number?`, `create`, `query`/`accept`: Rust arguments and returns (`fn find(&self, name: &[u8]) -> Option<usize>`, `fn parse_word(&mut self, delim: u8) -> Option<Range<usize>>`).
+   * The builtin of the same name becomes a thin wrapper.
+   * The outer interpreter calls the Rust versions directly. That removes most of the internal pushing and popping, and the class of "junk left on the stack" bugs.
+7. **Tighten the kernel API.** Make `kernel` private. Cache only the system-variable addresses that are really needed; several `*_ptr` fields (`hld_ptr`, `tib_ptr`) could be constants, because their addresses never change.
+8. **Write down the string model.** Keep the separate byte space:
    * counted strings up to 255;
    * `c@`/`c!` address string space and `@`/`!` address the heap;
    * provide `s-allot` for byte buffers.
 
-   The alternative is a single byte-addressed space with cells overlaid (`i64::from_le_bytes`). That's more standard, but it's a rewrite of every string word and `corelib.fs`. **Recommendation:** don't do it unless ANS compatibility becomes a goal.
-6. **Delete the dead code.** Remove `utility.rs`, the empty `i_*` functions, the `BUILTIN` opcode, `Config::run`, `insert_code`, `ALLOC_START`, the commented-out blocks, and the stray files (`test.js`, `.DS_Store`, `out.txt`, `*~`, `#*#`), and add them to `.gitignore`.
+   A single byte-addressed space would be more standard, but it means rewriting every string word. Leave it unless ANS compatibility becomes a goal.
+9. **Delete the dead code.** Remove `utility.rs`, `Config::run`, `insert_code`, the unused `abort?` variable, the commented-out blocks, and the stray files (`test.js`, `.DS_Store`, `out.txt`, `*~`, `#*#`), and add them to `.gitignore`. (The empty `i_*` functions and the `BUILTIN` opcode went in Phase 2.)
 
-Exit: `kernel.rs` + `inner.rs` + `compiler.rs` are smaller than today, and no `pub` fields are left on `Kernel`.
+Exit:
+* About 18 builtins have moved to Forth or been deleted.
+* The `.rs` sources are smaller, and no `pub` fields are left on `Kernel`.
+* All tests pass, and the benchmarks are within 5% of the Phase 2 numbers (21 ms / 27 ms). Moved words are all cold paths, so a measurable slowdown would mean something went wrong.
 
 ---
 
 ## Phase 4: Performance (M)
 
-Re-measure against the Phase 0 baseline after each step, and keep only the changes that pay off.
+Goal: make **Forth-defined words** cheaper, which is the change that supports the minimal-engine split. Moving more words into Rust is not the goal. Re-measure after each step, and keep only the changes that pay off.
 
-1. **Use a direct call path.** With separate stacks (3.1), a call becomes `ret.push(pc+1); pc = cfa+1` and a return becomes `pc = ret.pop()`. Don't round-trip through the data stack. Expect the biggest single gain on `fib`.
+Already done in Phase 2: the direct call path (return addresses go straight to the return stack), the per-cell abort-flag check is gone, and native loop opcodes (the empty 10M `for` loop went from 251 ms to 27 ms).
+
+1. **Add a call-overhead benchmark** to `bench.fs`: a colon `rot` (`>r swap r> swap`) against the builtin `rot`. It measures the cost of a colon call, about 17 ns today.
 2. **Take the per-instruction work out of the inner loop.**
-   * Errors now propagate by `Result`, so the per-cell `get_abort_flag()` load goes away.
-   * Gate `debug_step` behind one `bool` field (`self.tracing`) that is set when `stepper` is written through `!` and by `step-on`/`trace-on`. Alternatively, keep two copies of the loop, one plain and one that traces.
-   * Drop the `pc < DATA_SIZE` branch, because `get` is checked anyway.
-3. **Add loop opcodes.** `(next)` (decrement the top of the return stack and branch if it's still non-zero), `(do)`, `(loop)`, and `(+loop)`. `for…next` drops from 7 dispatches per iteration to 1.
-4. **Make hot words primitives.** Write `.`, `u.`, `.r`, `type`, `tell`, `spaces`, `cr`, `1+`, `1-`, `2dup`, `nip`, `tuck`, `>`, `<>`, `0>`, `negate`, `abs`, `min`, and `max` in Rust. Output words write whole strings rather than one char at a time.
-5. **Buffer the output.** Wrap `out` (from 0.2) in a `BufWriter`, and flush it at the prompt, on `key`/`key?`, on `flush`, and before `(system)`/`ms`.
+   * Gate `debug_step` behind one `bool` (`self.tracing`), set by the stepper words, rather than reading two heap cells on every cell executed.
+   * Alternatively, keep two copies of the loop, one plain and one that traces.
+3. **Cheapen calls.**
+   * Classify a call target at compile time. Compile a builtin's cfa as its flagged index, so `['] x ,` code doesn't pay the extra "is this a builtin's cfa?" load on every call.
+   * The EXIT check (`return_ptr == entry_rp`) stays, because it is what makes re-entry safe.
+4. **Cheaper primitive bodies.** One bounds check per primitive instead of `stack_check` plus a per-`pop` check: check depth once, then use unchecked pops, or use helpers like `pop2()`.
+5. **Buffer the output.** Use a `BufWriter` on stdout, flushed at the prompt, on `key`/`key?`, on `flush`, and before `(system)`/`ms`. Printing stays in Forth; this just makes each `(emit)` cheap.
 6. **Remove allocations from the outer interpreter.** `number?` parses from `&[u8]` with no `String`. `$compile` reuses the cfa it already found for immediate words, instead of looking it up again.
-7. **Low priority.** Builtin dispatch through `get_unchecked` once the flag is validated at compile time. `[profile.release] lto = true, codegen-units = 1`. A hash index for `find`, but only if loading the core ever becomes noticeably slow (it isn't today).
+7. **Low priority.** `[profile.release] lto = true, codegen-units = 1`. A hash index for `find`, but only if loading the core ever becomes noticeably slow (it takes about 6 ms today).
 
-Target: `27 fib` ≤ 12 ms and the empty `for` loop ≤ 80 ms, about 2–3× faster. Beyond that, a closure-compiled or JIT design would be a different project.
+Dropped: the earlier item 4.4, which would have written `.`, `type`, `1+`, `2dup`, and similar words in Rust. It contradicts the split above. Printing a number in Forth takes about 2 µs.
+
+Targets: colon-call overhead ≤ 8 ns (from ~17), and `27 fib` ≤ 12 ms (from 21). Beyond that, a closure-compiled or JIT design would be a different project.
 
 ---
 
@@ -172,8 +232,8 @@ Target: `27 fib` ≤ 12 ms and the empty `for` loop ≤ 80 ms, about 2–3× fas
 | 0 Safety net | none | Tests and benchmark exist, and known bugs are captured |
 | 1 Stop crashing | 0 | Fuzz run with no panics, and errors return to a clean prompt |
 | 2 Correctness | 1 | All F-tests pass |
-| 3 Architecture | 2 | Stacks out of the heap, internals in plain Rust, dead code gone |
-| 4 Performance | 3 (4.1 needs 3.1) | 2–3× on the benchmarks |
+| 3 Architecture | 2 | Cold words in Forth, stacks addressable via `sp@`/`rp@`, internals in plain Rust, dead code gone |
+| 4 Performance | 3 | Colon-call overhead ≤ 8 ns, `fib` ≤ 12 ms |
 | 5 Standards | 2 | ANS core tests |
 
 If time is short, **Phase 0 + Phase 1.1 + Phase 2.1/2.2** fix the worst user-visible problems: process death, corrupted state after errors, and `execute` inside a definition.

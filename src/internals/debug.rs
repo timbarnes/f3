@@ -3,7 +3,7 @@
 use crate::internals::messages::DebugLevel;
 use crate::runtime::{
     ForthRuntime, ABORT, ADDRESS_MASK, BRANCH, BRANCH0, BREAK, BUILTIN_FLAG, CONSTANT, DEFINITION,
-    EXEC, EXIT, LITERAL, STRLIT, VARIABLE,
+    DO, EXEC, EXIT, FOR, LEAVE, LITERAL, LOOP, NEXT, PLOOP, QDO, STRLIT, VARIABLE,
 };
 
 impl ForthRuntime {
@@ -35,10 +35,10 @@ impl ForthRuntime {
     pub fn f_debuglevel(&mut self) {
         let level = self.msg.get_level();
         let result = match level {
-            DebugLevel::Error => 1,
-            DebugLevel::Warning => 2,
-            DebugLevel::Info => 3,
-            DebugLevel::Debug => 4,
+            DebugLevel::Error => 0, // the same numbering as dbg
+            DebugLevel::Warning => 1,
+            DebugLevel::Info => 2,
+            DebugLevel::Debug => 3,
         };
         self.kernel.push(result as i64);
         // println!("DebugLevel is {:?}", self.msg.get_level());
@@ -89,6 +89,10 @@ impl ForthRuntime {
                 println!(" BRANCH:{}", val)
             }
             BRANCH0 => println!(" BRANCH0:{}", self.kernel.get(pc + 1)),
+            DO | QDO | LOOP | PLOOP | FOR | NEXT => {
+                println!(" LOOP-OP {}:{}", contents, self.kernel.get(pc + 1))
+            }
+            LEAVE => println!(" LEAVE "),
             ABORT => println!(" ABORT "),
             EXIT => println!(" EXIT "),
             BREAK => println!(" BREAK "),

@@ -43,17 +43,26 @@
 100010 constant BREAK
 100011 constant EXEC
 100012 constant ARRAY
+100013 constant DO
+100014 constant QDO
+100015 constant LOOP
+100016 constant PLOOP
+100017 constant LEAVE
+100018 constant FOR
+100019 constant NEXT
 
 200000 constant MARK_BEGIN
 200001 constant MARK_WHILE
 200002 constant MARK_FOR
 200003 constant MARK_CASE
 200004 constant MARK_OF
+200005 constant MARK_DO
 
 \ Flags and masks used to identify special words and extract addresses
 72057594037927935 constant ADDRESS_MASK                      \ wipes any flags
 1 61 lshift constant BUILTIN_FLAG
 1 62 lshift constant IMMEDIATE_FLAG
+1 60 lshift constant COMPILE_ONLY_FLAG
 
 \ ASCII symbols that are useful for text processing
 10  constant '\n'
@@ -81,7 +90,7 @@
 
 \ This version is for use inside a definition. It compiles the value into the definition as a literal.
 : [char]
-    32 parse drop 1 + c@ LITERAL , , ; immediate
+    32 parse drop 1 + c@ LITERAL , , ; immediate compile-only
 
 \ variable <name> creates a variable, initialized to zero
 : variable ( -- ) create VARIABLE , 0 ,
@@ -108,8 +117,8 @@
 
 \ trace-on
 
-: [compile]         (') , ; immediate               \ Cause the following word to be compiled in, even if immediate
-: exec EXEC , ; immediate
+: [compile]         (') , ; immediate compile-only  \ Cause the following word to be compiled in, even if immediate
+: exec EXEC , ; immediate compile-only
 
 : text              BL parse ;                      \ Parser shortcut for space-delimited tokens
 : s-parse           tmp @ swap parse-to ;           \ Same as text, but loads to tmp instead of pad
@@ -131,7 +140,7 @@
 : ] TRUE state ! ;                                  \ Turns compile mode on
 
 : recurse ( -- )                                    \ Simply compiles the cfa of the word being defined
-                    last @ 1 + , ; immediate        \ last points to the latest nfa, so increment
+                    last @ 1 + , ; immediate compile-only \ last points to the latest nfa, so increment
 
 : nip ( a b -- b )  swap drop ;
 : tuck ( a b -- b a b ) swap over ;
@@ -141,15 +150,15 @@
 : _patch-here ( addr -- ) \ Address patcher for if - else - then
     here @ over - swap ! ;
 
-: if     BRANCH0 , here @ 0 , ; immediate
-: else   BRANCH , here @ 0 , swap _patch-here ; immediate
-: then   _patch-here ; immediate
+: if     BRANCH0 , here @ 0 , ; immediate compile-only
+: else   BRANCH , here @ 0 , swap _patch-here ; immediate compile-only
+: then   _patch-here ; immediate compile-only
 
 \ Finding the address of defined words
 
-: ' (') dup @ dup DEFINITION = if drop else nip then ;
+: ' ( <name> -- xt ) (') ;                                \ the execution token (cfa) of the next word
 
-: [']               LITERAL , ' , ; immediate             \ compiles a word's cfa into a definition as a literal
+: [']               LITERAL , ' , ; immediate compile-only \ compiles a word's cfa into a definition as a literal
 
 \ Movement within a word definition
 
@@ -165,7 +174,7 @@
 : 1+ ( n -- n+1 )   1 + ;
 : negate ( n -- -n ) 0 swap - ;
 : not               0= ;
-: exit ( -- )       BREAK , ; immediate                 \ Pop out of the current definition and reset the Program Counter
+: exit ( -- )       BREAK , ; immediate compile-only    \ Pop out of the current definition and reset the Program Counter
 : >                 swap < ;
 : <=                1 + < ;
 : <> ( n -- n )     = 0= ;
@@ -190,18 +199,7 @@
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Memory allocation
 \
-\ If n > 0, reserve n cells of data space. If n < 0, release |n| cells. If n is zero, no action is taken.
-\            Allot updates `here`, but does not create a back pointer.
-: allot ( n -- )
-   dup 0= if
-     drop exit
-   then
-   dup 0> if
-     here @ + here !
-   else
-     here @ swap - here !
-     then
-   ;
+\ allot ( n -- ) is a builtin: n > 0 reserves n cells of data space, n < 0 releases them.
 
 \ Used to convert to specify cells in Forths that have byte or other addressing modes (e.g. 8 bit processors with 16-bit addresses)
 \           Not required, but included for completeness.
@@ -218,54 +216,41 @@
 
 \ Control structures
 
-: begin ( -- )      here @ MARK_BEGIN >c ; immediate
+: begin ( -- )      here @ MARK_BEGIN >c ; immediate compile-only
 
 : while ( -- )      BRANCH0 ,
                     here @ MARK_WHILE >c
-                    999 ,                ; immediate
+                    999 ,                ; immediate compile-only
 : repeat ( -- )     c> drop                             \ pop while branch placeholder address
                     BRANCH ,                            \ unconditional branch to the beginning of the loop
                     here @ over - 1 + swap !            \ patch forward offset at WHILE's placeholder
                     c> drop                             \ pop begin address
-                    here @ - ,           ; immediate    \ save negative offset to BEGIN                          \ emit negative offset
-
-: for               here @ MARK_FOR >c
-                    ['] >r ,             ; immediate
-
-: next ( -- )       c>  drop                            \ get FOR addr
-                    ['] r> ,                            \ compile saving the loop index
-                    LITERAL , 1 ,
-                    ['] - ,                             \ compile decrementing the index
-                    ['] dup ,
-                    ['] 0= ,                            \ compile dup and 0 test
-                    BRANCH0 ,                           \ compile branch0 backwards
-                    here @ - ,                          \ patch the backwards branch0
-                    ['] drop ,           ; immediate    \ patch forward branch0
+                    here @ - ,           ; immediate compile-only \ save negative offset to BEGIN
 
 : until             c> drop BRANCH0 ,
-                    here @ - ,           ; immediate
+                    here @ - ,           ; immediate compile-only
 
 : again             c> drop BRANCH ,
-                    here @ - ,           ; immediate
+                    here @ - ,           ; immediate compile-only
 
-\ \\\ Under development
+\ Counted loops. FOR, DO and ?DO compile an opcode whose operand is the offset to the loop exit;
+\ NEXT, LOOP and +LOOP compile an opcode whose operand is the offset back to the loop body.
+\ At run time each loop keeps three cells on the return stack: exit address, limit, index.
 
-: do ( m n -- )     \ Start an iterative loop from m to n
-   ['] 2>r ,        \ Put both values on the return stack
-   here @ MARK_BEGIN >c
-   ; immediate
+: (loop-start) ( opcode -- )
+                    , here @ MARK_DO >c 0 , ;           \ placeholder for the exit offset
+: (loop-end) ( opcode -- )
+                    , c> drop                           \ address of the exit-offset placeholder
+                    dup 1+ here @ - ,                   \ offset back to the loop body
+                    here @ over - swap ! ;              \ patch the exit offset
 
-: loop ( -- )       \ Close an iterative loop, incrementing and checking the loop variable
-    ['] 2r@ ,       \ Get the loop values, leaving them on the stack
-    ['] <           \ If in range...
-    BRANCH0 , 8 ,   \ Jump forward, over the increment and branch code
-    LITERAL , 1 ,   \ increment the loop variable
-    ['] r> ,
-    ['] + ,
-    ['] >r
-    c> drop
-    BRANCH , here @ swap - ,
-    ; immediate
+: for ( n -- )      FOR (loop-start) ; immediate compile-only   \ runs the body n times, with i = n .. 1
+: next ( -- )       NEXT (loop-end) ; immediate compile-only
+: do ( limit start -- )  DO (loop-start) ; immediate compile-only
+: ?do ( limit start -- ) QDO (loop-start) ; immediate compile-only \ skips the loop if limit = start
+: loop ( -- )       LOOP (loop-end) ; immediate compile-only
+: +loop ( n -- )    PLOOP (loop-end) ; immediate compile-only
+: leave ( -- )      LEAVE , ; immediate compile-only    \ continue after the end of the innermost loop
 
 \ Case statement
 
@@ -273,7 +258,7 @@
     ['] >r ,                \ put the key on the return stack for later use
     here @ MARK_CASE >c     \ issues a marker to be retrieved by 'endcase'
     ;
-    immediate
+    immediate compile-only
 
 : of        ( -- )          \ the "if" part
     ['] r@ ,                \ compile getting the key from the return stack
@@ -281,14 +266,14 @@
     BRANCH0 , 999 ,         \ compile the branch. If the key doesn't match, we will skip
     here @ MARK_OF >c       \ push a marker
     ;
-    immediate
+    immediate compile-only
 
 : endof     ( -- )          \ the "then" part
     BRANCH ,            \ compile the branch
     here @ MARK_OF >c       \ push a second marker for this clause
     888 ,
     ;
-    immediate
+    immediate compile-only
 
 : endcase   ( -- )          \ patch the branches, exiting when the MARK_CASE is found
     begin
@@ -310,7 +295,7 @@
         then
     again
     ;
-    immediate
+    immediate compile-only
 
 \ Takes a typical descending for - next loop, and simplifies reversing the direction of the loop variable
 \     usage is : word incr-for for dup i - ... next .. ;
@@ -323,8 +308,6 @@
 : system" ( <command> ) tmp @ '"' parse-to drop (system) ;
 
 : sec ( n -- )      1000 * ms ;  \ sleep for n seconds
-
-: abort" STRLIT , s" .s drop s-create , ['] type , ['] abort , ; immediate \ abort with a message. Use inside another word.
 
 \ Printing words
 
@@ -363,6 +346,9 @@
 
 : ltype             swap ADDRESS_MASK and dup c@
                     rot swap - swap type spaces ;
+
+: abort" ( -- )     STRLIT , s" drop s-create ,        \ abort with a message. Use inside another word.
+                    ['] type , ['] abort , ; immediate compile-only
 
 : .tmp              tmp @ type ;                               \ Print the tmp buffer
 : .pad              pad @ type ;                               \ Print the pad buffer
@@ -482,7 +468,7 @@
 
 : strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
 
-include src/forth/terminal.fs
-include src/forth/debug.fs
-include src/forth/editor.fs
-include src/forth/sequences.fs
+include terminal.fs
+include debug.fs
+include editor.fs
+include sequences.fs
