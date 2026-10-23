@@ -93,36 +93,48 @@ impl ForthRuntime {
         if self.kernel.stack_check(2, "accept") {
             let max_len = self.kernel.pop().clamp(0, BUF_SIZE as i64 - 1) as usize;
             let dest = self.kernel.top() as usize;
-            let line = self.read_line();
+            let line = self.read_line().unwrap_or_default();
             let length = line.len().min(max_len);
             self.kernel.bytes_save(&line[..length], dest); // write a counted string
             self.kernel.push(length as i64);
         }
     }
 
-    /// read_line returns the next line from the current input source.
-    ///     At the end of an included file, input returns to the previous source and the line is empty.
+    /// read_line returns the next line from the current input source, or None at its end.
+    ///     At the end of an included file, input returns to the previous source.
     ///     At the end of stdin, the interpreter exits.
     ///
-    fn read_line(&mut self) -> Vec<u8> {
-        match self.reader.last_mut().and_then(|reader| reader.get_line()) {
-            Some(line) => line,
-            None => {
-                if self.reader.len() > 1 {
-                    self.reader.pop(); // file goes out of scope and is closed automatically
-                } else {
-                    self.exit_flag = true; // reader 0 is stdin
-                }
-                Vec::new()
+    fn read_line(&mut self) -> Option<Vec<u8>> {
+        let line = self.reader.last_mut().and_then(|reader| reader.get_line());
+        if line.is_none() {
+            if self.reader.len() > 1 {
+                self.reader.pop(); // file goes out of scope and is closed automatically
+            } else {
+                self.exit_flag = true; // reader 0 is stdin
             }
         }
+        line
     }
 
     /// QUERY ( -- ) Load a new line of text into the TIB
     ///
     pub fn f_query(&mut self) {
+        self.fill_tib();
+    }
+
+    /// refill ( -- flag ) reads the next line of the current input into the TIB.
+    ///     False at the end of the input (an included file, or stdin).
+    ///
+    pub fn f_refill(&mut self) {
+        let ok = self.fill_tib();
+        self.kernel.push(if ok { TRUE } else { FALSE });
+    }
+
+    fn fill_tib(&mut self) -> bool {
         let tib = self.kernel.get(self.tib_ptr) as usize;
         let line = self.read_line();
+        let ok = line.is_some();
+        let line = line.unwrap_or_default();
         if line.len() >= BUF_SIZE {
             throw(format!(
                 "input line longer than {} characters",
@@ -131,15 +143,16 @@ impl ForthRuntime {
         }
         self.kernel.bytes_save(&line, tib);
         self.kernel.set(self.tib_size_ptr, line.len() as i64); // update the TIB size pointer
-        self.kernel.set(self.tib_in_ptr, 1); // set the starting point in the TIB
+        self.kernel.set(self.tib_in_ptr, 0); // >IN: 0-based offset into the line
+        ok
     }
 
     // output functions
 
-    /// (emit) ( c -- ) takes a character from the stack and prints it as a raw byte.
+    /// emit ( c -- ) takes a character from the stack and prints it as a raw byte.
     ///
     pub fn f_emit_p(&mut self) {
-        if self.kernel.stack_check(1, "(emit)") {
+        if self.kernel.stack_check(1, "emit") {
             let c = self.kernel.pop() as u8;
             out(&[c]);
         }

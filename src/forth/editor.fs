@@ -76,7 +76,7 @@ variable ed-hist-tmp          \ text buffer for swap;
 \ Repaint the line
 : ed-repaint    ( s_addr -- s_addr )
     line-clear
-    CR (emit)
+    ^M emit
     ed-prompt
     ed-draw-buffer
     ed-char-count @ ed-cursor-position @ -
@@ -156,10 +156,10 @@ variable ed-hist-tmp          \ text buffer for swap;
                 ( default ) dup    \ Unknown sequence, return as-is
             endcase
         else
-            drop ESC       \ Not a '[' after ESC, treat as ESC
+            drop ^[       \ Not a '[' after ESC, treat as ESC
         then
     else
-        ESC
+        ^[
     then
     ;
 
@@ -170,8 +170,8 @@ variable ed-hist-tmp          \ text buffer for swap;
 : ed-get-key ( -- keyval )
     key dup
     case 
-        ESC of ed-escape-seq endof      \ handle escape sequences
-        CR  of drop LF       endof      \ replace CR with LF
+        ^[ of ed-escape-seq endof      \ handle escape sequences
+        ^M  of drop LF       endof      \ replace CR with LF
     endcase
     ;
 

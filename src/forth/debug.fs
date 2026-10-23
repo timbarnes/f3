@@ -12,7 +12,7 @@ variable word-counter
 
 : words ( -- )
                     0 word-counter !
-                    here @ 1- @                                 \ Get the starting point: the top back pointer
+                    here 1- @                                 \ Get the starting point: the top back pointer
                     begin                                       \ loops through the words in the dictionary
                         .word dup not                           \ print a word and test the next pointer
                     until
@@ -82,7 +82,7 @@ variable word-counter
     ." TIB: " cr
     0 dump-buffer    \ TIB
     ." PAD " cr
-    pad @ dump-buffer
+    pad dump-buffer
     ." TMP " cr
     tmp @ dump-buffer
     tmp @ 132 + dump-strings
@@ -132,25 +132,25 @@ variable word-counter
 
 \ The tokens are opcodes: cells with OPCODE_FLAG set.
 : dump-token   ( val -- val )
-    dup VARIABLE   = if ." VARIABLE             " exit then
-    dup CONSTANT   = if ." CONSTANT             " exit then
-    dup LITERAL    = if ." LITERAL              " exit then
-    dup STRLIT     = if ." STRLIT               " exit then
-    dup ARRAY      = if ." ARRAY                " exit then
-    dup DEFINITION = if ." DEFINITION           " exit then
-    dup BRANCH     = if ." BRANCH               " exit then
-    dup BRANCH0    = if ." BRANCH0              " exit then
-    dup ABORT      = if ." ABORT                " exit then
-    dup EXIT       = if ." EXIT                 " exit then
-    dup BREAK      = if ." BREAK                " exit then
-    dup EXEC       = if ." EXEC                 " exit then
-    dup DO         = if ." DO                   " exit then
-    dup QDO        = if ." ?DO                  " exit then
-    dup LOOP       = if ." LOOP                 " exit then
-    dup PLOOP      = if ." +LOOP                " exit then
-    dup LEAVE      = if ." LEAVE                " exit then
-    dup FOR        = if ." FOR                  " exit then
-    dup NEXT       = if ." NEXT                 " exit then
+    dup op:variable   = if ." VARIABLE             " exit then
+    dup op:constant   = if ." CONSTANT             " exit then
+    dup op:literal    = if ." LITERAL              " exit then
+    dup op:strlit     = if ." STRLIT               " exit then
+    dup op:array      = if ." ARRAY                " exit then
+    dup op:definition = if ." DEFINITION           " exit then
+    dup op:branch     = if ." BRANCH               " exit then
+    dup op:branch0    = if ." BRANCH0              " exit then
+    dup op:abort      = if ." ABORT                " exit then
+    dup op:exit       = if ." EXIT                 " exit then
+    dup op:break      = if ." BREAK                " exit then
+    dup op:exec       = if ." EXEC                 " exit then
+    dup op:do         = if ." DO                   " exit then
+    dup op:qdo        = if ." ?DO                  " exit then
+    dup op:loop       = if ." LOOP                 " exit then
+    dup op:ploop      = if ." +LOOP                " exit then
+    dup op:leave      = if ." LEAVE                " exit then
+    dup op:for        = if ." FOR                  " exit then
+    dup op:next       = if ." NEXT                 " exit then
     ." *UNKNOWN* " drop ;
 
 : dump-word ( addr -- )             \ Print the name of the word with compile reference at addr
@@ -182,19 +182,19 @@ variable word-counter
 
 : definition-name? ( addr -- bool )
     1 + @                           \ Look at the next cell
-    DEFINITION = ;
+    op:definition = ;
 
 : variable-name?    ( addr -- bool )
     1 + @
-    VARIABLE = ;
+    op:variable = ;
 
 : constant-name?    ( addr -- bool )
     1 + @
-    CONSTANT = ;
+    op:constant = ;
 
 : array-name?    ( addr -- bool )
     1 + @
-    ARRAY = ;
+    op:array = ;
 
 : _nfa?  ( addr -- bool )            \ Attempts to identify if an addr contains an nfa
     \ Five types: builtin, definition, constant, and variable ;
@@ -214,10 +214,10 @@ variable word-counter
     else
         1 +
         dup dup builtin? swap 1 - _nfa? and
-        swap @ dup DEFINITION =
-        swap dup ARRAY =
-        swap dup VARIABLE =
-        swap CONSTANT =
+        swap @ dup op:definition =
+        swap dup op:array =
+        swap dup op:variable =
+        swap op:constant =
         or or or or
     then ;
 
@@ -236,28 +236,28 @@ variable word-counter
     ;
 
 : offset-value? ( addr -- bool )          \ Identifies branch offsets
-    1 - @ dup BRANCH = swap BRANCH0 = or    ;
+    1 - @ dup op:branch = swap op:branch0 = or    ;
 
 : lit-value? ( addr -- bool )         \ Identifies integer literals
-    1 - @ LITERAL =    ;
+    1 - @ op:literal =    ;
 
 : strlit-value?                           \ Identifies string literals
-    1 - @ STRLIT = ;
+    1 - @ op:strlit = ;
 
 : var-value? ( addr -- bool )        \ Identifies a variable's storage cell
-    1 - @ VARIABLE =    ;
+    1 - @ op:variable =    ;
 
 : const-value? ( addr -- bool )        \ Identifies a constant's storage cell
-    1 - @ CONSTANT =    ;
+    1 - @ op:constant =    ;
 
 : def-call?  ( addr -- )           \ Identifies a compiled call to a Forth definition
-    @ @ DEFINITION =
+    @ @ op:definition =
     ;
 
 : var-call?  ( addr -- )            \ Identifies a compiled reference to a variable
     @ @
-    dup VARIABLE =
-    swap CONSTANT =
+    dup op:variable =
+    swap op:constant =
     or
     ;
 
@@ -268,8 +268,8 @@ variable word-counter
     space
     \ Deterministic cases
     dup 0 =                 if ." Bottom of memory "                 exit then
-    dup here @ =            if ."             HERE "                 exit then
-    dup here @ >            if ."       Free space "                 exit then
+    dup here =            if ."             HERE "                 exit then
+    dup here >            if ."       Free space "                 exit then
     dup @ 0 <               if ."            Value "                 exit then
     dup dup builtin?        if ."         Builtin: "    dump-builtin exit else drop then
     dup dup immediate?      if inverse ." *Immediate* NFA: " dump-immed t-reset exit else drop then
@@ -315,9 +315,9 @@ variable word-counter
 
 \ dump-here dumps the top n cells. Useful for seeing recent dictionary entries.
 : dump-here     ( n -- )
-    dup here @ 1 - swap - swap dump
+    dup here 1 - swap - swap dump
     dim ." **************** HERE ********** TOP OF HEAP *********************" t-reset cr
-    here @ 2 dump ;
+    here 2 dump ;
 
 : dh 25 dump-here ;
 : dmp 25 dump ;

@@ -75,7 +75,7 @@ The heap is 65,536 cells (`i64`), checked on every access:
 ## Compiled code and execution tokens
 
 A compiled cell is one of:
-- **an opcode**: a value with `OPCODE_FLAG` (bit 59) set, such as `LITERAL`, `BRANCH`, `EXIT`, or the loop opcodes `DO` `QDO` `LOOP` `PLOOP` `LEAVE` `FOR` `NEXT`, possibly followed by an operand;
+- **an opcode**: a value with `OPCODE_FLAG` (bit 59) set, such as `op:literal`, `op:branch`, `op:exit`, or the loop opcodes `op:do` `op:qdo` `op:loop` `op:ploop` `op:leave` `op:for` `op:next`, possibly followed by an operand;
 - **a builtin**: its index in the Rust builtin table, with `BUILTIN_FLAG` (bit 61) set;
 - **the cfa** (code field address) of any other word.
 
@@ -98,29 +98,35 @@ Everything else is in `corelib.fs`: control structures, `see`, `.s`, `depth`, st
 
 ## Deviations from ANS Forth
 
-f3 follows ANS Forth where it can. These differences are deliberate:
+f3 follows ANS Forth where it can. `plan/ANS.md` has the full review and the roadmap; step 1 of it is done.
 
-- **Two address spaces:** cells (`@ ! ,`) and bytes (`c@ c! cmove`) are separate, so `cells` is a no-op, and a heap address is not a string address.
-- **`here` is a variable**, so use `here @`. The same goes for `s-here`, `base`, `state`, `>in`, and the other system variables.
-- **Strings are counted strings:**
-  - `type ( s -- )` takes a counted-string address.
+What is standard now:
+- **Names are case-insensitive**, so standard (upper-case) programs work: `DUP`, `dup`, and `Dup` are the same word.
+- **`here` and `pad` are words**, as in ANS. The variables behind them are `dp` and `'pad`.
+- **`find`** returns `xt 1` for an immediate word and `xt -1` otherwise.
+- **`rshift`** is logical; `2/` is the arithmetic shift.
+- **`abort" msg"`** takes a flag. `emit` sends any byte. `>in` is a 0-based offset into `source`.
+- **The return-stack pairs** `2>r 2r> 2r@ 2rdrop rdrop` follow the ANS order.
+- **Also present:** double-cell arithmetic (`s>d m* um* um/mod fm/mod sm/rem */ */mod`), pictured numeric output (`<# # #s #> hold sign`, on which `. u. .r u.r` are built), `postpone`, `:noname`, `[if] [else] [then]`, `value to`, `defer is`, `.(`, `refill`, `source`, `count`, `within`, `u>`, `2*`, `cell+`, `char+`, `chars`, `align`, `aligned`, `unused`, and `environment?`.
+
+What is still different, deliberately:
+- **Two address spaces:** cells (`@ ! ,`) and bytes (`c@ c! cmove`) are separate, so `cells`, `chars`, `align`, and `aligned` are no-ops, and a heap address is not a string address. This is step 4 of the roadmap, and needs a decision.
+- **Strings are counted strings** (step 3 of the roadmap):
+  - `type ( s -- )` takes a counted-string address; `tell ( c-addr u -- )` is the ANS `type`.
   - `s" text"` returns `( s u )`, where `s` is the counted string in TMP; use `drop` for words that take `s`.
-  - `tell ( s u -- )` prints a substring.
-- **`rshift` is an arithmetic shift**, keeping the sign.
-- **`/` and `mod` truncate toward zero** (symmetric division).
-- **`abort"` is unconditional**: it doesn't take a flag. Use `if abort" ..." then`.
-- **Missing:**
-  - `does>`, `postpone`, `evaluate`, `>number`, and pictured numeric output (`<# # #>`);
-  - double-cell words, `um*`, `um/mod`;
-  - `:noname`, `[if]`.
+  - `parse` copies its token to PAD.
+- **`create` makes only a header** until `(close)` runs, and there is no `does>`; `evaluate` is missing too. These are step 2 of the roadmap.
+- **`/` and `mod` truncate toward zero** (symmetric division, which the standard allows). `fm/mod` is the floored version.
+- **Missing:** `word`, `>number`, `compare`, `search`, and most of the Double word set.
 - **File words** take counted strings. `open-file ( s fam -- id ior )` and `read-line ( u id -- u2 flag ior )` read into TMP.
 - **Numbers** accept `#` (decimal), `$` (hex), and `%` (binary) prefixes, and honour `base`.
+- **f3 extensions:** `."` also works outside definitions, and there are `for … next`, `compile-only`, and `forget`.
 
 ## Testing
 
 - `cargo test` runs the Rust unit tests and `tests/forth.rs`, which drives the real `f3` binary. That covers:
   - the regression suite (`src/forth/regression.fs`);
-  - Hayes-style core tests (`src/forth/tester.fs` with `src/forth/core-tests.fs`, about 230 `T{ ... -> ... }T` tests of the ANS-compatible words);
+  - Hayes-style core tests (`src/forth/tester.fs` with `src/forth/core-tests.fs`, about 280 `T{ ... -> ... }T` tests of the ANS-compatible words);
   - a 10,000-line fuzz test;
   - one test for each bug fixed in the review (`plan/ANALYSIS.md`).
 - `cargo clippy --all-targets -- -D warnings` must be clean.
@@ -137,9 +143,9 @@ This is not intended to be full documentation, but a reference to the stack beha
 | 'tib    | The address of the text input buffer. TIB is not counted, but the first byte is reserved and not used for text.                          |
 | #tib    | The length of the line currently in TIB.                                                                                                 |
 | >in     | Pointer to the first unconsumed character in TIB.                                                                                        |
-| pad     | Address of the temporary string buffer PAD. PAD is a counted string, used by the parser to hold the current token during interpretation. |
+| pad     | ( -- s ) The address of the string buffer PAD (the variable behind it is `'pad`). PAD is a counted string, used by the parser to hold the current token during interpretation. |
 | tmp     | Address of a second temporary string buffer used by string functions to stage new strings.                                               |
-| here    | The location of the top of the dictionary, where new elements will be added.                                                             |
+| here    | ( -- a ) The top of the dictionary, where new elements will be added (the variable behind it is `dp`).                                                             |
 | s-here  | The location of the top of string space, where new strings will be added.                                                                |
 | context | Holds the address of the most recent word's name field                                                                                   |
 | last    | Holds the address of the name field of the word being defined.                                                                           |
@@ -160,7 +166,7 @@ This is not intended to be full documentation, but a reference to the stack beha
 | ------------- | ----------------------------- | ----------------------------------------------------------------------- |
 | query         | ( -- )                        | Read a line of Forth from the terminal. Store in TIB and set #TIB and >IN variables                                                                                                                                                                                                                                                               |
 | accept        | ( b u -- b u )                | Read up to u characters, placing them in b. Return the number of characters actually read.                                                                                                                                                                                                                                                        |
-| emit          | ( c -- )                      | Print a character, if it's in the printable range from space to 0x7F.                                                                                                                                                                                                                                                                             |
+| emit          | ( c -- )                      | Send byte c to the terminal.                                                                                                                                                                                                                                                                             |
 | flush         | ( -- )                        | Force the output buffer to be flushed to the terminal.                                                                                                                                                                                                                                                                                            |
 | space         | ( -- )                        | Prints a single space.                                                                                                                                                                                                                                                                                                                            |
 | spaces        | ( u -- )                      | Prints u spaces.                                                                                                                                                                                                                                                                                                                                  |
@@ -195,7 +201,7 @@ This is not intended to be full documentation, but a reference to the stack beha
 | words             | ( -- )                    | Prints a list of all dictionary entries, whether words, builtins, variables or constants. Each word is preceded by its address in the dictionary for debugging purposes.                                                                                                                                                                                 |
 | see               | \<word>                   | The Forth decompiler. If \<word> is a builtin, see provides the documentation for that word. If it's a user-defined word, see provides the source code as compiled. This is often different from the original source code, because control structures are compiled down to lower level branch functions, and are not represented in their original form. |
 | abort             | ( -- )                    | Ends execution of the current word, clears the stack, and returns to the interpreter's top level                                                                                                                                                                                                                                                         |
-| abort"            | \<message>"               | Raise an error with the message (throw code -2). Unconditional: use it inside `if ... then`.                                                                                                                                                                                                                                                              |
+| abort"            | ( x -- ) \<message>"      | If x is non-zero, raise an error with the message (throw code -2).                                                                                                                                                                                                                                                              |
 | catch             | ( ... xt -- ... 0 \| n )  | Run `xt`. Returns 0 if it completes; if it throws, restores the stack depths and returns the throw code.                                                                                                                                                                                                                                                 |
 | throw             | ( n -- )                  | If `n` is not 0, raise an error with throw code `n`. Uncaught, it is reported at the prompt.                                                                                                                                                                                                                                                             |
 | quit              | ( -- )                    | Interpreter outer loop: gets a line of input, processes it. Calls `query` and `eval` to do the work.                                                                                                                                                                                                                                                     |
@@ -205,7 +211,7 @@ This is not intended to be full documentation, but a reference to the stack beha
 | (                 | ( -- )                    | Text from the left paren to its maching closing paren is ignored. Used for documenting stack signatures in word definitions.                                                                                                                                                                                                                             |
 | parse             | ( c -- b u )              | Gets a token from `PAD` delimited by `c`. Returns `PAD` address and count.                                                                                                                                                                                                                                                                               |
 | [char]            | ( -- c )                  | Place the first character of the next token on the stack. Consumes the entire token.                                                                                                                                                                                                                                                                     |
-| find              | ( s -- cfa T \| s FALSE ) | Search the dictionary for the counted string at s.                                                                                                                                                                                                                                                                                                       |
+| find              | ( s -- xt 1 \| xt -1 \| s 0 ) | Search the dictionary for the counted string at s: 1 if the word is immediate, -1 if not.                                                                                                                                                                                                                                                                                                       |
 | ' \<name>         | ( -- cfa )                | The code field address (execution token) of the next word. It is an error if the word is not found.                                                                                                                                                                                                                                                     |
 | ?unique           | ( s -- s )                | Prints a message if the counted string at s is already defined. `create` warns about redefinitions itself (at warning level).                                                                                                                                                                                                                         |
 | :                 | ( -- )                    | Sets compile mode to start a definition                                                                                                                                                                                                                                                                                                                  |

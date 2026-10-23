@@ -45,6 +45,7 @@ pub const RSTACK_UNDERFLOW: i64 = -6;
 pub const DICTIONARY_FULL: i64 = -8;
 pub const INVALID_ADDRESS: i64 = -9;
 pub const DIVISION_BY_ZERO: i64 = -10;
+pub const OUT_OF_RANGE: i64 = -11;
 pub const UNDEFINED_WORD: i64 = -13;
 pub const COMPILE_ONLY: i64 = -14;
 pub const NAME_EXPECTED: i64 = -16;

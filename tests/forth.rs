@@ -212,9 +212,9 @@ fn f25_loaded_file_sees_core_words() {
 
 #[test]
 fn f26_abort_quote() {
-    let r = run(": t abort\" oops\" ; 1 2 t\n.s");
+    let r = run(": t true abort\" oops\" ; : f false abort\" no\" 9 ; 1 2 t\nf .s");
     assert!(
-        r.ok && r.out.contains("oops") && r.out.contains("[ ]"),
+        r.ok && r.out.contains("oops") && r.out.contains("[ 9 ]") && !r.out.contains("no"),
         "{}",
         r.out
     );
@@ -222,7 +222,7 @@ fn f26_abort_quote() {
 
 #[test]
 fn f27_negative_allot() {
-    assert_eq!(stack("here @ 10 allot -10 allot here @ ="), "-1");
+    assert_eq!(stack("here 10 allot -10 allot here ="), "-1");
 }
 
 #[test]
@@ -380,7 +380,7 @@ fn unbalanced_control_structure_is_an_error() {
 #[test]
 fn string_words_in_forth() {
     assert_eq!(stack("s\" hello\" drop s-create c@"), "5");
-    assert_eq!(stack("s\" abc\" drop pad @ s-copy pad @ 1+ c@"), "97");
+    assert_eq!(stack("s\" abc\" drop pad s-copy pad 1+ c@"), "97");
 }
 
 #[test]
@@ -399,6 +399,25 @@ fn tracer_follows_stepper_variable() {
     assert!(r.out.contains("[ 3 3 ]"), "{}", r.out);
 }
 
+// ------------------------------------------- ANS step 1 (plan/ANS.md)
+
+#[test]
+fn ans_output_words() {
+    // u. is unsigned with a trailing space (F33); emit sends any byte; .( prints at once
+    let r = run("-1 u. 255 u. -5 . 7 emit .( done)");
+    assert!(r.out.contains("18446744073709551615 255 -5 \u{7}done"), "{:?}", r.out);
+}
+
+#[test]
+fn ans_conditional_compilation_across_lines() {
+    assert_eq!(stack("0 [if]\n1 2\n[else]\n3\n[then]"), "3");
+}
+
+#[test]
+fn f32_return_stack_pairs() {
+    assert_eq!(stack("1 2 2>r 2r>"), "1 2");
+}
+
 // ------------------------------------------------------------- Phase 5
 
 #[test]
@@ -406,7 +425,7 @@ fn f30_allot_after_a_variable_keeps_the_dictionary() {
     // buf gets 11 cells; words defined afterwards, and all earlier words, still work
     let src = "variable buf 10 allot : foo 7 ; 42 buf 10 + ! foo buf 10 + @ 1 2 +";
     assert_eq!(stack(src), "7 42 3");
-    assert_eq!(stack("here @ 10 allot -10 allot here @ = 1 2 +"), "-1 3");
+    assert_eq!(stack("here 10 allot -10 allot here = 1 2 +"), "-1 3");
     // the same for , after a finished word
     assert_eq!(stack("variable x 1 , 2 , : foo 7 ; foo x 2 + @ 1 2 +"), "7 2 3");
 }
@@ -418,7 +437,7 @@ fn catch_and_throw() {
     assert_eq!(stack(": bad 1 0 / ; ' bad catch"), "-10"); // engine errors have ANS codes
     assert_eq!(stack("' drop catch"), "-4");
     assert_eq!(stack("' abort catch"), "-1");
-    assert_eq!(stack(": a abort\" boom\" ; ' a catch"), "-2");
+    assert_eq!(stack(": a -1 abort\" boom\" ; ' a catch"), "-2");
     assert_eq!(stack("0 throw 1"), "1");
     // the return stack is restored too, including inside a loop
     assert_eq!(stack(": inner 1 >r 2 >r 5 throw ; : outer ['] inner catch ; outer 1 2 +"), "5 3");

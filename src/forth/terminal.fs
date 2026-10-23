@@ -16,10 +16,10 @@
   8 constant ^H     \ Control-H - delete backwards (same function as DEL)
  10 constant LF
  11 constant ^K     \ Control-K - kill to end of line
- 13 constant CR
+ 13 constant ^M     \ Control-M - carriage return (CR)
  14 constant ^N     \ Control-N - move forward in history
  16 constant ^P     \ Control-P - move backwards in history
- 27 constant ESC    \ Escape key
+ 27 constant ^[    \ Escape key (ESC)
 127 constant DEL    \ Backspace key
 
 \ Utility functions
@@ -60,7 +60,7 @@
 
 \ Screen control words
 
-: esc ESC (emit) ;                           \ Send escape character.
+: esc ^[ emit ;                           \ Send escape character.
 
 : screen-clear 
     \ ascii-preamble 50 emit 74 emit ;

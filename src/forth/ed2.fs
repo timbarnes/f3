@@ -56,7 +56,7 @@
 
 \ Screen control words
 
-: esc ESC (emit) ;                           \ Send escape character.
+: esc ESC emit ;                           \ Send escape character.
 
 : screen-clear 
     \ ascii-preamble 50 emit 74 emit ;
@@ -166,7 +166,7 @@ variable ed-cursor-position   \ location for edit and move functions
 \ : ed-repaint    ( s_addr -- s_addr )
 \     cr ." Repainting " cr
 \     line-clear
-\     CR (emit)
+\     CR emit
 \     ed-prompt
 \     ed-draw-buffer
 \     ed-char-count @ ed-cursor-position @ -

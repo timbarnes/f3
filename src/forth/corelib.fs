@@ -1,6 +1,8 @@
 : immediate context @ dup @ IMMEDIATE_FLAG or swap ! ;
 : compile-only context @ dup @ COMPILE_ONLY_FLAG or swap ! ;
-: parse pad @ swap parse-to ;
+: here dp @ ;
+: pad 'pad @ ;
+: parse pad swap parse-to ;
 : \ 1 parse drop drop ; immediate
 : ( 41 parse drop drop ; immediate     \ Implements in-line comments
 
@@ -15,8 +17,8 @@
 \ last and context point to the previous word's name field address
 
 : (close) ( -- )                      \ terminate a definition, writing a back pointer and updating context, last, and here
-        last @ 1 - here @ !           \ write the new back pointer
-        here @ 1 + here !             \ update HERE
+        last @ 1 - here !           \ write the new back pointer
+        here 1 + dp !             \ update HERE
         last @ context !              \ update CONTEXT
         ;
 
@@ -28,11 +30,11 @@
 : s-create ( from -- to )                                  \ copy a counted string to new string space
     dup c@ 1 + dup s-allot swap over >r cmove r> ;
 
-: constant ( n -- ) create CONSTANT , ,      \ v constant <name> creates a constant with value v
+: constant ( n -- ) create op:constant , ,      \ v constant <name> creates a constant with value v
     (close) ;
 
 : string ( n -- )
-    create STRLIT ,
+    create op:strlit ,
     s-create dup 0 swap c! , (close) ;
 
 \ Boolean constants. In fact any non-zero value is interpreted as true, but -1 is traditional.
@@ -75,12 +77,12 @@
 
 \ This version is for use inside a definition. It compiles the value into the definition as a literal.
 : [char]
-    32 parse drop 1 + c@ LITERAL , , ; immediate compile-only
+    32 parse drop 1 + c@ op:literal , , ; immediate compile-only
 
-: literal ( x -- )  LITERAL , , ; immediate compile-only   \ compile x from the stack as a literal
+: literal ( x -- )  op:literal , , ; immediate compile-only   \ compile x from the stack as a literal
 
 \ variable <name> creates a variable, initialized to zero
-: variable ( -- ) create VARIABLE , 0 ,
+: variable ( -- ) create op:variable , 0 ,
     (close) ;
 
 : decimal 10 base ! ;
@@ -105,7 +107,7 @@
 \ trace-on
 
 : [compile]         (') , ; immediate compile-only  \ Cause the following word to be compiled in, even if immediate
-: exec EXEC , ; immediate compile-only
+: exec op:exec , ; immediate compile-only
 
 : text              BL parse ;                      \ Parser shortcut for space-delimited tokens
 : s-parse           tmp @ swap parse-to ;           \ Same as text, but loads to tmp instead of pad
@@ -135,20 +137,25 @@
 \ if - else - then
 
 : _patch-here ( addr -- ) \ Address patcher for if - else - then
-    here @ over - swap ! ;
+    here over - swap ! ;
 
-: if     BRANCH0 , here @ 0 , ; immediate compile-only
-: else   BRANCH , here @ 0 , swap _patch-here ; immediate compile-only
+: if     op:branch0 , here 0 , ; immediate compile-only
+: else   op:branch , here 0 , swap _patch-here ; immediate compile-only
 : then   _patch-here ; immediate compile-only
 
 \ Finding the address of defined words
 
 : ' ( <name> -- xt ) (') ;                                \ the execution token (cfa) of the next word
 
-: [']               LITERAL , ' , ; immediate compile-only \ compiles a word's cfa into a definition as a literal
+: [']               op:literal , ' , ; immediate compile-only \ compiles a word's cfa into a definition as a literal
 
-: abort" ( -- )     STRLIT , s" drop s-create ,         \ abort with a message. Use inside another word.
-                    ['] (error) , ; immediate compile-only
+: postpone ( <name> -- )                              \ compile the compilation behaviour of <name>:
+                    ' dup 1 - @ IMMEDIATE_FLAG and      \ an immediate word is compiled as a call,
+                    if , else op:literal , , ['] , , then ; immediate compile-only  \ others compile a ,
+
+: abort" ( x -- )   op:branch0 , here 0 ,               \ if x is non-zero, abort with the message (ANS)
+                    op:strlit , s" drop s-create ,
+                    ['] (error) , _patch-here ; immediate compile-only
 
 \ Movement within a word definition
 
@@ -164,16 +171,25 @@
 : 1+ ( n -- n+1 )   1 + ;
 : negate ( n -- -n ) 0 swap - ;
 : not               0= ;
-: exit ( -- )       BREAK , ; immediate compile-only    \ Pop out of the current definition and reset the Program Counter
+: exit ( -- )       op:break , ; immediate compile-only    \ Pop out of the current definition and reset the Program Counter
 : >                 swap < ;
 : <=                1 + < ;
 : <> ( n -- n )     = 0= ;
 : 0>                0 > ;
 : 0<>               0= 0= ;
 : invert ( n -- ~n ) -1 xor ;
+: 2* ( n -- 2n )    1 lshift ;
+: u> ( u1 u2 -- f ) swap u< ;
+: within ( n lo hi -- f ) over - >r - r> u< ;         \ lo <= n < hi, also across the wrap
+: cell+ ( a -- a' ) 1+ ;                              \ heap addresses count cells, so these are
+: char+ ( c -- c' ) 1+ ;                              \ simple, and chars, align, aligned do nothing
+: chars ( n -- n ) ;
+: align ( -- ) ;
+: aligned ( a -- a ) ;
+: count ( s -- c-addr u ) dup 1+ swap c@ ;           \ a counted string's characters and length
 
 : ?pairs ( tag expected -- )                          \ check that control structures match up
-                    <> if abort" unbalanced control structure" then ;
+                    <> abort" unbalanced control structure" ;
 
 \ Stack operations
 
@@ -186,19 +202,15 @@
 \ the item n deep is at sp@ + n, and sp0 is sp@ when the stack is empty.
 : depth ( -- n )    sp@ sp0 swap - ;
 : pick ( xn..x0 n -- xn..x0 xn )
-                    dup depth 2 - u< 0= if abort" pick: stack underflow" then
+                    dup depth 2 - u< 0= abort" pick: stack underflow"
                     1 + sp@ + @ ;
 : roll ( xn..x0 n -- xn-1..x0 xn )
-                    dup depth 2 - u< 0= if abort" roll: stack underflow" then
+                    dup depth 2 - u< 0= abort" roll: stack underflow"
                     ?dup if swap >r 1- recurse r> swap then ;
 
 \ Return stack operations
 
-: rdrop  ( -- )     r> drop ;
-: 2rdrop ( -- )     rdrop rdrop ;
-: 2>r ( m n -- )    >r >r ;
-: 2r> ( -- n m )    r> r> ;
-: 2r@ ( -- n m )    r> r> 2dup >r >r ;
+\ rdrop 2rdrop 2>r 2r> 2r@ are builtins: as colon definitions they would move their own return address
 
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Memory allocation
@@ -220,21 +232,21 @@
 
 \ Control structures
 
-: begin ( -- a tag ) here @ MARK_BEGIN ; immediate compile-only
+: begin ( -- a tag ) here MARK_BEGIN ; immediate compile-only
 
 \ while leaves its forward reference below BEGIN's, untagged like if's, as ANS specifies:
 \ so `begin .. while .. while .. repeat .. else .. then` works, with else/then resolving the extra while.
-: while ( a tag -- orig a tag ) BRANCH0 ,
-                    here @ 0 , rot rot ; immediate compile-only   \ placeholder for the exit offset
+: while ( a tag -- orig a tag ) op:branch0 ,
+                    here 0 , rot rot ; immediate compile-only   \ placeholder for the exit offset
 : repeat ( orig a tag -- ) MARK_BEGIN ?pairs
-                    BRANCH , here @ - ,                 \ branch back to BEGIN
+                    op:branch , here - ,                 \ branch back to BEGIN
                     _patch-here ; immediate compile-only \ WHILE exits to here
 
-: until             MARK_BEGIN ?pairs BRANCH0 ,
-                    here @ - ,           ; immediate compile-only
+: until             MARK_BEGIN ?pairs op:branch0 ,
+                    here - ,           ; immediate compile-only
 
-: again             MARK_BEGIN ?pairs BRANCH ,
-                    here @ - ,           ; immediate compile-only
+: again             MARK_BEGIN ?pairs op:branch ,
+                    here - ,           ; immediate compile-only
 
 : clear ( ... -- )  begin depth while drop repeat ;   \ empty the data stack
 
@@ -243,28 +255,28 @@
 \ At run time each loop keeps three cells on the return stack: exit address, limit, index.
 
 : (loop-start) ( opcode -- a tag )
-                    , here @ MARK_DO 0 , ;              \ placeholder for the exit offset
+                    , here MARK_DO 0 , ;              \ placeholder for the exit offset
 : (loop-end) ( a tag opcode -- )
                     , MARK_DO ?pairs                    \ a: address of the exit-offset placeholder
-                    dup 1+ here @ - ,                   \ offset back to the loop body
-                    here @ over - swap ! ;              \ patch the exit offset
+                    dup 1+ here - ,                   \ offset back to the loop body
+                    here over - swap ! ;              \ patch the exit offset
 
-: for ( n -- )      FOR (loop-start) ; immediate compile-only   \ runs the body n times, with i = n .. 1
-: next ( -- )       NEXT (loop-end) ; immediate compile-only
-: do ( limit start -- )  DO (loop-start) ; immediate compile-only
-: ?do ( limit start -- ) QDO (loop-start) ; immediate compile-only \ skips the loop if limit = start
-: loop ( -- )       LOOP (loop-end) ; immediate compile-only
-: +loop ( n -- )    PLOOP (loop-end) ; immediate compile-only
-: leave ( -- )      LEAVE , ; immediate compile-only    \ continue after the end of the innermost loop
+: for ( n -- )      op:for (loop-start) ; immediate compile-only   \ runs the body n times, with i = n .. 1
+: next ( -- )       op:next (loop-end) ; immediate compile-only
+: do ( limit start -- )  op:do (loop-start) ; immediate compile-only
+: ?do ( limit start -- ) op:qdo (loop-start) ; immediate compile-only \ skips the loop if limit = start
+: loop ( -- )       op:loop (loop-end) ; immediate compile-only
+: +loop ( n -- )    op:ploop (loop-end) ; immediate compile-only
+: leave ( -- )      op:leave , ; immediate compile-only    \ continue after the end of the innermost loop
 
 \ Case statement (ANS): the key stays on the stack. OF tests it and drops it on a match;
 \ the default clause sees the key on top, and ENDCASE drops it.
 
 : case ( -- tag )   MARK_CASE ; immediate compile-only
 : of ( -- orig tag ) ['] over , ['] = ,                 \ compile: over = if drop
-                    BRANCH0 , here @ 0 , ['] drop , MARK_OF ; immediate compile-only
+                    op:branch0 , here 0 , ['] drop , MARK_OF ; immediate compile-only
 : endof ( orig tag -- orig2 ) MARK_OF ?pairs
-                    BRANCH , here @ 0 ,                 \ jump past ENDCASE's drop, patched by endcase
+                    op:branch , here 0 ,                 \ jump past ENDCASE's drop, patched by endcase
                     swap _patch-here ; immediate compile-only   \ a failed test continues here
 : endcase ( tag orig.. -- ) ['] drop ,                  \ the default path drops the key
                     begin dup MARK_CASE <> while _patch-here repeat drop ; immediate compile-only
@@ -283,13 +295,10 @@
 
 \ Printing words
 
-: emit ( c -- )     \ print a character if in the printable range
-                    128 mod dup 31 > if (emit) else drop then ;
-
 : space ( -- )      BL emit ;
 
 : spaces ( n -- )   dup 0> if for space next else drop then ;
-: cr ( -- )         '\n' (emit) ;
+: cr ( -- )         '\n' emit ;
 
 : tell ( s l -- )                               \ like type, but length is provided: useful for substrings
                     swap ADDRESS_MASK and
@@ -320,51 +329,45 @@
                     rot swap - swap type spaces ;
 
 : .tmp              tmp @ type ;                               \ Print the tmp buffer
-: .pad              pad @ type ;                               \ Print the pad buffer
+: .pad              pad type ;                               \ Print the pad buffer
 : ."  ( -- )        state @                                    \ Compile or print a string
                     if
-                        STRLIT ,                               \ Compilation section
+                        op:strlit ,                               \ Compilation section
                         s" drop s-create ,
                         ['] type ,
                     else
                         s" drop type                           \ Execution (print) section
                     then ; immediate
 
-\ Numeric print words
+\ Numeric print words: ANS pictured numeric output. <# starts a number, # converts one digit,
+\ #s the rest, hold and sign add characters, and #> leaves ( c-addr u ) for tell.
 
 : /mod              2dup mod rot rot / ;
+: s>d ( n -- d )    dup 0< ;                            \ sign-extend to a double-cell number
+: */mod ( n1 n2 n3 -- rem quot ) >r m* r> sm/rem ;     \ n1*n2/n3 with a double-cell intermediate
+: */ ( n1 n2 n3 -- n4 ) */mod nip ;
+: ud/mod ( ud u -- urem udquot ) >r 0 r@ um/mod r> swap >r um/mod r> ;
 
-: .d ( n -- )       dup 10 <
-                    if '0' else 10 - 'A' then
-                    + emit ;    \ print a single digit
+130 s-allot 130 + constant #end                     \ the pictured-output buffer, filled backwards
+: <# ( -- )         #end hld ! ;
+: hold ( c -- )     hld @ 1 - dup hld ! c! ;
+: sign ( n -- )     0< if [char] - hold then ;
+: # ( ud -- ud' )   base @ ud/mod rot dup 9 > if 7 + then [char] 0 + hold ;
+: #s ( ud -- 0 0 )  begin # 2dup or 0= until ;
+: #> ( ud -- c-addr u ) 2drop hld @ #end over - ;
 
-: .- ( -- )         '-' emit ;       \ print a minus sign
-
-: u.    ( u -- )    base @ /mod
-                    ?dup if recurse then .d ;
-
-: uwidth ( u -- n ) \ returns the number of digits in an unsigned number
-                    base @ /
-                    ?dup if recurse 1+ else  1 then ;
-
-: u.r ( u width -- )
-                    swap dup uwidth rot swap -
-                    spaces u. ;
-
-: (n.) ( n -- )      base @ /mod ?dup if recurse then negate .d ;  \ the digits of n <= 0
-: .r ( n width -- )                             \ print n right-aligned in width characters
-                    over uwidth - over 0< if 1- then spaces
-                    dup 0< if '-' emit else negate then (n.) ;   \ works from the negative side,
-                                                                 \ so the most negative number prints too
-: . 0 .r space ;
-
+: u. ( u -- )       0 <# #s #> tell space ;
+: u.r ( u width -- ) >r 0 <# #s #> r> over - spaces tell ;
+: .r ( n width -- ) >r dup abs 0 <# #s rot sign #> r> over - spaces tell ;   \ abs leaves the most
+: . ( n -- )        0 .r space ;                                            \ negative number as its
+                                                                            \ unsigned value: correct
 : .s ( -- )         ." [ " depth for i 1- pick . next ." ] " flush ;   \ print the data stack
 : .rs ( -- )        ." R: [ "                           \ print the return stack, below .rs's own return
                     rp@ 1+ rp0 over - for dup i + 1- @ . next drop ." ] " ;
 
 : stop"  ( -- )     state @                                    \ Compile or print a string
                     if
-                        STRLIT ,                               \ Compilation section
+                        op:strlit ,                               \ Compilation section
                         s" drop s-create ,
                         ['] type ,
                         ['] .s ,
@@ -384,7 +387,7 @@
 : ?  ( addr -- )    @ . ;
 
 : forget-last ( -- )                            \ delete the most recent definitions
-                    here @ 1- @ dup 1+ here !   \ resets HERE to the previous back pointer
+                    here 1- @ dup 1+ dp !   \ resets HERE to the previous back pointer
                     @ 1+ dup context ! last !   \ resets CONTEXT and LAST
                     ;
 
@@ -392,7 +395,7 @@
                     trace-off step-off          \ we're messing with the dictionary, so we don't want to run FIND
                     (') dup
                     if
-                        1- dup dup here ! @ s-here !            \ move to nfa and set HERE and S-HERE
+                        1- dup dup dp ! @ s-here !            \ move to nfa and set HERE and S-HERE
                         1- @ 1+ dup context ! last !            \ go back a link and set CONTEXT and LAST
                     else
                         drop
@@ -400,10 +403,11 @@
 
 \ : ?stack depth 0= if abort" Stack underflow" then ;
 
-: kkey ( -- c )     >in @ c@ 1 >in +! ;                         \ Get the next character from the TIB
+: source ( -- c-addr u ) 'tib @ 1+ #tib @ ;                    \ the input line; >in is an offset into it
+: kkey ( -- c )     source drop >in @ + c@ 1 >in +! ;           \ Get the next character from the TIB
 
 : ?key ( -- c T | F )                                           \ If there's a character in TIB, push it and TRUE
-                    #tib @ >in @ < if FALSE else key TRUE then ; \ otherwise push FALSE
+                    >in @ #tib @ < if kkey TRUE else FALSE then ; \ otherwise push FALSE
 
 : strlen ( s -- n ) c@ ;                                        \ return the count byte from the string
 
@@ -416,21 +420,21 @@
 : .operand ( a -- a+1 ) 1+ dup @ . ;
 : see-cell ( a -- a' more? )                                    \ print the compiled cell at a
     dup @ case
-        LITERAL of .operand TRUE endof
-        STRLIT  of 1+ '"' emit space dup @ type '"' emit space TRUE endof
-        BRANCH  of ." branch:" .operand TRUE endof
-        BRANCH0 of ." branch0:" .operand TRUE endof
-        DO      of ." do:" .operand TRUE endof
-        QDO     of ." ?do:" .operand TRUE endof
-        LOOP    of ." loop:" .operand TRUE endof
-        PLOOP   of ." +loop:" .operand TRUE endof
-        FOR     of ." for:" .operand TRUE endof
-        NEXT    of ." next:" .operand TRUE endof
-        LEAVE   of ." leave " TRUE endof
-        ABORT   of ." abort " TRUE endof
-        BREAK   of ." exit " TRUE endof
-        EXEC    of ." exec " TRUE endof
-        EXIT    of ." ; " FALSE endof
+        op:literal of .operand TRUE endof
+        op:strlit  of 1+ '"' emit space dup @ type '"' emit space TRUE endof
+        op:branch  of ." branch:" .operand TRUE endof
+        op:branch0 of ." branch0:" .operand TRUE endof
+        op:do      of ." do:" .operand TRUE endof
+        op:qdo     of ." ?do:" .operand TRUE endof
+        op:loop    of ." loop:" .operand TRUE endof
+        op:ploop   of ." +loop:" .operand TRUE endof
+        op:for     of ." for:" .operand TRUE endof
+        op:next    of ." next:" .operand TRUE endof
+        op:leave   of ." leave " TRUE endof
+        op:abort   of ." abort " TRUE endof
+        op:break   of ." exit " TRUE endof
+        op:exec    of ." exec " TRUE endof
+        op:exit    of ." ; " FALSE endof
         dup BUILTIN_FLAG and
         if dup ADDRESS_MASK and builtin-name type space else dup .name then
         TRUE swap                                               \ endcase drops the key
@@ -438,14 +442,44 @@
     swap 1+ swap ;
 : (see) ( cfa -- )                                              \ decompile the word at cfa
     dup @ BUILTIN_FLAG and if @ ADDRESS_MASK and ." Builtin: " builtin-doc type cr exit then
-    dup @ CONSTANT = if ." Constant: " dup .name ." = " 1+ @ . cr exit then
-    dup @ VARIABLE = if ." Variable: " dup .name ." = " 1+ @ . cr exit then
-    dup @ DEFINITION <> if drop ." not a colon definition" cr exit then
+    dup @ op:constant = if ." Constant: " dup .name ." = " 1+ @ . cr exit then
+    dup @ op:variable = if ." Variable: " dup .name ." = " 1+ @ . cr exit then
+    dup @ op:definition <> if drop ." not a colon definition" cr exit then
     ." : " dup .name
     dup 1- @ IMMEDIATE_FLAG and >r
     1+ begin see-cell while repeat drop
     r> if ." immediate" then cr ;
 : see ( <name> -- ) ' (see) ;
+
+\ Conditional compilation. [else] skips input, across lines, to the matching [then] or [else];
+\ it recognizes the three words by looking them up, so their case doesn't matter.
+variable '[if]  variable '[else]
+: [then] ( -- ) ; immediate
+: [else] ( -- )     1 begin
+                        begin text nip while            ( level ) \ the next token is in pad
+                            pad find if
+                                dup '[if] @ = if drop 1+ else
+                                dup '[else] @ = if drop 1- dup if 1+ then else
+                                ['] [then] = if 1- then then then
+                            else drop then
+                            ?dup 0= if exit then
+                        repeat
+                    refill 0= until drop ; immediate
+: [if] ( flag -- )  0= if postpone [else] then ; immediate
+' [if] '[if] !  ' [else] '[else] !
+
+\ value / to, defer / is
+: value ( x <name> -- ) constant ;                     \ a constant whose value TO can change
+: to ( x <name> -- ) ' 1+ state @ if postpone literal postpone ! else ! then ; immediate
+: (unset) ( -- )    true abort" deferred word not set" ;
+: defer ( <name> -- )                                  \ a word that runs the xt stored by IS
+                    create op:definition , op:literal , here 4 + , ['] @ , ['] execute , op:exit ,
+                    ['] (unset) , (close) ;            \ the xt cell: 6 cells after the cfa
+: is ( xt <name> -- ) ' 6 + state @ if postpone literal postpone ! else ! then ; immediate
+
+: .( ( -- )         41 parse drop type ; immediate     \ print the text up to the next )
+: environment? ( c-addr u -- false ) 2drop false ;
+: unused ( -- u )   DICT_LIMIT here - ;                 \ cells left in the dictionary
 
 include terminal.fs
 include debug.fs

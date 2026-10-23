@@ -37,7 +37,7 @@ T{ 0 1 xor -> 1 }T
 T{ 1 0 xor -> 1 }T
 T{ 1 1 xor -> 0 }T
 
-\ ---- shifts (rshift is arithmetic in f3, so only non-negative values are tested)
+\ ---- shifts (rshift is logical; 2/ is the arithmetic shift)
 T{ 1 0 lshift -> 1 }T
 T{ 1 1 lshift -> 2 }T
 T{ 1 2 lshift -> 4 }T
@@ -47,6 +47,12 @@ T{ 1 1 rshift -> 0 }T
 T{ 2 1 rshift -> 1 }T
 T{ 4 2 rshift -> 1 }T
 T{ max-int 62 rshift -> 1 }T
+T{ -1 1 rshift -> max-int }T
+T{ min-int 63 rshift -> 1 }T
+T{ -8 2/ -> -4 }T
+T{ 4 2/ -> 2 }T
+T{ 4 2* -> 8 }T
+T{ min-int 2/ -> -4611686018427387904 }T
 
 \ ---- comparisons
 T{ 0 0= -> <true> }T
@@ -185,7 +191,7 @@ T{ 99 constant c1 c1 -> 99 }T
 variable buf 3 allot                            \ buf has 4 cells
 T{ 1 buf ! 2 buf 1+ ! 3 buf 2 + ! 4 buf 3 + ! -> }T
 T{ buf @ buf 1+ @ buf 2 + @ buf 3 + @ -> 1 2 3 4 }T
-T{ here @ 1 , here @ swap - -> 1 }T             \ f3: HERE is a variable, so `here @`
+T{ here 1 , here swap - -> 1 }T             \ f3: HERE is a variable, so `here @`
 T{ 65 tmp @ c! tmp @ c@ -> 65 }T                \ c@ and c! address string space
 T{ char A -> 65 }T
 T{ : gc1 [char] X ; gc1 -> 88 }T
@@ -280,5 +286,66 @@ T{ : c5 1 0 / ; ' c5 catch -> -10 }T
 T{ hex ff decimal -> 255 }T
 T{ $10 #10 %10 -> 16 10 2 }T
 T{ base @ -> 10 }T
+
+\ ---- case-insensitive names: standard programs are written in upper case
+T{ 1 DUP -> 1 1 }T
+T{ : GDU 3 0 DO I LOOP ; GDU -> 0 1 2 }T
+T{ : gdl 2 + ; 0 GDL -> 2 }T
+T{ 1 2 SWAP OVER -> 2 1 2 }T
+
+\ ---- return-stack pairs (builtins, ANS order: x2 on top of the return stack)
+T{ 1 2 2>r 2r@ 2r> -> 1 2 1 2 }T
+T{ 1 2 2>r r> r> -> 2 1 }T
+T{ 5 >r rdrop -> }T
+T{ 1 2 2>r 2rdrop -> }T
+T{ : gr4 1 2 2>r 3 2r> ; gr4 -> 3 1 2 }T
+
+\ ---- find reports immediacy
+T{ : gimm ; immediate s" gimm" drop find nip -> 1 }T
+T{ s" dup" drop find nip -> -1 }T
+T{ s" no-such-word" drop find nip -> 0 }T
+
+\ ---- double-cell arithmetic
+T{ 5 s>d -> 5 0 }T
+T{ -5 s>d -> -5 -1 }T
+T{ 0 1 um* -> 0 0 }T
+T{ max-uint 2 um* -> -2 1 }T
+T{ -3 2 m* -> -6 -1 }T
+T{ 7 0 3 um/mod -> 1 2 }T
+T{ -7 s>d 2 fm/mod -> 1 -4 }T
+T{ -7 s>d 2 sm/rem -> -1 -3 }T
+T{ 7 s>d -2 fm/mod -> -1 -4 }T
+T{ 2 3 4 */ -> 1 }T
+T{ max-int 2 4 */ -> 4611686018427387903 }T      \ needs the double-cell intermediate
+T{ 7 2 3 */mod -> 2 4 }T
+
+\ ---- pictured numeric output and small words
+T{ 0 0 <# #s #> nip -> 1 }T
+T{ -1 0 <# #s #> nip -> 20 }T                     \ 2^64-1 has 20 digits
+T{ 0 0 1 within -> <true> }T
+T{ 1 0 1 within -> <false> }T
+T{ -1 0 1 within -> <false> }T
+T{ 1 2 u> -> <false> }T
+T{ -1 1 u> -> <true> }T
+T{ 1 cell+ 1 char+ 3 chars -> 2 2 3 }T
+T{ s" abc" drop count nip -> 3 }T
+T{ unused 0 > -> <true> }T
+T{ s" x" environment? -> <false> }T
+T{ source nip 0 > -> <true> }T
+
+\ ---- postpone, :noname, value/to, defer/is, [if]
+T{ : gpd postpone dup ; immediate : gpq 4 gpd ; gpq -> 4 4 }T
+T{ : gpi postpone if ; immediate : gpj gpi 1 else 2 then ; 0 gpj -> 2 }T
+T{ :noname 3 4 + ; execute -> 7 }T
+T{ 9 value vv vv -> 9 }T
+T{ 4 to vv vv -> 4 }T
+T{ : gtv 6 to vv ; gtv vv -> 6 }T
+T{ defer gdd ' dup is gdd 5 gdd -> 5 5 }T
+T{ : gsd ['] drop is gdd ; gsd 1 2 gdd -> 1 }T
+T{ 1 [if] 11 [else] 22 [then] -> 11 }T
+T{ 0 [if] 11 [else] 22 [then] -> 22 }T
+T{ 0 [IF] 1 [IF] 2 [THEN] 3 [ELSE] 4 [THEN] -> 4 }T
+T{ : gab 0 abort" never" 5 ; gab -> 5 }T
+T{ : gab2 1 abort" always" ; ' gab2 catch -> -2 }T
 
 ." core tests: " #errors @ 0 .r ."  errors" cr

@@ -1,7 +1,9 @@
 // General-purpose builtin words
 
 use crate::internals::builtin::BuiltInFn;
-use crate::kernel::{throw_code, DICTIONARY_FULL, DICT_LIMIT, DIVISION_BY_ZERO, INVALID_ADDRESS};
+use crate::kernel::{
+    throw_code, DICTIONARY_FULL, DICT_LIMIT, DIVISION_BY_ZERO, INVALID_ADDRESS, OUT_OF_RANGE,
+};
 use crate::runtime::ForthRuntime;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -37,14 +39,92 @@ impl ForthRuntime {
     }
 
     pub fn f_rshift(&mut self) {
-        // arithmetic shift; shifting by 64 or more leaves only the sign
+        // logical shift, as ANS requires: zeros come in from the left
         self.kernel.pop2_push1("rshift", |a, b| {
             if (0..64).contains(&b) {
-                a >> b
+                ((a as u64) >> b) as i64
             } else {
-                a >> 63
+                0
             }
         });
+    }
+
+    /// 2/ ( n -- n/2 ) arithmetic shift right by one, keeping the sign
+    pub fn f_2_slash(&mut self) {
+        self.kernel.pop1_push1("2/", |a| a >> 1);
+    }
+
+    // Double-cell numbers: the low cell is below the high cell, which is on top.
+    fn pop_double(&mut self, word: &str) -> i128 {
+        self.kernel.stack_check(2, word);
+        let high = self.kernel.pop();
+        let low = self.kernel.pop();
+        ((high as i128) << 64) | (low as u64 as i128)
+    }
+
+    fn push_double(&mut self, d: i128) {
+        self.kernel.push(d as i64);
+        self.kernel.push((d >> 64) as i64);
+    }
+
+    /// um* ( u1 u2 -- ud ) unsigned multiply to a double-cell result
+    pub fn f_um_star(&mut self) {
+        self.kernel.stack_check(2, "um*");
+        let b = self.kernel.pop() as u64 as u128;
+        let a = self.kernel.pop() as u64 as u128;
+        self.push_double((a * b) as i128);
+    }
+
+    /// m* ( n1 n2 -- d ) signed multiply to a double-cell result
+    pub fn f_m_star(&mut self) {
+        self.kernel.stack_check(2, "m*");
+        let b = self.kernel.pop() as i128;
+        let a = self.kernel.pop() as i128;
+        self.push_double(a * b);
+    }
+
+    /// um/mod ( ud u -- urem uquot ) unsigned divide of a double-cell number
+    pub fn f_um_slash_mod(&mut self) {
+        self.kernel.stack_check(3, "um/mod");
+        let divisor = self.kernel.pop() as u64 as u128;
+        let dividend = self.pop_double("um/mod") as u128;
+        if divisor == 0 {
+            throw_code(DIVISION_BY_ZERO, "division by zero");
+        }
+        let quot = dividend / divisor;
+        if quot > u64::MAX as u128 {
+            throw_code(OUT_OF_RANGE, "um/mod: result out of range");
+        }
+        self.kernel.push((dividend % divisor) as i64);
+        self.kernel.push(quot as i64);
+    }
+
+    /// fm/mod ( d n -- rem quot ) floored division; sm/rem ( d n -- rem quot ) symmetric division
+    pub fn f_fm_slash_mod(&mut self) {
+        self.signed_divide("fm/mod", true);
+    }
+
+    pub fn f_sm_slash_rem(&mut self) {
+        self.signed_divide("sm/rem", false);
+    }
+
+    fn signed_divide(&mut self, word: &str, floored: bool) {
+        self.kernel.stack_check(3, word);
+        let divisor = self.kernel.pop() as i128;
+        let dividend = self.pop_double(word);
+        if divisor == 0 {
+            throw_code(DIVISION_BY_ZERO, "division by zero");
+        }
+        let (mut quot, mut rem) = (dividend / divisor, dividend % divisor);
+        if floored && rem != 0 && (rem < 0) != (divisor < 0) {
+            quot -= 1;
+            rem += divisor;
+        }
+        if quot < i64::MIN as i128 || quot > i64::MAX as i128 {
+            throw_code(OUT_OF_RANGE, format!("{word}: result out of range"));
+        }
+        self.kernel.push(rem as i64);
+        self.kernel.push(quot as i64);
     }
 
     pub fn f_mod(&mut self) {
@@ -174,6 +254,43 @@ impl ForthRuntime {
             let val = self.kernel.pop_r();
             self.kernel.push(val);
         }
+    }
+
+    /// rdrop 2>r 2r> 2r@ 2rdrop: return-stack words. They must be builtins: a colon definition
+    ///     would find its own return address on top of the return stack.
+    pub fn f_rdrop(&mut self) {
+        self.kernel.stack_check_r(1, "rdrop");
+        self.kernel.pop_r();
+    }
+
+    pub fn f_2_to_r(&mut self) {
+        self.kernel.stack_check(2, "2>r");
+        let x2 = self.kernel.pop();
+        let x1 = self.kernel.pop();
+        self.kernel.push_r(x1);
+        self.kernel.push_r(x2);
+    }
+
+    pub fn f_2_r_from(&mut self) {
+        self.kernel.stack_check_r(2, "2r>");
+        let x2 = self.kernel.pop_r();
+        let x1 = self.kernel.pop_r();
+        self.kernel.push(x1);
+        self.kernel.push(x2);
+    }
+
+    pub fn f_2_r_get(&mut self) {
+        self.kernel.stack_check_r(2, "2r@");
+        let rp = self.kernel.get_return_ptr();
+        let (x2, x1) = (self.kernel.get(rp), self.kernel.get(rp + 1));
+        self.kernel.push(x1);
+        self.kernel.push(x2);
+    }
+
+    pub fn f_2rdrop(&mut self) {
+        self.kernel.stack_check_r(2, "2rdrop");
+        self.kernel.pop_r();
+        self.kernel.pop_r();
     }
 
     /// r@ ( -- n ) Gets the top value from the return stack, pushing the value to the calculation stack

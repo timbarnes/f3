@@ -330,7 +330,7 @@ impl ForthRuntime {
         self.kernel.set(4, (STR_START + 7) as i64); // update the value of S-HERE
         self.kernel.set(5, 1); // back pointer
                                // hand craft HERE, because it's needed by make_word
-        let name_pointer = self.kernel.string_new(b"here");
+        let name_pointer = self.kernel.string_new(b"dp"); // the dictionary pointer; HERE is `dp @`
         self.kernel.set(6, name_pointer as i64);
         self.kernel.set(7, VARIABLE);
         self.kernel.set(8, 10); // the value of HERE
@@ -346,7 +346,7 @@ impl ForthRuntime {
         self.context_ptr = 12;
         self.kernel.set(self.here_ptr, 14);
 
-        self.pad_ptr = self.make_variable("pad");
+        self.pad_ptr = self.make_variable("'pad"); // PAD is `'pad @`
         self.kernel.set(self.pad_ptr, PAD_START as i64);
         self.base_ptr = self.make_variable("base");
         self.kernel.set(self.base_ptr, 10); // decimal
@@ -357,7 +357,7 @@ impl ForthRuntime {
         self.tib_size_ptr = self.make_variable("#tib");
         self.kernel.set(self.tib_size_ptr, 0); // means there's nothing in the TIB yet
         self.tib_in_ptr = self.make_variable(">in");
-        self.kernel.set(self.tib_in_ptr, TIB_START as i64 + 1);
+        self.kernel.set(self.tib_in_ptr, 0);
         self.make_variable("hld");
         self.last_ptr = self.make_variable("last"); // points to nfa of new definition
         self.state_ptr = self.make_variable("state");
@@ -367,34 +367,35 @@ impl ForthRuntime {
         self.kernel.set(self.show_stack_ptr, TRUE);
     }
 
-    /// insert_constants defines the engine's opcodes, flags and stack bases as Forth constants
+    /// insert_constants defines the engine's opcodes (op:literal etc.), flags and stack bases as Forth constants
     ///
     fn insert_constants(&mut self) {
         let constants: &[(&str, i64)] = &[
-            ("VARIABLE", VARIABLE),
-            ("CONSTANT", CONSTANT),
-            ("LITERAL", LITERAL),
-            ("STRLIT", STRLIT),
-            ("DEFINITION", DEFINITION),
-            ("BRANCH", BRANCH),
-            ("BRANCH0", BRANCH0),
-            ("ABORT", ABORT),
-            ("EXIT", EXIT),
-            ("BREAK", BREAK),
-            ("EXEC", EXEC),
-            ("ARRAY", ARRAY),
-            ("DO", DO),
-            ("QDO", QDO),
-            ("LOOP", LOOP),
-            ("PLOOP", PLOOP),
-            ("LEAVE", LEAVE),
-            ("FOR", FOR),
-            ("NEXT", NEXT),
+            ("op:variable", VARIABLE),
+            ("op:constant", CONSTANT),
+            ("op:literal", LITERAL),
+            ("op:strlit", STRLIT),
+            ("op:definition", DEFINITION),
+            ("op:branch", BRANCH),
+            ("op:branch0", BRANCH0),
+            ("op:abort", ABORT),
+            ("op:exit", EXIT),
+            ("op:break", BREAK),
+            ("op:exec", EXEC),
+            ("op:array", ARRAY),
+            ("op:do", DO),
+            ("op:qdo", QDO),
+            ("op:loop", LOOP),
+            ("op:ploop", PLOOP),
+            ("op:leave", LEAVE),
+            ("op:for", FOR),
+            ("op:next", NEXT),
             ("OPCODE_FLAG", OPCODE_FLAG),
             ("IMMEDIATE_FLAG", IMMEDIATE_FLAG as i64),
             ("BUILTIN_FLAG", BUILTIN_FLAG as i64),
             ("COMPILE_ONLY_FLAG", COMPILE_ONLY_FLAG as i64),
             ("ADDRESS_MASK", ADDRESS_MASK as i64),
+            ("DICT_LIMIT", DICT_LIMIT as i64), // the dictionary can grow up to here
             ("sp0", STACK_START as i64), // sp@ when the data stack is empty
             ("rp0", RET_START as i64),   // rp@ when the return stack is empty
         ];
@@ -431,7 +432,8 @@ impl ForthRuntime {
             ("/", Self::f_divide, "/ ( j k -- j/k ) Push j/k on the stack"),
             ("mod", Self::f_mod, "mod ( j k -- r ) Push the remainder of j/k"),
             ("lshift", Self::f_lshift, "lshift ( j k -- j<<k ) Shift j left by k bits"),
-            ("rshift", Self::f_rshift, "rshift ( j k -- j>>k ) Shift j right by k bits, keeping the sign"),
+            ("rshift", Self::f_rshift, "rshift ( u k -- u>>k ) Logical shift right by k bits"),
+            ("2/", Self::f_2_slash, "2/ ( n -- n/2 ) Arithmetic shift right by one bit, keeping the sign"),
             ("<", Self::f_less, "< ( j k -- b ) If j < k push true else false"),
             ("=", Self::f_equal, "= ( j k -- b ) If j == k push true else false"),
             ("0=", Self::f_0equal, "0= ( j -- b ) If j == 0 push true else false"),
@@ -440,6 +442,11 @@ impl ForthRuntime {
             ("and", Self::f_and, "and ( a b -- a&b ) Bitwise and"),
             ("or", Self::f_or, "or ( a b -- a|b ) Bitwise or"),
             ("xor", Self::f_xor, "xor ( a b -- a^b ) Bitwise exclusive or"),
+            ("um*", Self::f_um_star, "um* ( u1 u2 -- ud ) Unsigned multiply, double-cell result (high cell on top)"),
+            ("m*", Self::f_m_star, "m* ( n1 n2 -- d ) Signed multiply, double-cell result"),
+            ("um/mod", Self::f_um_slash_mod, "um/mod ( ud u -- urem uquot ) Unsigned divide of a double-cell number"),
+            ("fm/mod", Self::f_fm_slash_mod, "fm/mod ( d n -- rem quot ) Floored divide of a double-cell number"),
+            ("sm/rem", Self::f_sm_slash_rem, "sm/rem ( d n -- rem quot ) Symmetric divide of a double-cell number"),
             // stacks
             ("dup", Self::f_dup, "dup ( n -- n n ) Push a second copy of the top of stack"),
             ("drop", Self::f_drop, "drop ( n -- ) Pop the top element off the stack"),
@@ -453,6 +460,11 @@ impl ForthRuntime {
             ("r@", Self::f_r_get, "r@ ( -- n ) Push a copy of the top of the return stack"),
             ("i", Self::f_i, "i ( -- n ) Push the index of the innermost loop"),
             ("j", Self::f_j, "j ( -- n ) Push the index of the next outer loop"),
+            ("rdrop", Self::f_rdrop, "rdrop ( -- ) ( R: x -- ) Discard the top of the return stack"),
+            ("2>r", Self::f_2_to_r, "2>r ( x1 x2 -- ) ( R: -- x1 x2 ) Move a pair to the return stack"),
+            ("2r>", Self::f_2_r_from, "2r> ( -- x1 x2 ) ( R: x1 x2 -- ) Move a pair from the return stack"),
+            ("2r@", Self::f_2_r_get, "2r@ ( -- x1 x2 ) ( R: x1 x2 -- x1 x2 ) Copy a pair from the return stack"),
+            ("2rdrop", Self::f_2rdrop, "2rdrop ( -- ) ( R: x1 x2 -- ) Discard a pair from the return stack"),
             ("unloop", Self::f_unloop, "unloop ( -- ) Discard the innermost loop's parameters, e.g. before EXIT inside a loop"),
             // memory
             ("@", Self::f_get, "@ ( a -- v ) Push the value at heap address a"),
@@ -464,6 +476,7 @@ impl ForthRuntime {
             ("allot", Self::f_allot, "allot ( n -- ) Reserve n cells of data space, or release them if n is negative"),
             // compiler and interpreter
             (":", Self::f_colon, ": <name> ( -- ) Start a new definition"),
+            (":noname", Self::f_noname, ":noname ( -- xt ) Start a definition without a name; ; leaves its xt"),
             (";", Self::f_semicolon, "; ( -- ) End a definition, returning to interpret mode"),
             ("create", Self::f_create, "create <name> ( -- ) Create a name field in the dictionary"),
             ("execute", Self::f_execute, "execute ( xt -- ) Run the word whose execution token is on the stack"),
@@ -473,15 +486,16 @@ impl ForthRuntime {
             ("catch", Self::f_catch, "catch ( ... xt -- ... 0 | n ) Run xt, returning 0, or the throw code if it throws"),
             ("throw", Self::f_throw, "throw ( n -- ) If n is not 0, raise an error with throw code n"),
             ("(error)", Self::f_error, "(error) ( s -- ) Raise an error whose message is the counted string at s"),
-            ("find", Self::f_find, "find ( s -- cfa T | s F ) Search the dictionary for the counted string at s"),
+            ("find", Self::f_find, "find ( s -- xt 1 | xt -1 | s 0 ) Search for the counted string at s: 1 if immediate, -1 if not"),
             ("number?", Self::f_number_q, "number? ( s -- n T | s F ) Convert the counted string at s to a number, using BASE"),
             ("(')", Self::f_tick_p, "(') <name> ( -- cfa ) Push the cfa of the next word in the input"),
             ("parse-to", Self::f_parse_to, "parse-to ( b c -- b u ) Copy the next c-delimited token from the TIB to b as a counted string"),
             ("query", Self::f_query, "query ( -- ) Read a line from the input into the TIB"),
+            ("refill", Self::f_refill, "refill ( -- flag ) Read the next line of the current input into the TIB; false at its end"),
             ("accept", Self::f_accept, "accept ( b u1 -- b u2 ) Read a line of up to u1 characters into b"),
             ("include-file", Self::f_include_file, "include-file ( s -- b ) Interpret the file named by the counted string at s"),
             // terminal and host
-            ("(emit)", Self::f_emit_p, "(emit) ( c -- ) Send byte c to the terminal"),
+            ("emit", Self::f_emit_p, "emit ( c -- ) Send byte c to the terminal"),
             ("flush", Self::f_flush, "flush ( -- ) Force pending output to appear on the terminal"),
             ("key", Self::f_key, "key ( -- c | 0 ) Get a character, or zero if none available"),
             ("key?", Self::f_key_q, "key? ( -- b ) True if a character is available"),
@@ -644,7 +658,7 @@ mod tests {
         runtime.cold_start();
 
         runtime.compile_builtins();
-        assert_eq!(runtime.kernel.get_builtin(7).name, "<".to_string());
+        assert_eq!(runtime.kernel.get_builtin(8).name, "<".to_string());
         assert_eq!(runtime.kernel.get_builtin(0).name, "+".to_string());
     }
 

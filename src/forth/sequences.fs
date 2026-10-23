@@ -56,7 +56,7 @@
 \ Create an array of n cells, with associated pointers and count.
 \       Usage:    n array <name>
 : array ( n -- )       
-        create ARRAY ,          \ install the nfa and type token
+        create op:array ,          \ install the nfa and type token
         dup ,                   \ the number of elements
         0 , 0 ,                 \ the two pointers used for stacks, deques etc.
         allot (close)           \ allocate the required cells, and update pointers

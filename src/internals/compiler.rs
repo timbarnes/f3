@@ -154,18 +154,19 @@ impl ForthRuntime {
     ///     the length is 0 at the end of the line.
     ///
     pub fn parse_token(&mut self, delim: u8) -> (usize, usize) {
-        let tib = self.kernel.get(self.tib_ptr) as usize;
-        let end = self.kernel.get(self.tib_size_ptr) as usize + 1; // >IN counts from 1: byte 0 is the count
+        // the line starts after the TIB's count byte; >IN is a 0-based offset into it (ANS)
+        let text = self.kernel.get(self.tib_ptr) as usize + 1;
+        let end = self.kernel.get(self.tib_size_ptr) as usize;
         let mut i = self.kernel.get(self.tib_in_ptr) as usize;
-        while i < end && self.kernel.byte_get(tib + i) == delim {
+        while i < end && self.kernel.byte_get(text + i) == delim {
             i += 1;
         }
         let start = i;
-        while i < end && self.kernel.byte_get(tib + i) != delim {
+        while i < end && self.kernel.byte_get(text + i) != delim {
             i += 1;
         }
         self.kernel.set(self.tib_in_ptr, i as i64 + 1); // past the delimiter
-        (tib + start, i.saturating_sub(start))
+        (text + start, i.saturating_sub(start))
     }
 
     /// find_word searches the dictionary, newest first, and returns the cfa of the word with this name
@@ -175,7 +176,8 @@ impl ForthRuntime {
         while link > 0 {
             // the name field is immediately after the link
             let nfa = self.kernel.get(link + 1) as usize & ADDRESS_MASK;
-            if self.kernel.counted_bytes(nfa) == name {
+            if self.kernel.counted_bytes(nfa).eq_ignore_ascii_case(name) {
+                // names are case-insensitive, so standard (upper-case) programs work
                 return Some(link + 2);
             }
             link = self.kernel.get(link) as usize;
@@ -183,7 +185,8 @@ impl ForthRuntime {
         None
     }
 
-    /// FIND ( s -- cfa T | s F ) Search the dictionary for the counted string at s.
+    /// FIND ( s -- xt 1 | xt -1 | s 0 ) Search the dictionary for the counted string at s.
+    ///     1 means the word is immediate, -1 that it isn't (ANS).
     ///     If not found, return the string address so NUMBER? can look at it
     ///
     pub fn f_find(&mut self) {
@@ -191,8 +194,9 @@ impl ForthRuntime {
         let addr = self.kernel.pop() as usize;
         match self.find_word(self.kernel.counted_bytes(addr)) {
             Some(cfa) => {
+                let immediate = self.kernel.get(cfa - 1) as usize & IMMEDIATE_FLAG != 0;
                 self.kernel.push(cfa as i64);
-                self.kernel.push(TRUE);
+                self.kernel.push(if immediate { 1 } else { -1 });
             }
             None => {
                 self.kernel.push(addr as i64);
@@ -288,13 +292,29 @@ impl ForthRuntime {
             let msg = format!("{} redefined", self.token(addr, len));
             self.msg.warning("create", &msg, None::<bool>);
         }
+        self.make_header(&name);
+    }
+
+    /// :noname ( -- xt ) starts a definition with no name, leaving its xt for ; to finish
+    ///
+    pub fn f_noname(&mut self) {
+        self.make_header(b""); // an empty name can never be found
+        let cfa = self.here();
+        self.emit_cell(DEFINITION);
+        self.set_compile_mode(true);
+        self.kernel.push(cfa as i64);
+    }
+
+    /// make_header writes a name field at HERE and sets LAST; the word becomes visible when closed
+    ///
+    fn make_header(&mut self, name: &[u8]) {
         self.pending_def = Some(PendingDef {
             here: self.kernel.get(self.here_ptr),
             s_here: self.kernel.get(self.kernel.get_string_ptr()),
             last: self.kernel.get(self.last_ptr),
             context: self.kernel.get(self.context_ptr),
         });
-        let nfa = self.kernel.string_new(&name);
+        let nfa = self.kernel.string_new(name);
         let here = self.kernel.get(self.here_ptr);
         self.kernel.set(self.last_ptr, here); // save the last pointer
         self.emit_cell(nfa as i64); // the name field

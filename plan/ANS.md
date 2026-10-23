@@ -112,6 +112,15 @@ What it does:
 
 **Payoff:** upper-case standard programs that don't build data structures with `create`, or do byte arithmetic, now run. That covers most textbook examples.
 
+**Status: done (2026-10-22).** Everything listed above is in, plus `count` (C3), `refill`, `ud/mod`, and `DICT_LIMIT`.
+
+The core tests grew to 282 `T{ }T` tests, with an upper-case block among them, and there are 3 new black-box tests. All pass. The benchmarks are unchanged, and printing numbers is slightly faster (pictured output, 100k numbers in 88 → 83 ms).
+
+Found and fixed along the way:
+* **Case collisions:** `terminal.fs` defined a key-code constant `CR` (13), which under case-insensitivity would have replaced the standard `cr`, and an `esc` word that would have shadowed its `ESC` constant. Following the file's own `^A`…`^P` naming, these are now `^M` and `^[`.
+* **Old opcode names:** the engine opcode constants are now `op:literal`, `op:do`, and so on, both in Rust's exported constants and in `corelib.fs`, `debug.fs`, and `sequences.fs`.
+* **Removed definitions:** the old colon definitions of `rdrop` and friends (F32) are gone; the words are builtins now.
+
 **Breaks:** about 60 `here @` and `pad @` uses in the `.fs` files; the five `abort"` uses; anything relying on arithmetic `rshift` (none found).
 
 ### Step 2: standard defining words (M, about 2 days)
