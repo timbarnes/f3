@@ -4,7 +4,7 @@
 // Rust values. The Forth words of the same names (parse-to, find, number?, create, ...) are thin
 // wrappers that move values between the Forth stack and these functions.
 
-use crate::kernel::throw;
+use crate::kernel::{throw, throw_code, COMPILE_ONLY, NAME_EXPECTED, UNDEFINED_WORD};
 use crate::runtime::PendingDef;
 use crate::runtime::{
     ForthRuntime, ADDRESS_MASK, ARRAY, BUILTIN_FLAG, COMPILE_ONLY_FLAG, CONSTANT, DEFINITION, EXIT,
@@ -120,7 +120,7 @@ impl ForthRuntime {
                         self.emit_cell(if builtin { code } else { cfa as i64 });
                     } else {
                         if !compiling && flags & COMPILE_ONLY_FLAG != 0 {
-                            throw(format!(
+                            throw_code(COMPILE_ONLY, format!(
                                 "{} is only valid inside a definition",
                                 self.token(addr, len)
                             ));
@@ -137,7 +137,7 @@ impl ForthRuntime {
                             self.emit_cell(n);
                         }
                         Some(n) => self.kernel.push(n),
-                        None => throw(format!("{} ?", self.token(addr, len))),
+                        None => throw_code(UNDEFINED_WORD, format!("{} ?", self.token(addr, len))),
                     }
                 }
             }
@@ -233,8 +233,8 @@ impl ForthRuntime {
         let (addr, len) = self.parse_token(b' ');
         match self.find_word(self.kernel.string_slice(addr, len)) {
             Some(cfa) => self.kernel.push(cfa as i64),
-            None if len == 0 => throw("' : name expected"),
-            None => throw(format!("{} ?", self.token(addr, len))),
+            None if len == 0 => throw_code(NAME_EXPECTED, "' : name expected"),
+            None => throw_code(UNDEFINED_WORD, format!("{} ?", self.token(addr, len))),
         }
     }
 
@@ -281,7 +281,7 @@ impl ForthRuntime {
     pub fn f_create(&mut self) {
         let (addr, len) = self.parse_token(b' ');
         if len == 0 {
-            throw("create: name expected");
+            throw_code(NAME_EXPECTED, "create: name expected");
         }
         let name = self.kernel.string_slice(addr, len).to_vec(); // copied: string_new writes string space
         if self.find_word(&name).is_some() {

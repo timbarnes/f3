@@ -1,7 +1,7 @@
 # f3 Documentation
 
 f3 is written and tested on MacOS, but does not use any MacOS-specific calls, so it should compile on Linux and Windows.
-The implementation is a combination of Rust and Forth - the core capabilities are implemented in Rust, including the memory model, the compiler and interpreter, and a range of basic operations like arithmetic and stack operations. The Rust binary is just over 1Mb in size.
+The implementation is a combination of Rust and Forth - the core capabilities are implemented in Rust, including the memory model, the compiler and interpreter, and a range of basic operations like arithmetic and stack operations. The release binary is about 0.8 MB.
 
 The data space is an array of i64, which stores all the words, contains the return and calculation stacks, and has space for additional data storage as needed.
 Within Rust, the i64 values are cast to usize as needed.
@@ -15,8 +15,8 @@ Because strings are stored separately, the names of words are captured in a sing
 Three string buffers are provided as follows:
 
 - TIB - the text input buffer is the location where input is loaded for parsing, a line at a time.
-- PAD - a working area where each token is placed after parsing.
-- TMP - a second working area where strings are staged before either being printed or embedded in a definition. or string variable.
+- PAD - a working area used by `parse` (and words built on it, like `text` and `char`). The interpreter itself reads tokens in place in the TIB.
+- TMP - a second working area where strings are staged before either being printed or embedded in a definition or string variable. `s"`, `read-line`, and `builtin-name` use it.
 
 The dictionary is a linked list, implemented directly in the data array, using back pointers to string words together like this:
 
@@ -36,24 +36,95 @@ The builtin flag disinguishes between a builtin function accessed through the ju
 
 This system I believe is roughly equivalent to indirect threading, which allows a simple state-machine like function to step through a definition, executing words in sequence on the basis of their code addresses. When a new word is entered, the interpreter pushes a return address on the return stack. At the end of the execution of a word (or when the `exit` word is called explicitly), the return stack is popped and the program counter updated accordingly.
 
-The definitions include their names, because the compiler is incremental. When a new word is defined in terms of other words, `find` is called to search back through the dictionary. Once found, we compile the address of the word, rather than the name. So interpretation is a matter of following address links, and all name searching is done at compile time.
+The definitions include their names, because the compiler is incremental. When a new word is defined in terms of other words, the dictionary is searched back from the newest word. Once found, we compile the address of the word, rather than the name. So interpretation is a matter of following address links, and all name searching is done at compile time.
 
 The inclusion of the names in the dictionary also supports the `see` operation, which decompiles user definitions, and provides basic documentation for builtin functions. Note that the decompiled version of a function is not identical to the original source code, because control structures (for example) generate branch code and insert that into the definition. This is one of Forth's superpowers. The engine only provides `BRANCH` and `BRANCH0` primitives. All the higher level control structures are implemented in Forth. The source code for these is in `corelib.fs`.
 
-## Memory management and memory errors
+## Memory map
 
-Forth does not provide automatic memory management, and in general does not protect the user from illegal memory accesses. It should therefore be understood that once the dictionary or any data the program uses is corrupt, all bets are off, and a restart is usually indicated. Within the Rust code, the compiler does its best to protect the programmer, however Forth allows any address to be passed to store and load (`!`, `c!`,`@ and `c@`) words, so it's easy to cause a panic on bounds violations. Fortunately the binary is small, and startup is quick, so it's not generally too much of a problem.
+The heap is 65,536 cells (`i64`), checked on every access:
 
-I may add my own bounds checks to the store and load words, but this will not eliminate all crashes, because many memory accesses occur inside the Rust engine, and a corrupt dictionary, for example, can and will cause problems. There might be a couple of approaches to fixing this:
+```
+0 ......... HERE ->    DICT_LIMIT | <- data stack   sp0 | <- return stack   rp0
+[ system variables | dictionary ] [ 1024 cells        ] [ 1024 cells           ]
+```
 
-- Add macros for store and load that do their own bounds checking and cause a Forth `abort` rather than a Rust panic
-- Create my own panic handler that looks for bounds errors specifically and runs `abort` rather than crashing the program.
+- **The dictionary** grows up from cell 0. `,` and `allot` stop at `DICT_LIMIT` with "dictionary full".
+- **The data stack and the return stack** each have 1024 cells, and grow down. Overflow and underflow are errors.
+- **The stacks are addressable** from Forth: `sp@` is the address of the top item (the item `n` deep is at `sp@ + n`), and `sp0` is `sp@` when the stack is empty. `rp@` and `rp0` work the same for the return stack. `depth`, `pick`, `roll`, `clear`, `.s`, and `.rs` are written in Forth on top of these.
+- **Strings live in a separate byte space** of 10,000 bytes. Strings are counted: the first byte is the length, so at most 255. `c@`, `c!`, and `cmove` address string space; `@` and `!` address the heap. The first three buffers are TIB (input line), PAD, and TMP, at 256 bytes each. `s-here` is the next free byte, and `s-allot ( n -- s )` reserves bytes.
+- **The cell at HERE−1** is always the back pointer of the most recent finished word, which the next definition links to. `,` and `allot` after a finished word move it up, so `variable buf 10 allot` gives `buf` 11 contiguous cells and `variable x 1 , 2 ,` gives `x` three.
 
-Note however that neither of these solutions are really enough, because in most cases the bad load or store is the result of a bug that may well have corrupted the dictionary, so recovery may still be impossible.
+## Errors
 
-## Future work
+- **No Forth input can crash f3.** Every error, whether Forth's or the engine's (stack underflow, a bad address, division by zero, an unknown word, a full dictionary...), is reported as `ERROR: <message>`. Then f3 returns to a clean state:
+  - empty stacks;
+  - interpret mode;
+  - any half-built definition removed;
+  - any file being included abandoned;
+  - raw mode off.
 
-The current regression test suite is quite simplistic. It only examines stack results. Implementing the standard test harness would be a good step forward.
+  The rest of the input line is skipped.
+- **Errors carry ANS throw codes:** -1 `abort`, -2 `abort"`, -3/-4 stack overflow/underflow, -5/-6 return stack overflow/underflow, -8 dictionary or string space full, -9 invalid address, -10 division by zero, -13 undefined word, -14 compile-only word, -16 missing name, -37 file error. Any other engine error is -256.
+- **`catch ( ... xt -- ... 0 | n )`** runs `xt`. If `xt` throws, `catch` restores both stack depths and returns the code.
+- **`throw ( n -- )`** raises code `n`; 0 does nothing. Re-throwing the code that `catch` just returned keeps the original message.
+- **`abort`** is silent. **`abort" msg"`** raises its message as code -2.
+- **The end of input** (stdin closed) exits cleanly, as does a closed stdout (for example `f3 | head`).
+- **In the Rust source,** errors are raised by `kernel::throw` / `throw_code`, which unwind (`panic_any(ForthError)`) to `catch`, or to `quit`, which handles each input line. A genuine Rust panic means an engine bug: it is also recovered from, and reported with `(Rust panic at file:line)`. The release profile must keep `panic = "unwind"`.
+
+## Compiled code and execution tokens
+
+A compiled cell is one of:
+- **an opcode**: a value with `OPCODE_FLAG` (bit 59) set, such as `LITERAL`, `BRANCH`, `EXIT`, or the loop opcodes `DO` `QDO` `LOOP` `PLOOP` `LEAVE` `FOR` `NEXT`, possibly followed by an operand;
+- **a builtin**: its index in the Rust builtin table, with `BUILTIN_FLAG` (bit 61) set;
+- **the cfa** (code field address) of any other word.
+
+Rust defines the opcodes, the flags (`IMMEDIATE_FLAG`, `COMPILE_ONLY_FLAG`, `BUILTIN_FLAG`), and `ADDRESS_MASK` as Forth constants.
+
+An **execution token** (xt), as returned by `'` and `[']`, is always a cfa. `execute` also accepts a flagged builtin index. A builtin's cfa cell holds its flagged index, so `' dup @` gives the value that is compiled for `dup`.
+
+Words flagged `compile-only` (all control structures, `;`, `exit`, `[']`, `[char]`, `literal`, `recurse`, `abort"`) are an error outside a definition.
+
+Counted loops (`do ?do loop +loop leave unloop`, and `for next`) keep three cells on the return stack (exit address, limit, index), so `i` and `j` work the same in both kinds. `n for ... next` runs the body `n` times, with `i` counting down from `n` to 1, and doesn't run at all for `n <= 0`.
+
+## What is in Rust and what is in Forth
+
+A word is written in Rust only if:
+1. it needs the host (I/O, files, time, terminal, shell);
+2. it's a hot primitive (arithmetic, comparison, basic stack and memory words); or
+3. it's needed before Forth exists, or by error recovery (parsing, `find`, number conversion, `:` `;` `create` `,`, and the `quit` loop).
+
+Everything else is in `corelib.fs`: control structures, `see`, `.s`, `depth`, string helpers, and so on. A call to a Forth-defined word costs about 4 ns over a builtin call (see `src/forth/bench.fs`).
+
+## Deviations from ANS Forth
+
+f3 follows ANS Forth where it can. These differences are deliberate:
+
+- **Two address spaces:** cells (`@ ! ,`) and bytes (`c@ c! cmove`) are separate, so `cells` is a no-op, and a heap address is not a string address.
+- **`here` is a variable**, so use `here @`. The same goes for `s-here`, `base`, `state`, `>in`, and the other system variables.
+- **Strings are counted strings:**
+  - `type ( s -- )` takes a counted-string address.
+  - `s" text"` returns `( s u )`, where `s` is the counted string in TMP; use `drop` for words that take `s`.
+  - `tell ( s u -- )` prints a substring.
+- **`rshift` is an arithmetic shift**, keeping the sign.
+- **`/` and `mod` truncate toward zero** (symmetric division).
+- **`abort"` is unconditional**: it doesn't take a flag. Use `if abort" ..." then`.
+- **Missing:**
+  - `does>`, `postpone`, `evaluate`, `>number`, and pictured numeric output (`<# # #>`);
+  - double-cell words, `um*`, `um/mod`;
+  - `:noname`, `[if]`.
+- **File words** take counted strings. `open-file ( s fam -- id ior )` and `read-line ( u id -- u2 flag ior )` read into TMP.
+- **Numbers** accept `#` (decimal), `$` (hex), and `%` (binary) prefixes, and honour `base`.
+
+## Testing
+
+- `cargo test` runs the Rust unit tests and `tests/forth.rs`, which drives the real `f3` binary. That covers:
+  - the regression suite (`src/forth/regression.fs`);
+  - Hayes-style core tests (`src/forth/tester.fs` with `src/forth/core-tests.fs`, about 230 `T{ ... -> ... }T` tests of the ANS-compatible words);
+  - a 10,000-line fuzz test;
+  - one test for each bug fixed in the review (`plan/ANALYSIS.md`).
+- `cargo clippy --all-targets -- -D warnings` must be clean.
+- Benchmarks: `./target/release/f3 -f src/forth/bench.fs`.
 
 # Builtin Words
 
@@ -93,14 +164,15 @@ This is not intended to be full documentation, but a reference to the stack beha
 | flush         | ( -- )                        | Force the output buffer to be flushed to the terminal.                                                                                                                                                                                                                                                                                            |
 | space         | ( -- )                        | Prints a single space.                                                                                                                                                                                                                                                                                                                            |
 | spaces        | ( u -- )                      | Prints u spaces.                                                                                                                                                                                                                                                                                                                                  |
-| .s            | ( -- )                        | Print the contents of the stack. Does not consume stack elements.                                                                                                                                                                                                                                                                                 |
+| .s            | ( -- )                        | Print the contents of the stack, using `base`. Does not consume stack elements. `.rs` prints the return stack.                                                                                                                                                                                                                                    |
+| depth pick roll clear | ( -- n ) etc.         | The standard stack words, written in Forth with `sp@` and `sp0`. `pick` and `roll` check for underflow.                                                                                                                                                                                                                                           |
 | .             | ( v -- )                      | Print the top of the stack as an integer using the value of the `base` variable as the radix.                                                                                                                                                                                                                                                     |
 | u.            | ( u -- )                      | Print the top of the stack as an unsigned value                                                                                                                                                                                                                                                                                                   |
 | u.r           | ( u w -- )                    | Print unsigned u right-justified in a field w wide. If w is too small, print the full number anyway                                                                                                                                                                                                                                               |
 | .r            | ( n w -- )                    | Print integer n right-justified in a field w wide. If w is too small, print the full number anyway                                                                                                                                                                                                                                                |
 | cr            | ( -- )                        | Print a newline.                                                                                                                                                                                                                                                                                                                                  |
-| s" \<string>" | ( -- )                        | Print the inline string                                                                                                                                                                                                                                                                                                                           |
-| type          | ( s -- )                      | Print a string, using the top of stack as a pointer to the string.                                                                                                                                                                                                                                                                                |
+| s" \<string>" | ( -- s u )                     | The inline string, as a counted string in TMP and its length                                                                                                                                                                                                                                                                                                                           |
+| type          | ( s -- )                      | Print the counted string at s.                                                                                                                                                                                                                                                                                |
 | ltype         | ( s w -- )                    | Print a string left justified in a field w characters wide. If w is too small, print the entire string anyway.                                                                                                                                                                                                                                    |
 | rtype         | ( s w -- )                    | Print a string right justified in a field w characters wide. If w is too small, print the entire string anyway.                                                                                                                                                                                                                                   |
 | tell          | ( s u -- )                    | Print the string at s, of length u                                                                                                                                                                                                                                                                                                                |
@@ -109,10 +181,12 @@ This is not intended to be full documentation, but a reference to the stack beha
 | r/w           | ( -- )                        | Set file mode to read/write, for file operations.                                                                                                                                                                                                                                                                                                 |
 | r/o           | ( -- )                        | Set file mode to read only, for file operations.                                                                                                                                                                                                                                                                                                  |
 | w/o           | ( -- )                        | Set file mode to write-only, for file operations.                                                                                                                                                                                                                                                                                                 |
-| open-file     | ( s u fam -- file-id ior )    | Open the file named at `s`, string length `u`, with file access mode `fam`. The file-id is an index into a vector of open files, within which the information for the file is kept. This can be accessed by other operations like `file-size` and `file-position`. ior is an i/o system result provided by the operating system. 0 means success. |
+| open-file     | ( s fam -- file-id ior )      | Open the file named by the counted string at `s`, with file access mode `fam` (R/O, W/O, R/W). W/O creates or truncates the file; R/W creates it if necessary. The file-id stays valid until `close-file`. ior is 0 on success, -1 on failure. |
 | close-file    | ( file-id -- ior )            | Close the file associated with file-id, returning a code indicating success or failure.                                                                                                                                                                                                                                                           |
-| read-line     | ( s u file-id -- u flag ior ) | Read up to `u` characters from a file, stopping at the first linefeed, or at the max length `u`. Returns the number of characters read, a flag indicating success or failure, and an io result code.                                                                                                                                              |
-| write-line    | ( s u file-id -- ior )        | Write `u` characters from `s` to a file, returning an i/o result code `ior`.                                                                                                                                                                                                                                                                      |
+| read-line     | ( u file-id -- u2 flag ior )  | Read a line of up to `u` characters (at most 255) into TMP, without the newline. A longer line is returned in pieces. At end of file, u2 is 0 and flag is FALSE. |
+| write-line    | ( s u file-id -- ior )        | Write `u` characters of the counted string at `s`, and a newline. |
+| file-size     | ( file-id -- u ior )          | The size of the file in characters. |
+| file-position | ( file-id -- u ior )          | The current position in the file. |
 
 ## Text interpreter and Compiler
 
@@ -121,29 +195,29 @@ This is not intended to be full documentation, but a reference to the stack beha
 | words             | ( -- )                    | Prints a list of all dictionary entries, whether words, builtins, variables or constants. Each word is preceded by its address in the dictionary for debugging purposes.                                                                                                                                                                                 |
 | see               | \<word>                   | The Forth decompiler. If \<word> is a builtin, see provides the documentation for that word. If it's a user-defined word, see provides the source code as compiled. This is often different from the original source code, because control structures are compiled down to lower level branch functions, and are not represented in their original form. |
 | abort             | ( -- )                    | Ends execution of the current word, clears the stack, and returns to the interpreter's top level                                                                                                                                                                                                                                                         |
-| abort"            | \<message>"               | Print the message and call abort                                                                                                                                                                                                                                                                                                                         |
+| abort"            | \<message>"               | Raise an error with the message (throw code -2). Unconditional: use it inside `if ... then`.                                                                                                                                                                                                                                                              |
+| catch             | ( ... xt -- ... 0 \| n )  | Run `xt`. Returns 0 if it completes; if it throws, restores the stack depths and returns the throw code.                                                                                                                                                                                                                                                 |
+| throw             | ( n -- )                  | If `n` is not 0, raise an error with throw code `n`. Uncaught, it is reported at the prompt.                                                                                                                                                                                                                                                             |
 | quit              | ( -- )                    | Interpreter outer loop: gets a line of input, processes it. Calls `query` and `eval` to do the work.                                                                                                                                                                                                                                                     |
-| eval              | ( -- )                    | Interprets a line of input from the `TIB`. Exits when the line is finished, or if `abort` is called.                                                                                                                                                                                                                                                     |
+| eval              | ( -- )                    | Interprets the rest of the line in the `TIB`. An error abandons the rest of the line.                                                                                                                                                                                                                                                                    |
 | text              | ( -- b u )                | Gets a space-delimited token from the `TIB`, starting at offset `>IN`. Places it in `PAD`. Returns the address of `PAD` and the number of characters in the token, or 0 if no token could be ready (typically end of line condition).                                                                                                                    |
 | \\                | ( -- )                    | Inline comment. Causes the remainder of the line to be ignored.                                                                                                                                                                                                                                                                                          |
 | (                 | ( -- )                    | Text from the left paren to its maching closing paren is ignored. Used for documenting stack signatures in word definitions.                                                                                                                                                                                                                             |
 | parse             | ( c -- b u )              | Gets a token from `PAD` delimited by `c`. Returns `PAD` address and count.                                                                                                                                                                                                                                                                               |
-| (parse)           | ( b u c -- b u delta )    | Find a `c`-delimited token in the string buffer at `b`, of length `u`. Return the pointer to the buffer, the length of the token, and the offset from the start of the buffer to the start of the token.                                                                                                                                                 |
 | [char]            | ( -- c )                  | Place the first character of the next token on the stack. Consumes the entire token.                                                                                                                                                                                                                                                                     |
-| find              | ( s -- cfa T \| s FALSE ) | Search the dictionary for the token with string at s. Used by `$interpret` and `$compile` to identify the current token.                                                                                                                                                                                                                                 |
-| ' \<name>         | ( -- cfa \| FALSE )       | Looks for the (postfix) name in the dictionary. Returns its code field address if found, otherwise FALSE (= 0). If the word is not found, it displays an error message.                                                                                                                                                                                  |
-| unique?           | ( s -- s )                | Checks to see if the given string is already defined. If so, returns quietly; otherwise returns `FALSE`.                                                                                                                                                                                                                                                 |
+| find              | ( s -- cfa T \| s FALSE ) | Search the dictionary for the counted string at s.                                                                                                                                                                                                                                                                                                       |
+| ' \<name>         | ( -- cfa )                | The code field address (execution token) of the next word. It is an error if the word is not found.                                                                                                                                                                                                                                                     |
+| ?unique           | ( s -- s )                | Prints a message if the counted string at s is already defined. `create` warns about redefinitions itself (at warning level).                                                                                                                                                                                                                         |
 | :                 | ( -- )                    | Sets compile mode to start a definition                                                                                                                                                                                                                                                                                                                  |
 | [                 | ( -- )                    | Immediate: set state to interpret mode. Used to force interpretation inside a definition.                                                                                                                                                                                                                                                                |
 | ]                 | ( -- )                    | Set state to compile mode. Used inside a definition to undo the effect of a previous `[`.                                                                                                                                                                                                                                                                |
-| number?           | (s -- n T \| s F )        | Attempts to convert the string at s to a number. If successful, push the number and a `TRUE` flag. If not successful, leave the string address on the stack, and push `FALSE`. Used inside `$compile` and `$interpret`.                                                                                                                                  |
+| number?           | (s -- n T \| s F )        | Converts the counted string at s to a number, using `base` and the `#` `$` `%` prefixes. On failure, leaves s and pushes `FALSE`.                                                                                                                                                                                                                         |
 | literal           | ( n -- )                  | Takes a number from the stack and compiles it into the current definition.                                                                                                                                                                                                                                                                               |
-| $interpret        | ( s -- )                  | Called from `eval` to interpret the string at s, either as a word or a number. If neither, `abort`.                                                                                                                                                                                                                                                      |
-| $compile          | ( s -- )                  | Called from `eval` to compile the string at s as a word or number. If neither, `abort`.                                                                                                                                                                                                                                                                  |
 | , (comma)         | ( v -- )                  | Compiles the value on the stack into the dictionary and updates `here`.                                                                                                                                                                                                                                                                                  |
 | create \<name>    | ( -- )                    | Takes a postfix name, and creates a new name field in the dictionary                                                                                                                                                                                                                                                                                     |
 | immediate         | ( -- )                    | Marks the most recent definition as immediate by setting a flag on the name field. Immediate words are executed even when compile mode is set. They are most often used to compile control structures that need some level of computation at compile time.                                                                                               |
-| immed? ( cfa -- T | F )                       | Tests the word with code field address on the stack, and returns TRUE if it's an immediate word, otherwise FALSE.                                                                                                                                                                                                                                        |
+| immed?            | ( cfa -- T \| F )         | TRUE if the word at cfa is immediate.                                                                                                                                                                                                                                                                                                                    |
+| compile-only      | ( -- )                    | Marks the most recent definition as valid only inside a definition.                                                                                                                                                                                                                                                                                      |
 | [compile]         | \<name>                   | Delays the compilation of an immediate word. Typically used in the definition of control structures and compiler customization.                                                                                                                                                                                                                          |
 | forget-last       | ( -- )                    | Delete the last definition from the dictionary.                                                                                                                                                                                                                                                                                                          |
 | forget            | \<name>                   | Delete word `<name>` and any words defined more recently than `<name>`.                                                                                                                                                                                                                                                                                  |
@@ -194,13 +268,13 @@ The single stepper responds to single character commands (followed by Enter):
 | WORD          | SIGNATURE | NOTES                                                                                                        |
 | ------------- | --------- | ------------------------------------------------------------------------------------------------------------ |
 | step-on       | ( -- )    | Turns on single stepping with stepper-depth set to 1.                                                        |
-| Nstep-off     | ( -- )    | Turns off single stepping.                                                                                   |
+| step-off      | ( -- )    | Turns off single stepping.                                                                                   |
 | trace-on      | ( -- )    | Turns on tracing.                                                                                            |
 | trace-off     | ( -- )    | Turns off tracing.                                                                                           |
 | trace-all     | ( -- )    | Sets trace level t 100                                                                                       |
 | stepper-depth | VARIABLE  | Trace / step depth, which can be set manually, or by the use of the `i` and `o` commands within the stepper. |
 
-In addition to the debugger, `dump` commands are provided to inspect memory. `dump` attempts to understand what it's looking at, and provides information accordingly. There are also some debug print statements that only print if `debuglevel` is set to 4. The following functions are available:
+In addition to the debugger, `dump` commands are provided to inspect memory. `dump` attempts to understand what it's looking at, and provides information accordingly. There are also some debug print statements that only print if `debuglevel` is 3 (set with `3 dbg`). The following functions are available:
 
 | WORD             | SIGNATURE         | NOTES                                                                                                |
 | ---------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |

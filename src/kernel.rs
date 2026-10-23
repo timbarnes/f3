@@ -25,17 +25,44 @@ pub const DICT_LIMIT: usize = STACK_START - STACK_SIZE; // the dictionary grows 
 pub const WORD_START: usize = 0; // data area counts up from the bottom (builtins, words, variables etc.)
 pub const ADDRESS_MASK: usize = 0x00FFFFFFFFFFFFFF; // to get rid of flags
 
-/// A Forth error. Raised by `throw`, caught once per input line by `quit`,
+/// A Forth error. Raised by `throw`, caught by CATCH, or else once per input line by `quit`,
 /// which reports it and resets the system (see ForthRuntime::recover).
-/// An empty message is a silent ABORT.
+/// `code` is an ANS throw code (-1 ABORT, -4 stack underflow, ...); -256 is any other engine error.
+/// An empty message is silent (ABORT).
 #[derive(Debug)]
-pub struct ForthError(pub String);
+pub struct ForthError {
+    pub code: i64,
+    pub msg: String,
+}
+
+// ANS throw codes used by the engine
+pub const ABORT_CODE: i64 = -1;
+pub const ABORT_QUOTE: i64 = -2;
+pub const STACK_OVERFLOW: i64 = -3;
+pub const STACK_UNDERFLOW: i64 = -4;
+pub const RSTACK_OVERFLOW: i64 = -5;
+pub const RSTACK_UNDERFLOW: i64 = -6;
+pub const DICTIONARY_FULL: i64 = -8;
+pub const INVALID_ADDRESS: i64 = -9;
+pub const DIVISION_BY_ZERO: i64 = -10;
+pub const UNDEFINED_WORD: i64 = -13;
+pub const COMPILE_ONLY: i64 = -14;
+pub const NAME_EXPECTED: i64 = -16;
+pub const FILE_ERROR: i64 = -37;
+pub const ENGINE_ERROR: i64 = -256;
 
 // ponytail: errors unwind instead of returning Result: no cost on the hot path, no signature
 // changes across ~100 builtins, and the same catch turns Rust panics (index, overflow) into
 // recoverable errors too. Requires panic = "unwind" (the default) in every profile.
 pub fn throw(msg: impl Into<String>) -> ! {
-    std::panic::panic_any(ForthError(msg.into()))
+    throw_code(ENGINE_ERROR, msg)
+}
+
+pub fn throw_code(code: i64, msg: impl Into<String>) -> ! {
+    std::panic::panic_any(ForthError {
+        code,
+        msg: msg.into(),
+    })
 }
 
 /// The primary data structure for the Forth engine
@@ -88,7 +115,7 @@ impl Kernel {
     fn cell(&mut self, addr: usize) -> &mut i64 {
         match self.heap.get_mut(addr) {
             Some(cell) => cell,
-            None => throw(format!("invalid address {}", addr as i64)),
+            None => throw_code(INVALID_ADDRESS, format!("invalid address {}", addr as i64)),
         }
     }
 
@@ -99,7 +126,7 @@ impl Kernel {
     pub fn get(&self, addr: usize) -> i64 {
         match self.heap.get(addr) {
             Some(val) => *val,
-            None => throw(format!("invalid address {}", addr as i64)),
+            None => throw_code(INVALID_ADDRESS, format!("invalid address {}", addr as i64)),
         }
     }
 
@@ -129,7 +156,7 @@ impl Kernel {
     #[inline(always)]
     pub fn push(&mut self, val: i64) {
         if self.stack_ptr <= DICT_LIMIT {
-            throw("stack overflow");
+            throw_code(STACK_OVERFLOW, "stack overflow");
         }
         self.stack_ptr -= 1;
         self.heap[self.stack_ptr] = val;
@@ -138,7 +165,7 @@ impl Kernel {
     #[inline(always)]
     pub fn pop(&mut self) -> i64 {
         if self.stack_ptr >= STACK_START {
-            throw("stack underflow");
+            throw_code(STACK_UNDERFLOW, "stack underflow");
         }
         let r = self.heap[self.stack_ptr];
         self.stack_ptr += 1;
@@ -159,7 +186,7 @@ impl Kernel {
     #[inline(always)]
     pub fn stack_check(&self, needed: usize, word: &str) -> bool {
         if self.stack_len() < needed {
-            throw(format!("{word}: stack underflow"));
+            throw_code(STACK_UNDERFLOW, format!("{word}: stack underflow"));
         }
         true
     }
@@ -167,7 +194,7 @@ impl Kernel {
     #[inline(always)]
     pub fn push_r(&mut self, val: i64) {
         if self.return_ptr <= STACK_START {
-            throw("return stack overflow");
+            throw_code(RSTACK_OVERFLOW, "return stack overflow");
         }
         self.return_ptr -= 1;
         self.heap[self.return_ptr] = val;
@@ -176,7 +203,7 @@ impl Kernel {
     #[inline(always)]
     pub fn pop_r(&mut self) -> i64 {
         if self.return_ptr >= RET_START {
-            throw("return stack underflow");
+            throw_code(RSTACK_UNDERFLOW, "return stack underflow");
         }
         let val = self.heap[self.return_ptr];
         self.return_ptr += 1;
@@ -186,7 +213,7 @@ impl Kernel {
     #[inline(always)]
     pub fn stack_check_r(&self, needed: usize, word: &str) -> bool {
         if RET_START - self.return_ptr < needed {
-            throw(format!("{word}: return stack underflow"));
+            throw_code(RSTACK_UNDERFLOW, format!("{word}: return stack underflow"));
         }
         true
     }
@@ -243,7 +270,7 @@ impl Kernel {
             throw("string longer than 255 characters");
         }
         if to + 1 + from.len() > STRING_SIZE {
-            throw("string space full");
+            throw_code(DICTIONARY_FULL, "string space full");
         }
         self.strings[to] = from.len() as u8; // count byte
         self.strings[to + 1..to + 1 + from.len()].copy_from_slice(from);
@@ -270,7 +297,7 @@ impl Kernel {
     pub fn string_copy(&mut self, from: usize, to: usize, length: usize, counted: bool) {
         let offset = if counted { 1 } else { 0 };
         if length > 255 || to + 1 + length > STRING_SIZE || from + offset + length > STRING_SIZE {
-            throw("invalid string address or length");
+            throw_code(INVALID_ADDRESS, "invalid string address or length");
         }
         self.strings[to] = length as u8; // write count byte
         for i in 0..length {
@@ -290,7 +317,7 @@ impl Kernel {
     pub fn cmove(&mut self, from: usize, to: usize, n: usize) {
         let fits = |a: usize| a.checked_add(n).is_some_and(|end| end <= STRING_SIZE);
         if !fits(from) || !fits(to) {
-            throw("cmove: invalid string address or length");
+            throw_code(INVALID_ADDRESS, "cmove: invalid string address or length");
         }
         self.strings.copy_within(from..from + n, to);
     }
@@ -301,7 +328,7 @@ impl Kernel {
     pub fn string_slice(&self, addr: usize, len: usize) -> &[u8] {
         match self.strings.get(addr..addr.saturating_add(len)) {
             Some(slice) => slice,
-            None => throw("invalid string address or length"),
+            None => throw_code(INVALID_ADDRESS, "invalid string address or length"),
         }
     }
 
@@ -310,7 +337,7 @@ impl Kernel {
     ///
     pub fn byte_get(&self, addr: usize) -> u8 {
         if addr >= STRING_SIZE {
-            throw(format!("invalid string address {}", addr as i64));
+            throw_code(INVALID_ADDRESS, format!("invalid string address {}", addr as i64));
         }
         self.strings[addr]
     }
@@ -320,7 +347,7 @@ impl Kernel {
     ///
     pub fn byte_set(&mut self, addr: usize, value: u8) {
         if addr >= STRING_SIZE {
-            throw(format!("invalid string address {}", addr as i64));
+            throw_code(INVALID_ADDRESS, format!("invalid string address {}", addr as i64));
         }
         self.strings[addr] = value;
     }
@@ -344,6 +371,13 @@ impl Kernel {
 
     pub fn get_return_ptr(&self) -> usize {
         self.return_ptr
+    }
+    /// set_return_ptr and set_stack_ptr restore depths saved earlier (CATCH)
+    pub fn set_return_ptr(&mut self, rp: usize) {
+        self.return_ptr = rp;
+    }
+    pub fn set_stack_ptr(&mut self, sp: usize) {
+        self.stack_ptr = sp;
     }
     pub fn get_string_ptr(&self) -> usize {
         self.string_ptr

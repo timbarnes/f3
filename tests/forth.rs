@@ -119,6 +119,13 @@ fn print_number() {
 }
 
 #[test]
+fn ans_core_tests() {
+    // Hayes-style T{ -> }T tests of the words f3 implements with ANS semantics
+    let r = run("include src/forth/tester.fs\ninclude src/forth/core-tests.fs");
+    assert!(r.ok && r.out.contains("core tests: 0 errors"), "{}", r.out);
+}
+
+#[test]
 fn regression_suite() {
     let r = run("include src/forth/regression.fs");
     assert!(r.ok, "f3 did not exit cleanly:\n{}", r.out);
@@ -390,6 +397,36 @@ fn tracer_follows_stepper_variable() {
     let r = run(": t 1 2 + ;\n1 stepper ! 5 stepper-depth !\nt\n0 stepper !\nt\n.s");
     assert_eq!(r.out.matches(" EXIT ").count(), 1, "{}", r.out); // only the first t is traced
     assert!(r.out.contains("[ 3 3 ]"), "{}", r.out);
+}
+
+// ------------------------------------------------------------- Phase 5
+
+#[test]
+fn f30_allot_after_a_variable_keeps_the_dictionary() {
+    // buf gets 11 cells; words defined afterwards, and all earlier words, still work
+    let src = "variable buf 10 allot : foo 7 ; 42 buf 10 + ! foo buf 10 + @ 1 2 +";
+    assert_eq!(stack(src), "7 42 3");
+    assert_eq!(stack("here @ 10 allot -10 allot here @ = 1 2 +"), "-1 3");
+    // the same for , after a finished word
+    assert_eq!(stack("variable x 1 , 2 , : foo 7 ; foo x 2 + @ 1 2 +"), "7 2 3");
+}
+
+#[test]
+fn catch_and_throw() {
+    assert_eq!(stack(": ok 7 ; ' ok catch"), "7 0");
+    assert_eq!(stack(": t 1 2 3 99 throw ; 5 ' t catch"), "5 99"); // depth restored, then the code
+    assert_eq!(stack(": bad 1 0 / ; ' bad catch"), "-10"); // engine errors have ANS codes
+    assert_eq!(stack("' drop catch"), "-4");
+    assert_eq!(stack("' abort catch"), "-1");
+    assert_eq!(stack(": a abort\" boom\" ; ' a catch"), "-2");
+    assert_eq!(stack("0 throw 1"), "1");
+    // the return stack is restored too, including inside a loop
+    assert_eq!(stack(": inner 1 >r 2 >r 5 throw ; : outer ['] inner catch ; outer 1 2 +"), "5 3");
+    assert_eq!(stack(": t 3 0 do ['] drop catch drop loop 99 ; t"), "99");
+    // re-throwing keeps the original message; an uncaught user code is reported
+    let r = run(": bad 1 0 / ; ' bad catch throw\n42 throw\n12345 .");
+    assert!(r.out.contains("ERROR: division by zero"), "{}", r.out);
+    assert!(r.out.contains("ERROR: uncaught exception 42") && r.out.contains("12345 "), "{}", r.out);
 }
 
 /// Phase 1 exit check: 10k lines of random words and numbers (plus small colon definitions)

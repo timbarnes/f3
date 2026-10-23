@@ -1,6 +1,6 @@
 /// Input-output words
 use crate::internals::files::{FileHandle, FileMode};
-use crate::kernel::{throw, BUF_SIZE};
+use crate::kernel::{throw, throw_code, BUF_SIZE, FILE_ERROR};
 use crate::runtime::{ForthRuntime, FALSE, TRUE};
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -219,7 +219,7 @@ impl ForthRuntime {
             .and_then(Option::as_mut)
         {
             Some(file) => file,
-            None => throw(format!("invalid file-id {file_id}")),
+            None => throw_code(FILE_ERROR, format!("invalid file-id {file_id}")),
         }
     }
 

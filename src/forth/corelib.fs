@@ -45,7 +45,6 @@
 
 \ Markers that control structures leave on the stack while they are compiled, checked by ?pairs
 200000 constant MARK_BEGIN
-200001 constant MARK_WHILE
 200003 constant MARK_CASE
 200004 constant MARK_OF
 200005 constant MARK_DO
@@ -77,6 +76,8 @@
 \ This version is for use inside a definition. It compiles the value into the definition as a literal.
 : [char]
     32 parse drop 1 + c@ LITERAL , , ; immediate compile-only
+
+: literal ( x -- )  LITERAL , , ; immediate compile-only   \ compile x from the stack as a literal
 
 \ variable <name> creates a variable, initialized to zero
 : variable ( -- ) create VARIABLE , 0 ,
@@ -221,13 +222,13 @@
 
 : begin ( -- a tag ) here @ MARK_BEGIN ; immediate compile-only
 
-: while ( -- a tag ) BRANCH0 ,
-                    here @ MARK_WHILE 0 , ; immediate compile-only     \ placeholder for the exit offset
-: repeat ( -- )     MARK_WHILE ?pairs
-                    BRANCH ,                            \ unconditional branch to the beginning of the loop
-                    here @ over - 1 + swap !            \ patch forward offset at WHILE's placeholder
-                    MARK_BEGIN ?pairs
-                    here @ - ,           ; immediate compile-only \ save negative offset to BEGIN
+\ while leaves its forward reference below BEGIN's, untagged like if's, as ANS specifies:
+\ so `begin .. while .. while .. repeat .. else .. then` works, with else/then resolving the extra while.
+: while ( a tag -- orig a tag ) BRANCH0 ,
+                    here @ 0 , rot rot ; immediate compile-only   \ placeholder for the exit offset
+: repeat ( orig a tag -- ) MARK_BEGIN ?pairs
+                    BRANCH , here @ - ,                 \ branch back to BEGIN
+                    _patch-here ; immediate compile-only \ WHILE exits to here
 
 : until             MARK_BEGIN ?pairs BRANCH0 ,
                     here @ - ,           ; immediate compile-only
@@ -256,16 +257,17 @@
 : +loop ( n -- )    PLOOP (loop-end) ; immediate compile-only
 : leave ( -- )      LEAVE , ; immediate compile-only    \ continue after the end of the innermost loop
 
-\ Case statement: the key is kept on the return stack while the clauses are tested
+\ Case statement (ANS): the key stays on the stack. OF tests it and drops it on a match;
+\ the default clause sees the key on top, and ENDCASE drops it.
 
-: case ( key -- )   ['] >r , MARK_CASE ; immediate compile-only
-: of ( n -- )       ['] r@ , ['] = ,                    \ compile the test against the key
-                    BRANCH0 , here @ MARK_OF 0 , ; immediate compile-only
-: endof ( -- )      MARK_OF ?pairs
-                    BRANCH , here @ 0 ,                 \ jump to the end of the case, patched by endcase
+: case ( -- tag )   MARK_CASE ; immediate compile-only
+: of ( -- orig tag ) ['] over , ['] = ,                 \ compile: over = if drop
+                    BRANCH0 , here @ 0 , ['] drop , MARK_OF ; immediate compile-only
+: endof ( orig tag -- orig2 ) MARK_OF ?pairs
+                    BRANCH , here @ 0 ,                 \ jump past ENDCASE's drop, patched by endcase
                     swap _patch-here ; immediate compile-only   \ a failed test continues here
-: endcase ( -- )    begin dup MARK_CASE <> while _patch-here repeat drop
-                    ['] r> , ['] drop , ; immediate compile-only
+: endcase ( tag orig.. -- ) ['] drop ,                  \ the default path drops the key
+                    begin dup MARK_CASE <> while _patch-here repeat drop ; immediate compile-only
 
 \ Takes a typical descending for - next loop, and simplifies reversing the direction of the loop variable
 \     usage is : word incr-for for dup i - ... next .. ;
@@ -429,9 +431,9 @@
         BREAK   of ." exit " TRUE endof
         EXEC    of ." exec " TRUE endof
         EXIT    of ." ; " FALSE endof
-        r@ BUILTIN_FLAG and
-        if r@ ADDRESS_MASK and builtin-name type space else r@ .name then
-        TRUE
+        dup BUILTIN_FLAG and
+        if dup ADDRESS_MASK and builtin-name type space else dup .name then
+        TRUE swap                                               \ endcase drops the key
     endcase
     swap 1+ swap ;
 : (see) ( cfa -- )                                              \ decompile the word at cfa

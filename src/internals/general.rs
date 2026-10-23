@@ -1,7 +1,7 @@
 // General-purpose builtin words
 
 use crate::internals::builtin::BuiltInFn;
-use crate::kernel::{throw, DICT_LIMIT};
+use crate::kernel::{throw_code, DICTIONARY_FULL, DICT_LIMIT, DIVISION_BY_ZERO, INVALID_ADDRESS};
 use crate::runtime::ForthRuntime;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -24,7 +24,7 @@ impl ForthRuntime {
 
     pub fn f_divide(&mut self) {
         self.kernel.pop2_push1("/", |a, b| match b {
-            0 => throw("division by zero"),
+            0 => throw_code(DIVISION_BY_ZERO, "division by zero"),
             _ => a.wrapping_div(b),
         });
     }
@@ -49,7 +49,7 @@ impl ForthRuntime {
 
     pub fn f_mod(&mut self) {
         self.kernel.pop2_push1("mod", |a, b| match b {
-            0 => throw("division by zero"),
+            0 => throw_code(DIVISION_BY_ZERO, "division by zero"),
             _ => a.wrapping_rem(b),
         });
     }
@@ -201,18 +201,24 @@ impl ForthRuntime {
     }
 
     /// allot ( n -- ) reserves n cells of data space at HERE, or releases them if n is negative.
-    ///     Allot updates HERE, but does not create a back pointer.
+    ///     After a finished word (LAST = CONTEXT), the cell at HERE-1 is its back pointer, which the
+    ///     next definition links to; allot moves it up to the new HERE-1. So `variable buf 10 allot`
+    ///     gives buf 11 contiguous cells. Inside a definition (CREATE ... allot (close)) nothing moves.
     ///
     pub fn f_allot(&mut self) {
         self.kernel.stack_check(1, "allot");
         let n = self.kernel.pop();
-        let here = self.kernel.get(self.here_ptr).wrapping_add(n);
-        if here < 0 || here as usize > DICT_LIMIT {
-            throw(if n > 0 {
-                "dictionary full"
-            } else {
-                "allot: below the start of memory"
-            });
+        let old = self.kernel.get(self.here_ptr);
+        let here = old.wrapping_add(n);
+        if here < 1 || here as usize > DICT_LIMIT {
+            if n > 0 {
+                throw_code(DICTIONARY_FULL, "dictionary full");
+            }
+            throw_code(INVALID_ADDRESS, "allot: below the start of memory");
+        }
+        if self.word_closed() {
+            let back = self.kernel.get(old as usize - 1);
+            self.kernel.set(here as usize - 1, back);
         }
         self.kernel.set(self.here_ptr, here);
     }

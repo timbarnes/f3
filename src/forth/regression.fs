@@ -162,7 +162,7 @@ FALSE 16 12 15 range test-single
         1 of 111 endof
         2 of 222 endof
         3 of 111 3 * endof
-        222 222 +
+        222 222 + swap      \ the default clause keeps the key on top, for endcase to drop
     endcase ;
 
 : test-until begin 1- dup dup 0= until drop ;

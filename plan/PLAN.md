@@ -286,6 +286,26 @@ Tried and dropped, because they didn't help:
 * Add `catch`/`throw` on top of `ForthError`, which falls out almost free from Phase 1.
 * Update `doc.md` and `README.md`: memory map, error model, xt format, and the remaining known deviations.
 
+**Status: done (2026-10-22).**
+
+* **The ANS core suite:** the actual Hayes/Jackson `core.fr` can't run on f3 without an ANS redesign. It needs byte addressing, `here` as a word, `does>`, `postpone`, `evaluate`, and `type`/`s"` taking an address and length. So f3 now has:
+  * a Hayes-style `T{ … -> … }T` tester, `src/forth/tester.fs`;
+  * `src/forth/core-tests.fs`, with 227 tests following core.fr's structure. They cover booleans, shifts, comparisons, stack and return-stack words, arithmetic, memory, `if`/`begin`/`while`/`repeat`/`until`/`again`, the loop words, recursion, `exit`, immediate words, `[ ]`, `literal`, `state`, `execute`, `case`, `catch`/`throw`, and number bases.
+
+  All pass, and `cargo test` checks them (`ans_core_tests`).
+* **Fixes the suite forced:**
+  * F30: `,` and `allot` after a finished word broke the dictionary.
+  * F31: `case` now has ANS semantics. The default clause of the regression suite's `test-case` was updated to match.
+  * `while` and `repeat` now have ANS stack effects, so `begin … while … while … repeat … else … then` works.
+  * Added `literal`.
+* **`catch` and `throw`:**
+  * `ForthError` carries an ANS throw code. The engine uses the standard codes (−1, −2, −3 to −6, −8, −9, −10, −13, −14, −16, −37) and −256 for anything else.
+  * `catch` is a `catch_unwind` around `execute` that restores both stack depths. A Rust panic is not caught; `quit` reports it as an engine bug.
+  * `throw` re-raises a caught error with its message, and an uncaught user code reports "uncaught exception n".
+* **Docs:**
+  * `doc.md` now has sections on the memory map, errors and throw codes, compiled code and xts, the Forth/Rust split, deviations from ANS, and testing. Its word tables are corrected for the changes since the review.
+  * `README.md` no longer says the engine can crash.
+
 ---
 
 ## Suggested order and checkpoints
@@ -297,6 +317,6 @@ Tried and dropped, because they didn't help:
 | 2 Correctness | 1 | All F-tests pass |
 | 3 Architecture | 2 | Cold words in Forth, stacks addressable via `sp@`/`rp@`, internals in plain Rust, dead code gone |
 | 4 Performance | 3 | Colon-call overhead ≤ 8 ns (met: 4 ns), `fib` ≤ 12 ms (14 ms) |
-| 5 Standards | 2 | ANS core tests |
+| 5 Standards | 2 | ANS-subset core tests pass, `catch`/`throw`, docs current |
 
 If time is short, **Phase 0 + Phase 1.1 + Phase 2.1/2.2** fix the worst user-visible problems: process death, corrupted state after errors, and `execute` inside a definition.

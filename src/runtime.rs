@@ -17,9 +17,10 @@ use crate::internals::terminal;
 /// Everything else is defined in Forth, in corelib.fs.
 ///
 use crate::kernel::{
-    throw, ForthError, Kernel, BUF_SIZE, DICT_LIMIT, RET_START, STACK_START, WORD_START,
+    throw_code, ForthError, ABORT_CODE, ABORT_QUOTE, DICTIONARY_FULL, Kernel, BUF_SIZE, DICT_LIMIT, RET_START, STACK_START, WORD_START,
 };
 use std::any::Any;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::time::Instant;
 
 // STRING AREA constants
@@ -83,6 +84,7 @@ pub struct ForthRuntime {
     pub step_depth_ptr: usize,   // number of levels deep to step or trace
     pub timer: Instant,          // for timing things
     pub pending_def: Option<PendingDef>, // dictionary state before the latest CREATE
+    pub caught: Option<ForthError>,      // the error most recently caught by CATCH, for THROW to re-raise
 }
 
 /// Dictionary pointers saved by CREATE, so an error before the word is closed can roll it back.
@@ -117,6 +119,7 @@ impl ForthRuntime {
             step_depth_ptr: 1,
             timer: Instant::now(),
             pending_def: None,
+            caught: None,
         };
         runtime.reader.push(FileHandle::stdin()); // stdin is always the bottom reader
         runtime
@@ -130,14 +133,30 @@ impl ForthRuntime {
 
     /// Emit a value into the current definition (at HERE) and increment HERE.
     /// Functionally equivalent to push() and comma().
+    ///     After a finished word, HERE-1 holds its back pointer, which the next definition links
+    ///     to: the value goes there and the back pointer moves up, so `variable x 1 , 2 ,`
+    ///     gives x three contiguous cells and the dictionary stays intact.
     ///
     pub fn emit_cell(&mut self, value: i64) {
         let addr = self.here();
         if addr >= DICT_LIMIT {
-            throw("dictionary full");
+            throw_code(DICTIONARY_FULL, "dictionary full");
         }
-        self.kernel.set(addr, value);
+        if self.word_closed() {
+            let back = self.kernel.get(addr - 1);
+            self.kernel.set(addr - 1, value);
+            self.kernel.set(addr, back);
+        } else {
+            self.kernel.set(addr, value);
+        }
         self.kernel.incr(self.here_ptr);
+    }
+
+    /// word_closed is true when the latest word is finished (LAST = CONTEXT), so the cell at
+    ///     HERE-1 is its back pointer; false while a definition is being built.
+    ///
+    pub fn word_closed(&self) -> bool {
+        self.kernel.get(self.last_ptr) == self.kernel.get(self.context_ptr)
     }
 
     /// cold_start is where the interpreter begins, installing some variables and the builtin functions.
@@ -146,6 +165,9 @@ impl ForthRuntime {
         self.insert_constants();
         self.compile_builtins();
         self.kernel.set(self.state_ptr, FALSE);
+        // LAST = CONTEXT means the latest word is finished (allot relies on this)
+        let latest = self.kernel.get(self.context_ptr);
+        self.kernel.set(self.last_ptr, latest);
     }
 
     /// get_compile_mode determines whether or not compile mode is active
@@ -174,7 +196,50 @@ impl ForthRuntime {
     ///     There is a version called abort" implemented in Forth, which prints an error message
     ///
     pub fn f_abort(&mut self) {
-        throw(""); // silent: quit catches it and calls recover
+        throw_code(ABORT_CODE, ""); // silent: quit catches it and calls recover
+    }
+
+    /// catch ( ... xt -- ... 0 | n ) runs xt. If it completes, push 0. If it throws (THROW, ABORT,
+    ///     or any engine error), restore the data and return stack depths to what they were before
+    ///     xt ran, and push the throw code.
+    ///
+    pub fn f_catch(&mut self) {
+        self.kernel.stack_check(1, "catch");
+        let xt = self.kernel.pop();
+        let (sp, rp) = (self.kernel.get_stack_ptr(), self.kernel.get_return_ptr());
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            self.kernel.push(xt);
+            self.f_execute();
+        }));
+        match result {
+            Ok(()) => self.kernel.push(0),
+            Err(payload) => match payload.downcast::<ForthError>() {
+                Ok(error) => {
+                    self.kernel.set_stack_ptr(sp);
+                    self.kernel.set_return_ptr(rp);
+                    self.kernel.push(error.code);
+                    self.caught = Some(*error);
+                }
+                Err(other) => resume_unwind(other), // a Rust panic is an engine bug: let quit report it
+            },
+        }
+    }
+
+    /// throw ( n -- ) does nothing if n is 0; otherwise raises an error with code n.
+    ///     Re-throwing the code CATCH just returned keeps that error's message.
+    ///
+    pub fn f_throw(&mut self) {
+        self.kernel.stack_check(1, "throw");
+        let code = self.kernel.pop();
+        if code == 0 {
+            return;
+        }
+        let msg = match self.caught.take() {
+            Some(error) if error.code == code => error.msg,
+            _ if code == ABORT_CODE => String::new(),
+            _ => format!("uncaught exception {code}"),
+        };
+        throw_code(code, msg);
     }
 
     /// (error) ( s -- ) raises an error whose message is the counted string at s. Used by abort"
@@ -182,14 +247,15 @@ impl ForthRuntime {
     pub fn f_error(&mut self) {
         self.kernel.stack_check(1, "(error)");
         let addr = self.kernel.pop() as usize & ADDRESS_MASK;
-        throw(String::from_utf8_lossy(self.kernel.counted_bytes(addr)).into_owned());
+        let msg = String::from_utf8_lossy(self.kernel.counted_bytes(addr)).into_owned();
+        throw_code(ABORT_QUOTE, msg);
     }
 
     /// recover reports an error caught by quit, and returns the system to a clean state:
     ///     empty stacks, interpret mode, no half-built definition, input back to the console.
     ///
     pub fn recover(&mut self, payload: Box<dyn Any + Send>) {
-        let msg = if let Some(ForthError(msg)) = payload.downcast_ref::<ForthError>() {
+        let msg = if let Some(ForthError { msg, .. }) = payload.downcast_ref::<ForthError>() {
             msg.clone()
         } else if let Some(msg) = payload.downcast_ref::<&str>() {
             format!("internal: {msg}")
@@ -404,6 +470,8 @@ impl ForthRuntime {
             ("eval", Self::f_eval, "eval ( -- ) Interpret the rest of the line in the TIB"),
             ("quit", Self::f_quit, "quit ( -- ) Outer interpreter that repeatedly reads input lines and runs them"),
             ("abort", Self::f_abort, "abort ( -- ) Stop, clear the stacks, and return to the prompt"),
+            ("catch", Self::f_catch, "catch ( ... xt -- ... 0 | n ) Run xt, returning 0, or the throw code if it throws"),
+            ("throw", Self::f_throw, "throw ( n -- ) If n is not 0, raise an error with throw code n"),
             ("(error)", Self::f_error, "(error) ( s -- ) Raise an error whose message is the counted string at s"),
             ("find", Self::f_find, "find ( s -- cfa T | s F ) Search the dictionary for the counted string at s"),
             ("number?", Self::f_number_q, "number? ( s -- n T | s F ) Convert the counted string at s to a number, using BASE"),
