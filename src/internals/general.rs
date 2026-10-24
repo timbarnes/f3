@@ -207,7 +207,7 @@ impl ForthRuntime {
         self.kernel.push(rp as i64);
     }
 
-    /// cmove ( from to n -- ) copies n bytes within string space
+    /// cmove ( from to n -- ) copies n bytes
     pub fn f_cmove(&mut self) {
         self.kernel.stack_check(3, "cmove");
         let n = self.kernel.pop();

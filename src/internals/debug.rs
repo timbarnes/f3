@@ -69,8 +69,7 @@ impl ForthRuntime {
             }
             LITERAL => println!(" {} ", self.kernel.get(pc + CELL)),
             STRLIT => {
-                let val = self.kernel.get(pc + CELL) as usize;
-                println!(" {} ", self.kernel.string_get(val))
+                println!(" {} ", self.kernel.string_get(pc + CELL))
             }
             BRANCH => {
                 let val = self.kernel.get(pc + CELL);

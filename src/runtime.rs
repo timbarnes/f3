@@ -17,17 +17,12 @@ use crate::internals::terminal;
 /// Everything else is defined in Forth, in corelib.fs.
 ///
 use crate::kernel::{
-    throw_code, CELL, ForthError, ABORT_CODE, ABORT_QUOTE, DICTIONARY_FULL, Kernel, BUF_SIZE, DICT_LIMIT, RET_START, STACK_START, WORD_START,
+    throw_code, CELL, ForthError, ABORT_CODE, ABORT_QUOTE, DICTIONARY_FULL, Kernel, DICT_LIMIT, PAD_START, RET_START, STACK_START,
+    TIB_START, TMP_START, WORD_START,
 };
 use std::any::Any;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::time::Instant;
-
-// STRING AREA constants
-pub const TIB_START: usize = 0; // Text input buffer, used by readers
-pub const PAD_START: usize = TIB_START + BUF_SIZE; // Scratchpad buffer, used by PARSE and friends
-pub const TMP_START: usize = PAD_START + BUF_SIZE; // Temporary buffer, used for string input
-pub const STR_START: usize = TMP_START + BUF_SIZE; // Free space for additional strings
 
 // Inner-interpreter opcodes, compiled into definitions. OPCODE_FLAG tells them apart from
 // word addresses. They are also defined as Forth constants of the same names (insert_constants).
@@ -92,7 +87,6 @@ pub struct ForthRuntime {
 /// Dictionary pointers saved by CREATE, so an error before the word is closed can roll it back.
 pub struct PendingDef {
     pub here: i64,
-    pub s_here: i64,
     pub last: i64,
     pub context: i64,
 }
@@ -144,6 +138,18 @@ impl ForthRuntime {
         }
         self.kernel.set(addr, value);
         self.kernel.set(self.here_ptr, (addr + CELL) as i64);
+    }
+
+    /// name_new compiles a counted string at HERE, leaving HERE aligned; returns its address
+    pub fn name_new(&mut self, name: &[u8]) -> usize {
+        let addr = self.here().next_multiple_of(CELL);
+        let end = (addr + 1 + name.len()).next_multiple_of(CELL);
+        if end >= DICT_LIMIT {
+            throw_code(DICTIONARY_FULL, "dictionary full");
+        }
+        self.kernel.bytes_save(name, addr);
+        self.kernel.set(self.here_ptr, end as i64);
+        addr
     }
 
     /// cold_start is where the interpreter begins, installing some variables and the builtin functions.
@@ -263,7 +269,6 @@ impl ForthRuntime {
             // CREATE ran but the word was never closed (CONTEXT unchanged): remove it
             if self.kernel.get(self.context_ptr) == def.context {
                 self.kernel.set(self.here_ptr, def.here);
-                self.kernel.set(self.kernel.get_string_ptr(), def.s_here);
                 self.kernel.set(self.last_ptr, def.last);
             }
         }
@@ -288,9 +293,9 @@ impl ForthRuntime {
     ///     This is used for making headers for words, variables, and constants.
     fn make_word(&mut self, name: &str, args: &[i64]) -> usize {
         // [link][name][code field + args]: the link field holds the previous word's link address
+        let name = self.name_new(name.as_bytes()) as i64;
         let link = self.here();
         let previous = self.kernel.get(self.context_ptr) as usize - CELL;
-        let name = self.kernel.string_new(name.as_bytes()) as i64;
         self.emit_cell(previous as i64);
         self.emit_cell(name);
         for val in args {
@@ -303,31 +308,25 @@ impl ForthRuntime {
     pub fn insert_variables(&mut self) {
         // install system variables in data area. Each word is [link][name][code field][value];
         // a link holds the previous word's link address, and 0 ends the chain.
-        // S-HERE, DP (HERE) and CONTEXT are hand-crafted, because make_word needs them.
+        // DP (HERE) and CONTEXT are hand-crafted, because make_word needs them; their names
+        // are counted strings in cells 9 and 10. Other words' names come just before the header.
         // (cell k is at address k * CELL; values that are addresses are scaled the same way)
         let c = |k: usize| k * CELL;
         self.kernel.set(c(0), 0); // unused: no link field is at address 0
 
-        self.kernel.string_set(STR_START, "s-here");
-        self.kernel.set(c(1), 0); // s-here's link: the end of the chain
-        self.kernel.set(c(2), STR_START as i64); // name
+        self.kernel.string_set(c(9), "dp"); // the dictionary pointer; HERE is `dp @`
+        self.kernel.set(c(1), 0); // dp's link: the end of the chain
+        self.kernel.set(c(2), c(9) as i64); // name
         self.kernel.set(c(3), VARIABLE);
-        self.kernel.set(c(4), (STR_START + 7) as i64); // the value of S-HERE: after its own name
-        self.kernel.set_string_ptr(c(4));
+        self.here_ptr = c(4); // the address of the HERE variable
 
-        let name_pointer = self.kernel.string_new(b"dp"); // the dictionary pointer; HERE is `dp @`
-        self.kernel.set(c(5), c(1) as i64); // link to s-here
-        self.kernel.set(c(6), name_pointer as i64);
+        self.kernel.string_set(c(10), "context");
+        self.kernel.set(c(5), c(1) as i64); // link to dp
+        self.kernel.set(c(6), c(10) as i64);
         self.kernel.set(c(7), VARIABLE);
-        self.here_ptr = c(8); // the address of the HERE variable
-
-        let str_addr = self.kernel.string_new(b"context");
-        self.kernel.set(c(9), c(5) as i64); // link to dp
-        self.kernel.set(c(10), str_addr as i64);
-        self.kernel.set(c(11), VARIABLE);
-        self.kernel.set(c(12), c(10) as i64); // CONTEXT: the name field of the newest word (itself)
-        self.context_ptr = c(12);
-        self.kernel.set(self.here_ptr, c(13) as i64); // HERE: the first free cell
+        self.kernel.set(c(8), c(6) as i64); // CONTEXT: the name field of the newest word (itself)
+        self.context_ptr = c(8);
+        self.kernel.set(self.here_ptr, c(11) as i64); // HERE: the first free cell
 
         self.pad_ptr = self.make_variable("'pad"); // PAD is `'pad @`
         self.kernel.set(self.pad_ptr, PAD_START as i64);
@@ -457,7 +456,7 @@ impl ForthRuntime {
             ("!", Self::f_store, "! ( v a -- ) Store v at heap address a"),
             ("c@", Self::f_c_get, "c@ ( s -- c ) Push the byte at string address s"),
             ("c!", Self::f_c_store, "c! ( c s -- ) Store byte c at string address s"),
-            ("cmove", Self::f_cmove, "cmove ( from to n -- ) Copy n bytes within string space"),
+            ("cmove", Self::f_cmove, "cmove ( from to n -- ) Copy n bytes"),
             (",", Self::f_comma, ", ( n -- ) Copy the top of the stack to the top of the dictionary"),
             ("allot", Self::f_allot, "allot ( n -- ) Reserve n cells of data space, or release them if n is negative"),
             // compiler and interpreter
@@ -575,7 +574,7 @@ mod tests {
         runtime.cold_start();
 
         assert_eq!(runtime.kernel.get(0), 0); // unused cell
-        assert_eq!(runtime.kernel.get(CELL), 0); // s-here's link: the end of the dictionary chain
+        assert_eq!(runtime.kernel.get(CELL), 0); // dp's link: the end of the dictionary chain
         assert!(!runtime.exit_flag);
     }
 
@@ -638,7 +637,7 @@ mod tests {
 
         runtime.insert_variables();
         assert!(runtime.kernel.get(0) == 0); // unused cell
-        assert!(runtime.kernel.get(CELL) == 0); // s-here's link: the end of the dictionary chain
+        assert!(runtime.kernel.get(CELL) == 0); // dp's link: the end of the dictionary chain
         assert!(runtime.kernel.get(runtime.here_ptr) > WORD_START as i64);
         assert!(runtime.kernel.get(runtime.pad_ptr) == PAD_START as i64);
         assert!(runtime.kernel.get(runtime.base_ptr) == 10); // decimal base

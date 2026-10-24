@@ -75,11 +75,17 @@ impl ForthRuntime {
             }
             match code {
                 DEFINITION => pc += CELL, // entering a called colon definition
-                LITERAL | STRLIT => {
+                LITERAL => {
                     pc += CELL;
                     let val = self.kernel.get(pc);
-                    self.kernel.push(val); // a number, or the string address of the data
+                    self.kernel.push(val);
                     pc += CELL;
+                }
+                STRLIT => {
+                    // the counted string follows inline, padded to a cell
+                    pc += CELL;
+                    self.kernel.push(pc as i64);
+                    pc += (1 + self.kernel.byte_get(pc) as usize).next_multiple_of(CELL);
                 }
                 BRANCH => {
                     pc += CELL;

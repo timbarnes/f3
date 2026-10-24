@@ -1,7 +1,7 @@
 \ A Hayes-style tester:  T{ code -> expected results }T
 \ The stack left by `code` is compared with the expected results. A failure prints the
 \ problem and the test line, and is counted in #errors. Based on John Hayes' tester.fr
-\ (public domain); here using f3 words (variable + allot, 'tib).
+\ (public domain); here using f3 words (variable + allot, source).
 
 variable #errors
 variable start-depth
@@ -13,7 +13,7 @@ variable actual-results 31 cells allot          \ room for 32 results
 : -> ( ... -- )     depth start-depth @ - dup actual-depth !
                     0 ?do actual-results i cells + ! loop ;   \ top of stack goes to cell 0
 
-: (fail) ( -- )     1 #errors +!  'tib @ ctype cr  clear ;
+: (fail) ( -- )     1 #errors +!  source type cr  clear ;
 
 : }T ( ... -- )
     depth start-depth @ - actual-depth @ <>

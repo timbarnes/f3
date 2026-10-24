@@ -126,14 +126,14 @@ impl ForthRuntime {
         let len = self.kernel.pop();
         let addr = self.kernel.pop();
         self.kernel.string_slice(addr as usize, len as usize); // throws if out of range
-        // interpret the string in place: SOURCE is the string itself (ANS). The input buffer
-        // variables point at it ('tib is one below the text, where TIB's count byte would be).
+        // interpret the string in place: SOURCE is the string itself (ANS); the input buffer
+        // variables point at it.
         let saved = (
             self.kernel.get(self.tib_ptr),
             self.kernel.get(self.tib_size_ptr),
             self.kernel.get(self.tib_in_ptr),
         );
-        self.kernel.set(self.tib_ptr, addr - 1);
+        self.kernel.set(self.tib_ptr, addr);
         self.kernel.set(self.tib_size_ptr, len);
         self.kernel.set(self.tib_in_ptr, 0);
         let result = catch_unwind(AssertUnwindSafe(|| self.f_eval()));
@@ -152,8 +152,8 @@ impl ForthRuntime {
     fn interpret_source(&mut self, source: FileHandle) {
         // save the current input line, to restore afterwards
         let tib = self.kernel.get(self.tib_ptr) as usize;
-        let line = self.kernel.counted_bytes(tib).to_vec();
         let size = self.kernel.get(self.tib_size_ptr);
+        let line = self.kernel.string_slice(tib, size as usize).to_vec();
         let offset = self.kernel.get(self.tib_in_ptr);
         let depth = self.reader.len();
         self.reader.push(source);
@@ -164,7 +164,7 @@ impl ForthRuntime {
             }
         }));
         self.reader.truncate(depth);
-        self.kernel.bytes_save(&line, tib);
+        self.kernel.bytes_write(&line, tib);
         self.kernel.set(self.tib_size_ptr, size);
         self.kernel.set(self.tib_in_ptr, offset);
         if let Err(payload) = result {
@@ -191,13 +191,10 @@ impl ForthRuntime {
         let line = self.read_line();
         let ok = line.is_some();
         let line = line.unwrap_or_default();
-        if line.len() >= BUF_SIZE {
-            throw(format!(
-                "input line longer than {} characters",
-                BUF_SIZE - 1
-            ));
+        if line.len() > BUF_SIZE {
+            throw(format!("input line longer than {BUF_SIZE} characters"));
         }
-        self.kernel.bytes_save(&line, tib);
+        self.kernel.bytes_write(&line, tib);
         self.kernel.set(self.tib_size_ptr, line.len() as i64); // update the TIB size pointer
         self.kernel.set(self.tib_in_ptr, 0); // >IN: 0-based offset into the line
         ok
@@ -365,7 +362,7 @@ impl ForthRuntime {
     }
 
     /// read-line ( c-addr u file-id -- u2 flag ior ) Read a line of up to u characters into the
-    ///     buffer at c-addr (in string space; s-allot makes one). u2 is the number of characters
+    ///     buffer at c-addr (s-allot or create ... allot makes one). u2 is the number of characters
     ///     read, without the newline. A longer line is returned in pieces by successive calls.
     ///     At end of file, u2 is 0 and flag is FALSE. ior is 0 on success, -1 on a read error.
     pub fn f_read_line(&mut self) {

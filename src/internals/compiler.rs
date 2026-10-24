@@ -151,7 +151,7 @@ impl ForthRuntime {
         }
     }
 
-    /// token returns a token from string space as text, for messages
+    /// token returns a token (bytes in memory) as text, for messages
     fn token(&self, addr: usize, len: usize) -> String {
         String::from_utf8_lossy(self.kernel.string_slice(addr, len)).into_owned()
     }
@@ -161,8 +161,8 @@ impl ForthRuntime {
     ///     the length is 0 at the end of the line.
     ///
     pub fn parse_token(&mut self, delim: u8, skip_leading: bool) -> (usize, usize) {
-        // the line starts after the TIB's count byte; >IN is a 0-based offset into it (ANS)
-        let text = self.kernel.get(self.tib_ptr) as usize + 1;
+        // >IN is a 0-based offset into the line (ANS)
+        let text = self.kernel.get(self.tib_ptr) as usize;
         let end = self.kernel.get(self.tib_size_ptr) as usize;
         let mut i = self.kernel.get(self.tib_in_ptr) as usize;
         while skip_leading && i < end && self.kernel.byte_get(text + i) == delim {
@@ -312,7 +312,7 @@ impl ForthRuntime {
         if len == 0 {
             throw_code(NAME_EXPECTED, "create: name expected");
         }
-        let name = self.kernel.string_slice(addr, len).to_vec(); // copied: string_new writes string space
+        let name = self.kernel.string_slice(addr, len).to_vec(); // copied: the name is compiled at HERE
         if self.find_word(&name).is_some() {
             let msg = format!("{} redefined", self.token(addr, len));
             self.msg.warning("create", &msg, None::<bool>);
@@ -335,14 +335,13 @@ impl ForthRuntime {
     fn make_header(&mut self, name: &[u8]) {
         self.pending_def = Some(PendingDef {
             here: self.kernel.get(self.here_ptr),
-            s_here: self.kernel.get(self.kernel.get_string_ptr()),
             last: self.kernel.get(self.last_ptr),
             context: self.kernel.get(self.context_ptr),
         });
-        // [link][name][code field ...]: the link field holds the previous word's link address
+        // name, then [link][name field][code field ...]: the link holds the previous word's link
+        let nfa = self.name_new(name);
         let previous = self.kernel.get(self.context_ptr) - CELL as i64;
         self.emit_cell(previous);
-        let nfa = self.kernel.string_new(name);
         let here = self.kernel.get(self.here_ptr);
         self.kernel.set(self.last_ptr, here); // LAST: this word's name field
         self.emit_cell(nfa as i64); // the name field

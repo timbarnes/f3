@@ -122,6 +122,20 @@ Tests: 31 unit, 51 black-box, and 333 core tests, all passing. core.fr stops at 
 * **Add the words:** `c,`, `,"` (compile a counted string), and `place`. `s-allot` becomes `here swap allot` for any callers that remain; `editor.fs` and `sequences.fs` are updated.
 * **Checkpoint:** all tests pass, and `core.fr` should reach 638 of 638.
 
+**Status: done (2026-10-23).** `core.fr` passes 638 of 638.
+
+As built:
+* **Storage** is back to a byte array (`Box<[u8; DATA_SIZE]>`), and a cell is `i64::from_le_bytes` of 8 bytes behind one bounds check. The string helpers hand out `&[u8]` slices of the heap, which word storage couldn't. Stage 1 had measured byte storage no slower.
+* **The buffers** TIB, PAD and TMP (256 bytes each) sit in a fixed region just below the data stack; `DICT_LIMIT` is the bottom of that region. `tmp2` and the pictured-output buffer are ordinary `create … allot` words in corelib.
+* **The TIB has no count byte.** `source` is `'tib @ #tib @`, and `evaluate` simply points `'tib` at its string. Input lines can be 256 characters.
+* **Names** are compiled as counted strings just before each header (`name_new` in runtime.rs), and HERE is aligned after them. `forget` and `forget-last` reset HERE to the name, not the link. Only `dp` and `context` are still hand-crafted; `s-here` is gone.
+* **String literals** are inline after `op:strlit`, padded to a cell; `see`, the stepper and `dump` read them in place.
+* **Words:** `c,` and `s, ( c-addr u -- )` instead of `,"`, since every caller already had the string as ( c-addr u ). `s-allot`, `s-save` and `s-create` are one-liners on `here`/`allot`. The unused `string` defining word was deleted. `editor.fs` and `sequences.fs` needed no changes; `debug.fs` lost its string-space walker (`dump-stringspace` is now `dump-buffers`).
+
+Performance (best of 10, three alternating runs against stage 1): fib 13–14 ms, unchanged; calls 61–62, unchanged; the empty loop, dup-drop and variable loops 21/52/51 ms against 25/57/63. Some of that gain is probably code layout.
+
+Tests: 30 unit, 51 black-box, 333 core tests, and the reference `core.fr`, all passing.
+
 ### Stage 3: the classic header layout (M, about 2 days)
 
 * **Headers** become `[link | flags][count][name…][pad][code field][parameter field]` (decision 5).

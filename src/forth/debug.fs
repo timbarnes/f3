@@ -21,11 +21,9 @@ variable word-counter
 : print-word ( xt -- )
                     cell- @ 13 ltype ;                          \ print a word name, given the xt as produced by '
 
-\ \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
 \ String Dump capability
-\ dump-stringspace - dumps buffers and strings
-\ dump-strings ( s_addr -- ) - dumps multiple strings from s_addr (must be a count byte)
-\ dump-string  ( s_addr -- ) - dumps a single string at s_addr
+\ dump-buffers - dumps the input line, PAD and TMP
+\ dump-string  ( s_addr -- ) - dumps a single counted string at s_addr
 
 132 constant buf-len
 
@@ -41,51 +39,18 @@ variable word-counter
     next cr
     ;
 
-\ Move the address to the next counted string
-: next-string ( s_addr -- s_addr )
-    dup c@ + 1+
-    ;
-
-396 constant STRING_START
-
-\ Walk strings until above s_addr
-: find-start ( s_addr -- s_addr )
-    STRING_START
-    begin
-        2dup <= if
-            swap drop
-            exit
-        then
-        next-string
-    again
-    ;
-
 \ Dump a counted string, given a starting address
 : dump-string ( s_addr -- )
     dup 5 .r ." /" dup c@ 3 .r ." : "
     dup ctype cr drop ;
 
-\ Dump up to n strings from a starting poinnt
-: dump-strings ( s_addr n -- )
-    swap find-start swap
-    for
-        dup s-here @ over < if
-            drop drop drop exit
-        then           \ We've run out of strings
-        dump-string
-        next-string
-    next
-    ;
-
-\ Print all string space
-: dump-stringspace ( -- )
-    ." TIB: " cr
-    0 dump-buffer    \ TIB
+\ Print the buffers
+: dump-buffers ( -- )
+    ." TIB: " source type cr
     ." PAD " cr
     pad dump-buffer
     ." TMP " cr
     tmp @ dump-buffer
-    tmp @ 256 + dump-strings
     ;
 
 
@@ -172,8 +137,6 @@ variable word-counter
 \ Predicates to identify cell types
 
 : token-range? OPCODE_FLAG and 0<> ;  \ determines if the value is an opcode
-
-: string-range? 0 5000 range ;        \ determines if it 'could' be a string address
 
 : builtin? ( addr -- bool )         \ Is the current cell a pointer to a builtin?
     @ BUILTIN_FLAG and ;            \ A non-zero value is a yes
@@ -282,7 +245,7 @@ variable word-counter
     dup lit-value?          if ."  Integer Literal "                 exit then
     dup var-value?          if ."            Value "                 exit then
     dup const-value?        if ." Constant Literal "                 exit then
-    dup dup strlit-value?   if ."  String Literal: "          @ ctype exit else drop then
+    dup dup strlit-value?   if ."  String Literal: "            ctype exit else drop then
     dup offset-value?       if ."    Branch offset "                 exit then
     dup dup def-call?       if ." Definition call: "       dump-word exit else drop then
     dup dup var-call?       if ."    Var/Const ref "       dump-word exit else drop then

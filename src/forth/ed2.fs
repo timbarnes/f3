@@ -176,7 +176,7 @@ variable ed-cursor-position   \ location for edit and move functions
 \ \\\\\\\\\\\\\\\\\\\\\\\\\\
 \ Buffer utilities
 
-\ Copy a single character from one location to another in string space
+\ Copy a single character from one location to another
 : char-copy ( dest source -- )
     c@ swap c!
     ;

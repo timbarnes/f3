@@ -31,22 +31,23 @@
 : does> ( -- )      op:does , ; immediate compile-only
 : >body ( xt -- a ) 2 cells + ;                              \ a created word's data field
 
-\ String space. Strings are counted: the first byte is the length (at most 255).
-\ s-here is the next free byte. c@ c! cmove address string space; @ ! address the heap.
+\ Strings. Characters are bytes, in the same memory as cells. Counted strings have a count
+\ byte, then the characters (at most 255). Names and string literals are counted strings,
+\ compiled into the dictionary.
 
-: s-allot ( n -- s )   s-here @ dup rot + s-here ! ;       \ reserve n bytes of string space
+: aligned ( a -- a' ) cell 1 - + 0 cell - and ;        \ round up to the next cell boundary
+: align ( -- )      here aligned dp ! ;
+: count ( s -- c-addr u ) dup 1 + swap c@ ;                \ a counted string's characters and length
+: c, ( c -- )       here c! 1 allot ;                     \ compile a character
+: s-allot ( n -- s ) here swap allot ;                    \ reserve n bytes in the dictionary
 : s-copy ( from to -- ) over c@ 1 + cmove ;                \ copy a counted string
-: s-create ( from -- to )                                  \ copy a counted string to new string space
-    dup c@ 1 + dup s-allot swap over >r cmove r> ;
 : place ( c-addr u s -- ) over over c! 1 + swap cmove ;    \ store characters as a counted string at s
-: s-save ( c-addr u -- s ) dup 1 + s-allot dup >r place r> ; \ ... in new string space
+: s, ( c-addr u -- ) dup 1 + s-allot place align ;         \ compile a counted string, then align
+: s-save ( c-addr u -- s ) here >r s, r> ;                 \ ... and leave its address
+: s-create ( from -- to ) count s-save ;                   \ copy a counted string into the dictionary
 
 : constant ( n -- ) (create) op:constant , ,      \ v constant <name> creates a constant with value v
     (close) ;
-
-: string ( n -- )
-    (create) op:strlit ,
-    s-create dup 0 swap c! , (close) ;
 
 \ Boolean constants. In fact any non-zero value is interpreted as true, but -1 is traditional.
 
@@ -154,7 +155,7 @@
                     if , else op:literal , , ['] , , then ; immediate compile-only  \ others compile a ,
 
 : abort" ( x -- )   op:branch0 , here 0 ,               \ if x is non-zero, abort with the message (ANS)
-                    op:strlit , '"' parse s-save ,
+                    op:strlit , '"' parse s,
                     ['] (error) , _patch-here ; immediate compile-only
 
 \ Movement within a word definition
@@ -183,19 +184,16 @@
 : within ( n lo hi -- f ) over - >r - r> u< ;         \ lo <= n < hi, also across the wrap
 : char+ ( c -- c' ) 1+ ;                              \ characters are bytes, so chars does nothing
 : chars ( n -- n ) ;
-: aligned ( a -- a' ) cell 1- + cell negate and ;     \ round up to the next cell boundary
-: align ( -- )      here aligned dp ! ;
-: count ( s -- c-addr u ) dup 1+ swap c@ ;           \ a counted string's characters and length
 
 \ String literals. s" gives ( c-addr u ), c" a counted string; both compile a literal inside a
 \ definition. Outside one, the string is copied to one of two buffers, TMP and tmp2, in turn,
 \ so two strings can be in use at once (as Forth-2012 requires).
-256 s-allot constant tmp2
+create tmp2 256 allot
 variable 's-buf
 : (s-buf) ( -- s )  's-buf @ 0= dup 's-buf ! if tmp @ else tmp2 then ;
-: s" ( -- c-addr u ) '"' parse state @ if s-save op:strlit , , ['] count , else (s-buf) dup >r place r> count then ;
+: s" ( -- c-addr u ) '"' parse state @ if op:strlit , s, ['] count , else (s-buf) dup >r place r> count then ;
     immediate
-: c" ( -- s )       '"' parse state @ if s-save op:strlit , , else (s-buf) dup >r place r> then ; immediate
+: c" ( -- s )       '"' parse state @ if op:strlit , s, else (s-buf) dup >r place r> then ; immediate
 
 : ?pairs ( tag expected -- )                          \ check that control structures match up
                     <> abort" unbalanced control structure" ;
@@ -345,7 +343,7 @@ variable 's-buf
 : .pad              pad ctype ;                               \ Print the pad buffer
 : ."  ( -- )        '"' parse state @                          \ Compile or print a string
                     if
-                        s-save op:strlit , ,                   \ Compilation section
+                        op:strlit , s,                         \ Compilation section
                         ['] ctype ,
                     else
                         type                                   \ Execution (print) section
@@ -360,7 +358,7 @@ variable 's-buf
 : */ ( n1 n2 n3 -- n4 ) */mod nip ;
 : ud/mod ( ud u -- urem udquot ) >r 0 r@ um/mod r> swap >r um/mod r> ;
 
-130 s-allot 130 + constant #end                     \ the pictured-output buffer, filled backwards
+create #buf 130 allot #buf 130 + constant #end                    \ the pictured-output buffer, filled backwards
 : <# ( -- )         #end hld ! ;
 : hold ( c -- )     hld @ 1 - dup hld ! c! ;
 : sign ( n -- )     0< if [char] - hold then ;
@@ -379,7 +377,7 @@ variable 's-buf
 
 : stop"  ( -- )     '"' parse state @                          \ Compile or print a string
                     if
-                        s-save op:strlit , ,                   \ Compilation section
+                        op:strlit , s,                         \ Compilation section
                         ['] ctype ,
                         ['] .s ,
                         ['] flush ,
@@ -398,19 +396,19 @@ variable 's-buf
 : ?  ( addr -- )    @ . ;
 
 : forget-last ( -- )                            \ delete the most recent definition
-                    context @ cell- dup dp !    \ HERE goes back to its link field
-                    @ cell+ dup context ! last ! \ CONTEXT and LAST go back to the previous word
+                    context @ dup @ ADDRESS_MASK and dp ! \ HERE goes back to its name
+                    cell- @ cell+ dup context ! last ! \ CONTEXT and LAST go back to the previous word
                     ;
 
 : forget ( <name> )                             \ delete <name> and any words since
                     trace-off step-off          \ we're messing with the dictionary, so we don't want to run FIND
-                    (') 2 cells - dup dp !                   \ HERE goes back to the word's link field
-                    dup cell+ @ ADDRESS_MASK and s-here !   \ S-HERE back to its name
+                    (') 2 cells -                           \ the word's link field
+                    dup cell+ @ ADDRESS_MASK and dp !       \ HERE goes back to its name
                     @ cell+ dup context ! last ! ;          \ CONTEXT and LAST to the previous word
 
 \ : ?stack depth 0= if abort" Stack underflow" then ;
 
-: source ( -- c-addr u ) 'tib @ 1+ #tib @ ;                    \ the input line; >in is an offset into it
+: source ( -- c-addr u ) 'tib @ #tib @ ;                      \ the input line; >in is an offset into it
 : kkey ( -- c )     source drop >in @ + c@ 1 >in +! ;           \ Get the next character from the TIB
 
 : ?key ( -- c T | F )                                           \ If there's a character in TIB, push it and TRUE
@@ -428,7 +426,8 @@ variable 's-buf
 : see-cell ( a -- a' more? )                                    \ print the compiled cell at a
     dup @ case
         op:literal of .operand TRUE endof
-        op:strlit  of cell+ '"' emit space dup @ ctype '"' emit space TRUE endof
+        op:strlit  of cell+ '"' emit space dup ctype '"' emit space    \ inline, padded to a cell
+                      dup c@ 1+ aligned + cell- TRUE endof
         op:branch  of ." branch:" .operand TRUE endof
         op:branch0 of ." branch0:" .operand TRUE endof
         op:do      of ." do:" .operand TRUE endof
@@ -488,7 +487,7 @@ variable '[if]  variable '[else]
 : is ( xt <name> -- ) ' 6 cells + state @ if postpone literal postpone ! else ! then ; immediate
 
 : .( ( -- )         ')' parse type ; immediate          \ print the text up to the next )
-\ String words. Characters live in string space; c@ c! cmove address it.
+\ String words. Strings are ( c-addr u ): an address and a length.
 : /string ( c-addr u n -- c-addr+n u-n ) tuck - >r + r> ;
 : -trailing ( c-addr u -- c-addr u2 ) begin dup while 2dup + 1- c@ bl = while 1- repeat then ;
 : fill ( c-addr u char -- ) swap 0 ?do 2dup swap i + c! loop 2drop ;

@@ -3,34 +3,31 @@
 f3 is written and tested on MacOS, but does not use any MacOS-specific calls, so it should compile on Linux and Windows.
 The implementation is a combination of Rust and Forth - the core capabilities are implemented in Rust, including the memory model, the compiler and interpreter, and a range of basic operations like arithmetic and stack operations. The release binary is about 0.8 MB.
 
-The data space is an array of i64, which stores all the words, contains the return and calculation stacks, and has space for additional data storage as needed.
-Within Rust, the i64 values are cast to usize as needed.
+All of memory is one byte-addressed array: the dictionary (words, variables, names and string literals), three buffers, and the data and return stacks. Cells are 8 bytes (i64), at aligned addresses; characters are single bytes in the same memory. Builtin words are implemented through a separate jump table of function pointers.
 
-Strings are stored in a separate array of chars, and builtin words are implemented through a separate jump table of function pointers.
+Compilation results in the address of words being stored so the engine can simply jump to the code for any referenced word. For builtin functions, the index of the function pointer is stored, with a flag to indicate that it's a builtin function.
 
-Compilation results in the address of words being stored so the engine can simply jump to the code for any referenced word. For builtin functions, the address of the function pointer is stored, with a flag to indicate that it's a builtin function.
+Names are counted strings (the first byte is the length), compiled into the dictionary just before each word's header; the name field holds the name's address. String literals are counted strings compiled inline, after `op:strlit`, padded to a cell.
 
-Because strings are stored separately, the names of words are captured in a single word address in data space, pointing into string space. Forth counted strings are used throughout (first 'character' is the length of the string).
+Three string buffers, 256 bytes each, sit between the dictionary and the stacks:
 
-Three string buffers are provided as follows:
+- TIB - the text input buffer is the location where input is loaded for parsing, a line at a time. `source` is `'tib @ #tib @`.
+- PAD - a working area used by `parse-to` (and words built on it, like `text` and `char`). The interpreter itself reads tokens in place in the TIB.
+- TMP - a second working area where strings are staged. `s"` (interpreted), `read-line`, and `builtin-name` use it.
 
-- TIB - the text input buffer is the location where input is loaded for parsing, a line at a time.
-- PAD - a working area used by `parse` (and words built on it, like `text` and `char`). The interpreter itself reads tokens in place in the TIB.
-- TMP - a second working area where strings are staged before either being printed or embedded in a definition or string variable. `s"`, `read-line`, and `builtin-name` use it.
+The dictionary is a linked list, implemented directly in memory, using link fields to string words together like this (each box is a cell):
 
-The dictionary is a linked list, implemented directly in the data array, using back pointers to string words together like this:
-
-| n                  | n+1                      | n+2                 | n+3                          | n+4                   | n+5 |
-| ------------------ | ------------------------ | ------------------- | ---------------------------- | --------------------- | --- |
-| back-pointer       | name field               | code field          | args ...                     | back pointer          | ... |
-| ..to previous word | points into string space | indicates word type | additional data for the word | points back to cell n |
+| ...          | n                  | n+1                 | n+2                 | n+3                          |
+| ------------ | ------------------ | ------------------- | ------------------- | ---------------------------- |
+| name         | link field         | name field          | code field          | args ...                     |
+| counted string, padded to a cell | link of the previous word | points to the name | indicates word type | additional data for the word |
 
 So for example, a word defined as follows: `: double 2 * ;` would be stored like this:
 
-| n   | n+1       | n+2  | n+3       | n+4          | n+5            |  n+6        |  n+7   | |
-| --- | --- | --- | ---- | --------- | ------------ | -------------- | -------- | --- |
-| back-pointer   | points to "double" in string space    | DEFINITION      | LITERAL      | 2     | address of \*       | EXIT      | back pointer     | ... |
-| points to the previous definition | also has "immediate" flag as required | indicates this is a `:` (colon) definition | indicates the next value should be pushed on the stack | the value to push on the stack | address includes a flag indicating `*` is a builtin | acts like a return, ending execution of this word | contains n (address of the next pointer back) |
+| ...       | n     | n+1       | n+2  | n+3       | n+4          | n+5            |  n+6        |
+| --- | --- | --- | ---- | --------- | ------------ | -------------- | -------- |
+| 6 "double" | link | name field | DEFINITION      | LITERAL      | 2     | address of \*       | EXIT      |
+| the name | the previous word's link field | points to the name, and has the "immediate" flag as required | indicates this is a `:` (colon) definition | indicates the next value should be pushed on the stack | the value to push on the stack | address includes a flag indicating `*` is a builtin | acts like a return, ending execution of this word |
 
 The builtin flag disinguishes between a builtin function accessed through the jump table, and a word defined in Forth. This lets the interpreter know to look in the builtin array for a function pointer, rather than looking in data space for a definition.
 
@@ -42,18 +39,18 @@ The inclusion of the names in the dictionary also supports the `see` operation, 
 
 ## Memory map
 
-The heap is 1 MB, **byte-addressed**, with 8-byte cells (`1 cells` is 8) at aligned addresses. Every access is bounds-checked, and `@` or `!` at a misaligned address raises error −23. (Inside, the heap is stored as 8-byte words, so an aligned cell is a single load.)
+The heap is 1 MB, **byte-addressed**, with 8-byte cells (`1 cells` is 8) at aligned addresses. Every access is bounds-checked, and `@` or `!` at a misaligned address raises error −23.
 
 ```
-0 ......... HERE ->    DICT_LIMIT | <- data stack   sp0 | <- return stack   rp0
-[ system variables | dictionary ] [ 1024 cells        ] [ 1024 cells           ]
+0 ......... HERE ->    DICT_LIMIT |               | <- data stack   sp0 | <- return stack   rp0
+[ system variables | dictionary ] [ TIB PAD TMP ] [ 1024 cells        ] [ 1024 cells           ]
 ```
 
 - **The dictionary** grows up from address 0. `,` and `allot` stop at `DICT_LIMIT` with "dictionary full". `allot` counts bytes, `,` aligns HERE to a cell first, and `align`/`aligned` round up to a cell.
 - **Each word** starts with a link field, as in fig-Forth: `[link][name][code field][parameters]`. The link holds the previous word's link address, and 0 ends the chain. `,` and `allot` simply append to the newest word.
 - **The data stack and the return stack** each have 1024 cells, and grow down. Overflow and underflow are errors.
 - **The stacks are addressable** from Forth: `sp@` is the address of the top item (the item `n` deep is at `sp@ + n cells`), and `sp0` is `sp@` when the stack is empty. `rp@` and `rp0` work the same for the return stack. `depth`, `pick`, `roll`, `clear`, `.s`, and `.rs` are written in Forth on top of these.
-- **Strings live in a separate byte space** of 10,000 bytes. Strings are counted: the first byte is the length, so at most 255. `c@`, `c!`, and `cmove` address string space; `@` and `!` address the heap. The first three buffers are TIB (input line), PAD, and TMP, at 256 bytes each. `s-here` is the next free byte, and `s-allot ( n -- s )` reserves bytes.
+- **Strings are bytes in the same memory.** `c@`, `c!`, `c,` and `cmove` address bytes, `@` and `!` cells. A buffer is `create buf 100 allot` (or the f3 helper `100 s-allot`). Counted strings hold at most 255 characters.
 
 ## Errors
 
@@ -65,7 +62,7 @@ The heap is 1 MB, **byte-addressed**, with 8-byte cells (`1 cells` is 8) at alig
   - raw mode off.
 
   The rest of the input line is skipped.
-- **Errors carry ANS throw codes:** -1 `abort`, -2 `abort"`, -3/-4 stack overflow/underflow, -5/-6 return stack overflow/underflow, -8 dictionary or string space full, -9 invalid address, -10 division by zero, -13 undefined word, -14 compile-only word, -16 missing name, -37 file error. Any other engine error is -256.
+- **Errors carry ANS throw codes:** -1 `abort`, -2 `abort"`, -3/-4 stack overflow/underflow, -5/-6 return stack overflow/underflow, -8 dictionary full, -9 invalid address, -10 division by zero, -13 undefined word, -14 compile-only word, -16 missing name, -37 file error. Any other engine error is -256.
 - **`catch ( ... xt -- ... 0 | n )`** runs `xt`. If `xt` throws, `catch` restores both stack depths and returns the code.
 - **`throw ( n -- )`** raises code `n`; 0 does nothing. Re-throwing the code that `catch` just returned keeps the original message.
 - **`abort`** is silent. **`abort" msg"`** raises its message as code -2.
@@ -115,13 +112,13 @@ What is standard now:
   - Counted strings remain for names, `c"`, `word`, and `find`; `count` converts.
   - The String word set is present (`compare search /string -trailing fill erase blank move cmove>`), as are `>number`, `2swap 2over 2@ 2!`, and two transient `s"` buffers.
   - `evaluate` interprets its string in place (`source` is the string), and `included` runs the file before the rest of the line.
-- **The reference suite:** Gerry Jackson's `core.fr` passes 597 of its 638 tests. The other 41 all rely on `C,` (below).
+- **One byte-addressed memory:** `cells`, `chars`, `align`, `aligned`, `c,`, and `create … allot` buffers work as the standard describes.
+- **The reference suite:** Gerry Jackson's `core.fr` passes all 638 of its tests.
 
 What is still different, deliberately:
-- **Two address spaces:** cells (`@ ! ,`) and bytes (`c@ c! cmove`) are separate, so `cells`, `chars`, `align`, and `aligned` are no-ops, and a heap address is not a string address. There is no `c,`. Buffers of characters must be in string space (`s-allot`), not made with `create … allot`. This is step 4 of the roadmap, and needs a decision.
-- **f3 helpers:** `ctype ( s -- )` prints a counted string, `s-allot`, `s-save ( c-addr u -- s )`, and `place ( c-addr u s -- )` manage string space, and `parse-to` is the old copying parser.
+- **f3 helpers:** `ctype ( s -- )` prints a counted string; `s-allot ( n -- s )`, `s, ( c-addr u -- )`, `s-save ( c-addr u -- s )`, and `place ( c-addr u s -- )` build strings in the dictionary; and `parse-to` is the old copying parser.
 - **`/` and `mod` truncate toward zero** (symmetric division, which the standard allows). `fm/mod` is the floored version.
-- **Missing:** most of the Double word set (`d.`, `dnegate`, ...), `c,`, and `2constant`/`2variable`.
+- **Missing:** most of the Double word set (`d.`, `dnegate`, ...), and `2constant`/`2variable`.
 - **Numbers** accept `#` (decimal), `$` (hex), and `%` (binary) prefixes, and honour `base`.
 - **f3 extensions:** `."` also works outside definitions, and there are `for … next`, `compile-only`, and `forget`. f3's own defining words (`constant`, `variable`, `string`, and the `sequences.fs` arrays) are built on the header-only `(create)` and `(close)`.
 
@@ -149,7 +146,6 @@ This is not intended to be full documentation, but a reference to the stack beha
 | pad     | ( -- s ) The address of the string buffer PAD (the variable behind it is `'pad`). PAD is a counted string, used by the parser to hold the current token during interpretation. |
 | tmp     | Address of a second temporary string buffer used by string functions to stage new strings.                                               |
 | here    | ( -- a ) The top of the dictionary, where new elements will be added (the variable behind it is `dp`).                                                             |
-| s-here  | The location of the top of string space, where new strings will be added.                                                                |
 | context | Holds the address of the most recent word's name field                                                                                   |
 | last    | Holds the address of the name field of the word being defined.                                                                           |
 | base    | Radix for numberic I/O. Defaults to 10.                                                                                                  |
@@ -168,7 +164,7 @@ This is not intended to be full documentation, but a reference to the stack beha
 | WORD          | SIGNATURE                     | NOTES                                                                                                                                                                                                                                                                                                                                             |
 | ------------- | ----------------------------- | ----------------------------------------------------------------------- |
 | query         | ( -- )                        | Read a line of Forth from the terminal. Store in TIB and set #TIB and >IN variables                                                                                                                                                                                                                                                               |
-| accept        | ( c-addr u -- u2 )            | Read a line, storing up to u characters at c-addr (in string space). Return the number stored. |
+| accept        | ( c-addr u -- u2 )            | Read a line, storing up to u characters at c-addr. Return the number stored. |
 | emit          | ( c -- )                      | Send byte c to the terminal.                                                                                                                                                                                                                                                                             |
 | flush         | ( -- )                        | Force the output buffer to be flushed to the terminal.                                                                                                                                                                                                                                                                                            |
 | space         | ( -- )                        | Prints a single space.                                                                                                                                                                                                                                                                                                                            |
@@ -189,7 +185,7 @@ This is not intended to be full documentation, but a reference to the stack beha
 | r/w r/o w/o   | ( -- fam )                    | File access modes, for `open-file` and `create-file`. `bin ( fam -- fam )` is accepted and does nothing. |
 | open-file     | ( c-addr u fam -- file-id ior ) | Open the named file. W/O creates or truncates it; R/W creates it if necessary. The file-id stays valid until `close-file`. ior is 0 on success, -1 on failure. `create-file` ( same stack effect ) always creates or truncates; `delete-file ( c-addr u -- ior )` deletes. |
 | close-file    | ( file-id -- ior )            | Close the file associated with file-id, returning a code indicating success or failure.                                                                                                                                                                                                                                                           |
-| read-line     | ( c-addr u file-id -- u2 flag ior ) | Read a line of up to `u` characters into the buffer at c-addr (in string space: `s-allot` makes one), without the newline. A longer line is returned in pieces. At end of file, u2 is 0 and flag is FALSE. |
+| read-line     | ( c-addr u file-id -- u2 flag ior ) | Read a line of up to `u` characters into the buffer at c-addr (`create buf 256 allot` makes one), without the newline. A longer line is returned in pieces. At end of file, u2 is 0 and flag is FALSE. |
 | write-line    | ( c-addr u file-id -- ior )   | Write `u` characters from c-addr, and a newline. |
 | file-size     | ( file-id -- u ior )          | The size of the file in characters. |
 | file-position | ( file-id -- u ior )          | The current position in the file. |

@@ -192,7 +192,7 @@ variable buf 3 cells allot                      \ buf has 4 cells
 T{ 1 buf ! 2 buf cell+ ! 3 buf 2 cells + ! 4 buf 3 cells + ! -> }T
 T{ buf @ buf cell+ @ buf 2 cells + @ buf 3 cells + @ -> 1 2 3 4 }T
 T{ here 1 , here swap - -> 1 cells }T
-T{ 65 tmp @ c! tmp @ c@ -> 65 }T                \ c@ and c! address string space
+T{ 65 tmp @ c! tmp @ c@ -> 65 }T                \ c@ and c! address bytes
 T{ char A -> 65 }T
 T{ : gc1 [char] X ; gc1 -> 88 }T
 

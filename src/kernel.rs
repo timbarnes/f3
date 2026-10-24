@@ -16,13 +16,16 @@ use crate::internals::builtin::BuiltInFn;
 // so DATA_SIZE can grow freely up to the address mask.
 pub const CELL: usize = 8; // bytes per cell: the heap is byte-addressed, and cells are 8-byte aligned
 pub const DATA_SIZE: usize = 1 << 20; // 1 MB
-pub const STRING_SIZE: usize = 10000;
 pub const BUF_SIZE: usize = 256; // TIB, PAD, TMP. Counted strings hold at most 255 bytes.
 pub const RET_SIZE: usize = 1024;
 pub const STACK_SIZE: usize = 1024;
 pub const RET_START: usize = DATA_SIZE - CELL; // return stack counts downwards
 pub const STACK_START: usize = RET_START - RET_SIZE * CELL; // data stack counts downwards
-pub const DICT_LIMIT: usize = STACK_START - STACK_SIZE * CELL; // the dictionary grows up to here
+pub const BUFFERS: usize = STACK_START - STACK_SIZE * CELL - 4 * BUF_SIZE; // TIB PAD TMP, fixed
+pub const TIB_START: usize = BUFFERS; // Text input buffer, used by readers
+pub const PAD_START: usize = TIB_START + BUF_SIZE; // Scratchpad buffer, used by PARSE and friends
+pub const TMP_START: usize = PAD_START + BUF_SIZE; // Temporary buffer, used for string input
+pub const DICT_LIMIT: usize = BUFFERS; // the dictionary grows up to here
 pub const WORD_START: usize = 0; // data area counts up from the bottom (builtins, words, variables etc.)
 pub const ADDRESS_MASK: usize = 0x00FFFFFFFFFFFFFF; // to get rid of flags
 
@@ -83,25 +86,19 @@ pub fn throw_code(code: i64, msg: impl Into<String>) -> ! {
 ///
 //#[derive(Debug)]
 pub struct Kernel {
-    // ponytail: memory is byte-addressed, but stored as 8-byte words, so an aligned cell is one
-    // load (heap[addr / CELL]); a byte (stage 2: c@ c!) is a shift and mask of its word.
-    heap: Box<[i64; DATA_SIZE / CELL]>, // a fixed size, so bounds checks compare against a constant
-    strings: [u8; STRING_SIZE], // storage for strings
+    heap: Box<[u8; DATA_SIZE]>, // all of memory, in bytes: a fixed size, so bounds checks compare against a constant
     builtins: Vec<BuiltInFn>,   // the dictionary of builtins
     stack_ptr: usize,           // top of the linear space stack
     return_ptr: usize,          // top of the return stack
-    string_ptr: usize,          // pointer to the next free string space
 }
 
 impl Kernel {
     pub fn new() -> Kernel {
         Kernel {
-            heap: vec![0; DATA_SIZE / CELL].into_boxed_slice().try_into().unwrap(),
-            strings: [b' '; STRING_SIZE],
+            heap: vec![0; DATA_SIZE].into_boxed_slice().try_into().unwrap(),
             builtins: Vec::new(),
             stack_ptr: STACK_START,
             return_ptr: RET_START,
-            string_ptr: 0,
         }
     }
 
@@ -121,20 +118,22 @@ impl Kernel {
     // from aligned addresses, so only @ and ! (get_checked, set_checked) test alignment: that is
     // where a wrong address from Forth code arrives. A misaligned engine access would read the
     // cell containing the address: wrong, but still bounds-checked.
+    // A cell is 8 bytes, little-endian.
     #[inline(always)]
     fn read(&self, addr: usize) -> i64 {
-        match self.heap.get(addr / CELL) {
-            Some(val) => *val,
-            None => Self::bad_address(addr),
+        if addr > DATA_SIZE - CELL {
+            Self::bad_address(addr);
         }
+        // the check above lets the compiler drop the slice's own bounds checks
+        i64::from_le_bytes(self.heap[addr..addr + CELL].try_into().unwrap())
     }
 
     #[inline(always)]
     fn write(&mut self, addr: usize, val: i64) {
-        match self.heap.get_mut(addr / CELL) {
-            Some(cell) => *cell = val,
-            None => Self::bad_address(addr),
+        if addr > DATA_SIZE - CELL {
+            Self::bad_address(addr);
         }
+        self.heap[addr..addr + CELL].copy_from_slice(&val.to_le_bytes());
     }
 
     #[cold]
@@ -300,67 +299,62 @@ impl Kernel {
         self.set_nth(0, result);
     }
 
-    /// string_new writes a new string into the next empty space, updating the free space pointer
-    /// /// This function assumes that the string is counted, i.e. the first byte is the length of the string.
-    /// /// Returns the address of the new string in the string space.
+    // Bytes and strings. Characters are bytes in the same memory as cells; counted strings
+    // have a count byte, then the characters (at most 255).
+
+    /// range returns addr..addr+len if it is inside memory, or throws
     ///
-    pub fn string_new(&mut self, string: &[u8]) -> usize {
-        // place a new string into string space and update the free pointer string_ptr
-        let ptr = self.get(self.string_ptr) as usize;
-        self.bytes_save(string, ptr);
-        self.set(self.string_ptr, (ptr + 1 + string.len()) as i64);
-        ptr
+    fn range(addr: usize, len: usize) -> std::ops::Range<usize> {
+        match addr.checked_add(len) {
+            Some(end) if end <= DATA_SIZE => addr..end,
+            _ => throw_code(INVALID_ADDRESS, format!("invalid address {} (length {len})", addr as i64)),
+        }
     }
 
-    /// copy bytes into string space as a counted string
+    /// bytes_save writes bytes at `to` as a counted string
     ///
     pub fn bytes_save(&mut self, from: &[u8], to: usize) {
         if from.len() > 255 {
             throw("string longer than 255 characters");
         }
-        if to + 1 + from.len() > STRING_SIZE {
-            throw_code(DICTIONARY_FULL, "string space full");
-        }
-        self.strings[to] = from.len() as u8; // count byte
-        self.strings[to + 1..to + 1 + from.len()].copy_from_slice(from);
+        let r = Self::range(to, 1 + from.len());
+        self.heap[r.start] = from.len() as u8; // count byte
+        self.heap[r.start + 1..r.end].copy_from_slice(from);
     }
 
-    /// bytes_write copies raw bytes (no count byte) into string space at `to`
+    /// bytes_write copies raw bytes (no count byte) to `to`
     ///
     pub fn bytes_write(&mut self, from: &[u8], to: usize) {
-        if to.checked_add(from.len()).is_none_or(|end| end > STRING_SIZE) {
-            throw_code(INVALID_ADDRESS, "invalid string address or length");
-        }
-        self.strings[to..to + from.len()].copy_from_slice(from);
+        let r = Self::range(to, from.len());
+        self.heap[r].copy_from_slice(from);
     }
 
-    /// string_get returns a string from a Forth string address
-    /// Assumes the source string is counted (i.e. has its length in the first byte)
+    /// string_get returns the counted string at addr as text (flags in the address are ignored)
     ///
     pub fn string_get(&self, addr: usize) -> String {
         let bytes = self.counted_bytes(addr & ADDRESS_MASK);
         bytes.iter().map(|&b| b as char).collect()
     }
 
-    /// string_set saves a counted string to a Forth string address
+    /// string_set saves a counted string at addr
     ///
     pub fn string_set(&mut self, addr: usize, string: &str) {
         self.bytes_save(string.as_bytes(), addr & ADDRESS_MASK);
     }
 
-    /// copy a string from a text buffer in string space to a counted string
-    ///     Typically used to copy to PAD from TIB
-    ///     Can work with source strings counted or uncounted
+    /// string_copy copies length characters from `from` to a counted string at `to`.
+    ///     Typically used to copy a token from the TIB to PAD.
+    ///     With `counted`, the source is a counted string and its count byte is skipped.
     ///
     pub fn string_copy(&mut self, from: usize, to: usize, length: usize, counted: bool) {
         let offset = if counted { 1 } else { 0 };
-        if length > 255 || to + 1 + length > STRING_SIZE || from + offset + length > STRING_SIZE {
-            throw_code(INVALID_ADDRESS, "invalid string address or length");
+        if length > 255 {
+            throw("string longer than 255 characters");
         }
-        self.strings[to] = length as u8; // write count byte
-        for i in 0..length {
-            self.strings[to + i + 1] = self.strings[from + i + offset];
-        }
+        let src = Self::range(from + offset, length);
+        Self::range(to, 1 + length);
+        self.heap.copy_within(src, to + 1);
+        self.heap[to] = length as u8; // write count byte
     }
 
     /// counted_bytes returns the characters of the counted string at addr (without the count byte)
@@ -370,44 +364,28 @@ impl Kernel {
         self.string_slice(addr + 1, len)
     }
 
-    /// cmove copies n bytes within string space (overlapping ranges are fine)
+    /// cmove copies n bytes (overlapping ranges are fine)
     ///
     pub fn cmove(&mut self, from: usize, to: usize, n: usize) {
-        let fits = |a: usize| a.checked_add(n).is_some_and(|end| end <= STRING_SIZE);
-        if !fits(from) || !fits(to) {
-            throw_code(INVALID_ADDRESS, "cmove: invalid string address or length");
-        }
-        self.strings.copy_within(from..from + n, to);
+        let src = Self::range(from, n);
+        Self::range(to, n);
+        self.heap.copy_within(src, to);
     }
 
-    /// Get a read-only string slice. Assumes a non-counted string.
-    /// Used for detailed parsing of strings
+    /// string_slice returns len bytes at addr
     ///
     pub fn string_slice(&self, addr: usize, len: usize) -> &[u8] {
-        match self.strings.get(addr..addr.saturating_add(len)) {
-            Some(slice) => slice,
-            None => throw_code(INVALID_ADDRESS, "invalid string address or length"),
-        }
+        &self.heap[Self::range(addr, len)]
     }
 
-    /// byte_get returns a byte from a string address
-    /// /// This is used to access individual characters in a string.
+    /// byte_get and byte_set read and write one byte (character)
     ///
     pub fn byte_get(&self, addr: usize) -> u8 {
-        if addr >= STRING_SIZE {
-            throw_code(INVALID_ADDRESS, format!("invalid string address {}", addr as i64));
-        }
-        self.strings[addr]
+        self.heap[Self::range(addr, 1).start]
     }
 
-    /// byte_set sets a byte in a string address
-    /// /// This is used to modify individual characters in string space.
-    ///
     pub fn byte_set(&mut self, addr: usize, value: u8) {
-        if addr >= STRING_SIZE {
-            throw_code(INVALID_ADDRESS, format!("invalid string address {}", addr as i64));
-        }
-        self.strings[addr] = value;
+        self.heap[Self::range(addr, 1).start] = value;
     }
 
     /// add_builtin adds a new builtin function to the kernel's list
@@ -437,12 +415,6 @@ impl Kernel {
     pub fn set_stack_ptr(&mut self, sp: usize) {
         self.stack_ptr = sp;
     }
-    pub fn get_string_ptr(&self) -> usize {
-        self.string_ptr
-    }
-    pub fn set_string_ptr(&mut self, val: usize) {
-        self.string_ptr = val;
-    }
 
     pub fn get_stack_ptr(&self) -> usize {
         self.stack_ptr
@@ -455,20 +427,6 @@ impl Kernel {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn kernel_with_string_ptr(start: usize) -> Kernel {
-        let mut k = Kernel::new();
-        k.set(k.string_ptr, start as i64);
-        k
-    }
-
-    #[test]
-    fn test_string_new_and_get() {
-        let mut k = kernel_with_string_ptr(100);
-        let addr = k.string_new(b"hello");
-        assert_eq!(addr, 100);
-        assert_eq!(k.string_get(addr), "hello");
-    }
 
     #[test]
     fn test_string_set_and_get() {
@@ -514,14 +472,14 @@ mod tests {
     #[should_panic]
     fn test_byte_get_oob_panics() {
         let k = Kernel::new();
-        let _ = k.byte_get(STRING_SIZE); // out of bounds
+        let _ = k.byte_get(DATA_SIZE); // out of bounds
     }
 
     #[test]
     #[should_panic]
     fn test_byte_set_oob_panics() {
         let mut k = Kernel::new();
-        k.byte_set(STRING_SIZE + 1, b'!');
+        k.byte_set(DATA_SIZE + 1, b'!');
     }
 
     #[test]
