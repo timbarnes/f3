@@ -7,7 +7,7 @@ All of memory is one byte-addressed array: the dictionary (words, variables, nam
 
 Compilation results in the address of words being stored so the engine can simply jump to the code for any referenced word. For builtin functions, the index of the function pointer is stored, with a flag to indicate that it's a builtin function.
 
-Names are counted strings (the first byte is the length), compiled into the dictionary just before each word's header; the name field holds the name's address. String literals are counted strings compiled inline, after `op:strlit`, padded to a cell.
+Names are counted strings (the first byte is the length), stored inline in each word's header. String literals are counted strings compiled inline, after `op:strlit`, padded to a cell.
 
 Three string buffers, 256 bytes each, sit between the dictionary and the stacks:
 
@@ -15,19 +15,21 @@ Three string buffers, 256 bytes each, sit between the dictionary and the stacks:
 - PAD - a working area used by `parse-to` (and words built on it, like `text` and `char`). The interpreter itself reads tokens in place in the TIB.
 - TMP - a second working area where strings are staged. `s"` (interpreted), `read-line`, and `builtin-name` use it.
 
-The dictionary is a linked list, implemented directly in memory, using link fields to string words together like this (each box is a cell):
+The dictionary is a linked list, implemented directly in memory, using link fields to string words together like this, as in fig-Forth (each box is a cell, except the name, which takes as many cells as it needs):
 
-| ...          | n                  | n+1                 | n+2                 | n+3                          |
-| ------------ | ------------------ | ------------------- | ------------------- | ---------------------------- |
-| name         | link field         | name field          | code field          | args ...                     |
-| counted string, padded to a cell | link of the previous word | points to the name | indicates word type | additional data for the word |
+| lfa                | nfa                                   | cfa                 | pfa                          |
+| ------------------ | ------------------------------------- | ------------------- | ---------------------------- |
+| link field         | name field                            | code field          | parameter field ...          |
+| the previous word's link field, with the IMMEDIATE and COMPILE_ONLY flags in its top bits (0 ends the chain) | a count byte, then the characters, padded to a cell | indicates word type | additional data for the word |
+
+`context` and `last` hold name field addresses. `name> ( nfa -- xt )` steps over the name; going the other way, `>name ( xt -- nfa )` searches the dictionary, because names vary in length. `>link ( xt -- lfa )` and `>flags ( xt -- flags )` are built on it.
 
 So for example, a word defined as follows: `: double 2 * ;` would be stored like this:
 
-| ...       | n     | n+1       | n+2  | n+3       | n+4          | n+5            |  n+6        |
-| --- | --- | --- | ---- | --------- | ------------ | -------------- | -------- |
-| 6 "double" | link | name field | DEFINITION      | LITERAL      | 2     | address of \*       | EXIT      |
-| the name | the previous word's link field | points to the name, and has the "immediate" flag as required | indicates this is a `:` (colon) definition | indicates the next value should be pushed on the stack | the value to push on the stack | address includes a flag indicating `*` is a builtin | acts like a return, ending execution of this word |
+| n    | n+1        | n+2        | n+3     | n+4 | n+5            | n+6  |
+| ---- | ---------- | ---------- | ------- | --- | -------------- | ---- |
+| link | 6 "double" | DEFINITION | LITERAL | 2   | address of \*  | EXIT |
+| the previous word's link field, and the "immediate" flag as required | the name (7 bytes, padded to 8) | indicates this is a `:` (colon) definition | indicates the next value should be pushed on the stack | the value to push on the stack | address includes a flag indicating `*` is a builtin | acts like a return, ending execution of this word |
 
 The builtin flag disinguishes between a builtin function accessed through the jump table, and a word defined in Forth. This lets the interpreter know to look in the builtin array for a function pointer, rather than looking in data space for a definition.
 

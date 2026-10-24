@@ -25,7 +25,7 @@ impl ForthRuntime {
     /// set_does makes `code` the DOES> code of the latest word, which must have been made by CREATE
     ///
     fn set_does(&mut self, code: usize) {
-        let cfa = self.kernel.get(self.context_ptr) as usize + CELL;
+        let cfa = self.cfa_of(self.kernel.get(self.context_ptr) as usize - CELL);
         if self.kernel.get(cfa) != CREATED {
             throw("does>: the latest word was not made by create");
         }

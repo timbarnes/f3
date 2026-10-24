@@ -1,5 +1,5 @@
-: immediate context @ dup @ IMMEDIATE_FLAG or swap ! ;
-: compile-only context @ dup @ COMPILE_ONLY_FLAG or swap ! ;
+: immediate context @ cell - dup @ IMMEDIATE_FLAG or swap ! ;
+: compile-only context @ cell - dup @ COMPILE_ONLY_FLAG or swap ! ;
 : here dp @ ;
 : pad 'pad @ ;
 : cells cell * ;
@@ -10,9 +10,10 @@
 
 \ The words above come first, because comments need them.
 \ cell (from the engine) is the number of address units per cell; cells cell+ cell- use it.
-\ here is the next free cell. Each word starts with a link field holding the previous word's link
-\ address, then its name field, code field and parameters (as in fig-Forth), so , and allot append.
-\ immediate and compile-only set a flag on the most recently defined word.
+\ here is the next free byte. Each word starts with a link field holding the previous word's link
+\ address, then its name (a count byte and the characters, padded to a cell), code field and
+\ parameters, as in fig-Forth, so , and allot append. context and last hold name field addresses.
+\ immediate and compile-only set a flag in the link field of the most recently defined word.
 \ The engine defines the opcodes (VARIABLE, LITERAL, BRANCH, ...), the flags (IMMEDIATE_FLAG, ...),
 \ ADDRESS_MASK, and the empty-stack addresses sp0 and rp0 as constants (runtime.rs insert_constants).
 
@@ -38,6 +39,7 @@
 : aligned ( a -- a' ) cell 1 - + 0 cell - and ;        \ round up to the next cell boundary
 : align ( -- )      here aligned dp ! ;
 : count ( s -- c-addr u ) dup 1 + swap c@ ;                \ a counted string's characters and length
+: name> ( nfa -- xt ) dup c@ 1 + + aligned ;               \ from a name field to its code field
 : c, ( c -- )       here c! 1 allot ;                     \ compile a character
 : s-allot ( n -- s ) here swap allot ;                    \ reserve n bytes in the dictionary
 : s-copy ( from to -- ) over c@ 1 + cmove ;                \ copy a counted string
@@ -130,7 +132,7 @@
 : ] TRUE state ! ;                                  \ Turns compile mode on
 
 : recurse ( -- )                                    \ Simply compiles the cfa of the word being defined
-                    last @ cell+ , ; immediate compile-only \ last points to the latest nfa, so step a cell
+                    last @ name> , ; immediate compile-only \ last points to the latest nfa
 
 : nip ( a b -- b )  swap drop ;
 : tuck ( a b -- b a b ) swap over ;
@@ -151,8 +153,10 @@
 : [']               op:literal , ' , ; immediate compile-only \ compiles a word's cfa into a definition as a literal
 
 : postpone ( <name> -- )                              \ compile the compilation behaviour of <name>:
-                    ' dup cell- @ IMMEDIATE_FLAG and    \ an immediate word is compiled as a call,
-                    if , else op:literal , , ['] , , then ; immediate compile-only  \ others compile a ,
+                    >in @ parse-name pad place >in !    \ copy the name, leaving it in the input for '
+                    ' drop pad find                     \ ' reports an undefined name; find, immediacy
+                    1 = if , else op:literal , , ['] , , then ; immediate compile-only
+                                                        \ an immediate word is compiled as a call, others compile a ,
 
 : abort" ( x -- )   op:branch0 , here 0 ,               \ if x is non-zero, abort with the message (ANS)
                     op:strlit , '"' parse s,
@@ -160,11 +164,7 @@
 
 \ Movement within a word definition
 
-: cfa>nfa           cell- ;                               \ converts an cfa to an nfa
 : cfa>val           cell+ ;                               \ from cfa to first parameter cell
-: nfa>cfa           cell+ ;                               \ converts an nfa to a cfa
-: bp>nfa            cell+ ;                               \ from preceding back pointer to nfa
-: bp>cfa            2 cells + ;
 
 \ Arithmetic and logical operations
 
@@ -392,19 +392,30 @@ create #buf 130 allot #buf 130 + constant #end                    \ the pictured
 
 \ Variable utilities
 
+\ Headers: [link | flags][name: count byte, characters, padding][code field][parameters].
+\ A name can't be found from the code field by stepping back (names vary in length), so >name
+\ searches the dictionary, newest first, as some classic Forths do.
+: >name ( xt -- nfa | 0 )                       \ the name field of the word with this xt, or 0
+                    last @ cell-                \ the newest link field
+                    begin dup while
+                        2dup cell+ name> = if nip cell+ exit then
+                        @ ADDRESS_MASK and
+                    repeat nip ;
+: >link ( xt -- lfa ) >name cell- ;             \ the link field of the word with this xt
+: >flags ( xt -- flags ) >link @ ADDRESS_MASK invert and ; \ its IMMEDIATE_FLAG and COMPILE_ONLY_FLAG
+
 : +! ( n addr -- )  dup @ rot + swap ! ;
 : ?  ( addr -- )    @ . ;
 
 : forget-last ( -- )                            \ delete the most recent definition
-                    context @ dup @ ADDRESS_MASK and dp ! \ HERE goes back to its name
-                    cell- @ cell+ dup context ! last ! \ CONTEXT and LAST go back to the previous word
+                    context @ cell- dup dp !    \ HERE goes back to its link field
+                    @ ADDRESS_MASK and cell+ dup context ! last ! \ CONTEXT and LAST go back to the previous word
                     ;
 
 : forget ( <name> )                             \ delete <name> and any words since
                     trace-off step-off          \ we're messing with the dictionary, so we don't want to run FIND
-                    (') 2 cells -                           \ the word's link field
-                    dup cell+ @ ADDRESS_MASK and dp !       \ HERE goes back to its name
-                    @ cell+ dup context ! last ! ;          \ CONTEXT and LAST to the previous word
+                    (') >link dup dp !                      \ HERE goes back to the word's link field
+                    @ ADDRESS_MASK and cell+ dup context ! last ! ; \ CONTEXT and LAST to the previous word
 
 \ : ?stack depth 0= if abort" Stack underflow" then ;
 
@@ -418,10 +429,10 @@ create #buf 130 allot #buf 130 + constant #end                    \ the pictured
 
 \ Dictionary inspection
 
-: immed? ( cfa -- f ) cell- @ IMMEDIATE_FLAG and 0<> ;              \ is the word at cfa immediate?
+: immed? ( cfa -- f ) >flags IMMEDIATE_FLAG and 0<> ;               \ is the word at cfa immediate?
 : ?unique ( s -- s ) dup find nip if ." redefining " dup ctype cr then ;
 
-: .name ( cfa -- )  cell- @ ADDRESS_MASK and ctype space ;          \ print the name of the word at cfa
+: .name ( cfa -- )  >name ?dup if ctype else ." ?" then space ;     \ print the name of the word at cfa
 : .operand ( a -- a' ) cell+ dup @ . ;
 : see-cell ( a -- a' more? )                                    \ print the compiled cell at a
     dup @ case
@@ -455,7 +466,7 @@ create #buf 130 allot #buf 130 + constant #end                    \ the pictured
                           cell+ @ ?dup if ." does> code at " . then cr exit then
     dup @ op:definition <> if drop ." not a colon definition" cr exit then
     ." : " dup .name
-    dup cell- @ IMMEDIATE_FLAG and >r
+    dup immed? >r
     cell+ begin see-cell while repeat drop
     r> if ." immediate" then cr ;
 : see ( <name> -- ) ' (see) ;

@@ -64,8 +64,8 @@ impl ForthRuntime {
 
         match code {
             VARIABLE | CONSTANT | DEFINITION | CREATED => {
-                let val = self.kernel.get(pc.wrapping_sub(CELL)) as usize;
-                println!(" {} ", self.kernel.string_get(val))
+                let name = self.name_of(pc).map(|nfa| self.kernel.string_get(nfa));
+                println!(" {} ", name.unwrap_or_default())
             }
             LITERAL => println!(" {} ", self.kernel.get(pc + CELL)),
             STRLIT => {
@@ -97,8 +97,8 @@ impl ForthRuntime {
             }
             _ => {
                 // it's a word address: step-in about to occur
-                let val = self.kernel.get((code as usize).wrapping_sub(CELL));
-                println!(" ->{}", self.kernel.string_get(val as usize));
+                let name = self.name_of(code as usize).map(|nfa| self.kernel.string_get(nfa));
+                println!(" ->{}", name.unwrap_or_default());
             }
         }
         if stepper_mode == -1 {

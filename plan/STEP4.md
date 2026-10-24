@@ -151,6 +151,20 @@ Tests: 30 unit, 51 black-box, 333 core tests, and the reference `core.fr`, all p
 * **`forget` and `forget-last`** follow the new links. `words` and `dump` in `debug.fs` walk the new layout.
 * **Checkpoint:** all tests pass, `core.fr` passes 638 of 638, and a header in `dump` looks like the books' diagram.
 
+**Status: done (2026-10-23).** Most of this stage's original list (deleting the trailing back pointer) was already done in stage 1a, so what remained was inlining the names and moving the flags.
+
+As built:
+* **Headers** are `[link | flags][count name… pad][code field][parameters]`. `context` and `last` still hold the name field address, so `cell-` from them is the link, and `forget` and `forget-last` reset HERE to the link field again.
+* **The flags** (`IMMEDIATE_FLAG`, `COMPILE_ONLY_FLAG`) live in the link field's top bits; every link walk masks with `ADDRESS_MASK`. `immediate` and `compile-only` set them there.
+* **Rust:** `find_header` returns the link field, `cfa_of(link)` steps over the name, and `find_word` (cfa) is built on them. `name_of(cfa)` searches the chain for the stepper's trace output.
+* **Forth:** `name> ( nfa -- xt )`, `>name ( xt -- nfa | 0 )`, `>link ( xt -- lfa )`, `>flags ( xt -- flags )`. `>name` has to search the dictionary, because a name can't be found by stepping back from the code field (fig-Forth used a high bit on the last character for that; a search is simpler, and only `see`, `forget` and the debug tools need it).
+* **`postpone`** gets immediacy from ANS `find` instead of reading flags from behind the cfa.
+* **`debug.fs`:** `words` walks links; `dump` labels link fields (and the immediate flag) and inline names by walking the chain, replacing the old back-pointer heuristics. `cfa>nfa`, `nfa>cfa`, `bp>nfa` and `bp>cfa` are gone.
+
+Performance: unchanged (headers are only read at compile time). fib 14 ms, calls 58–61, empty 21, dup-drop 51–53, variable 50–54, over three alternating runs against stage 2.
+
+Tests: 30 unit, 52 black-box (new: `header_words`), 333 core tests, and `core.fr` 638 of 638.
+
 ### Stage 4: documentation for study (S–M, about 1 day)
 
 * **`doc.md`:** a memory-map figure with real addresses, a header-layout figure, a worked `see` and `dump` of `: square dup * ;`, and how a colon definition, a variable, a `create … does>` word, and a string literal each look in memory. Every one is cross-referenced to the classic layouts (fig-Forth's link/name/code/parameter fields).

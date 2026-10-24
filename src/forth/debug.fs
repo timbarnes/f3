@@ -4,11 +4,11 @@
 
 variable word-counter
 
-: .word ( bp -- bp )                            \ prints a word name, given the preceding back pointer
-                    dup dup cell+ dim 4 u.r t-reset space cell+ @ 13 ltype
+: .word ( lfa -- lfa' )                         \ prints a word name, given its link field; leaves the next
+                    dup dup cell+ dim 4 u.r t-reset space cell+ 13 ltype
                     1 word-counter +!
                     word-counter @ 8 mod
-                    if space else cr then @ ;
+                    if space else cr then @ ADDRESS_MASK and ;
 
 : words ( -- )
                     0 word-counter !
@@ -19,7 +19,7 @@ variable word-counter
                         drop cr ;
 
 : print-word ( xt -- )
-                    cell- @ 13 ltype ;                          \ print a word name, given the xt as produced by '
+                    >name 13 ltype ;                            \ print a word name, given the xt as produced by '
 
 \ String Dump capability
 \ dump-buffers - dumps the input line, PAD and TMP
@@ -85,16 +85,6 @@ variable word-counter
     space space
     128 mod dup 32 126 range not if space then drop ;
 
-\ Emit a 20 character substring from the string address in the current cell
-\ This is usually not useful, and is a last resort if no other identification has been made.
-: dump-segment
-        18 spaces
-        '|' emit
-        dup 20 +
-        20 for dup i - c@ emit
-           next
-        '|' emit drop ;
-
 \ The tokens are opcodes: cells with OPCODE_FLAG set.
 : dump-token   ( val -- val )
     dup op:variable   = if ." VARIABLE             " exit then
@@ -121,17 +111,13 @@ variable word-counter
     ." *UNKNOWN* " drop ;
 
 : dump-word ( addr -- )             \ Print the name of the word with compile reference at addr
-    @ cell- @ ctype
+    @ >name ?dup if ctype then
     ;
 
 : dump-builtin ( addr -- )
     @ ADDRESS_MASK and
     dup 2 .r
     ." : " builtin-name ctype
-    ;
-
-: dump-immed ( addr -- )            \ Output an immediate word's name
-    @ ADDRESS_MASK and 12 ltype
     ;
 
 \ Predicates to identify cell types
@@ -141,64 +127,15 @@ variable word-counter
 : builtin? ( addr -- bool )         \ Is the current cell a pointer to a builtin?
     @ BUILTIN_FLAG and ;            \ A non-zero value is a yes
 
-: builtin-name? ( addr -- bool )     \ Builtin nfa is before the builtin reference
-    cell+ builtin?
-    ;
+: link? ( addr -- bool )            \ Is addr a link field? Walks the dictionary from the newest word.
+    last @ cell-
+    begin dup while
+        2dup = if 2drop TRUE exit then
+        @ ADDRESS_MASK and
+    repeat 2drop FALSE ;
 
-: definition-name? ( addr -- bool )
-    cell+ @                         \ Look at the next cell
-    op:definition = ;
-
-: variable-name?    ( addr -- bool )
-    cell+ @
-    op:variable = ;
-
-: constant-name?    ( addr -- bool )
-    cell+ @
-    op:constant = ;
-
-: array-name?    ( addr -- bool )
-    cell+ @
-    op:array = ;
-
-: _nfa?  ( addr -- bool )            \ Attempts to identify if an addr contains an nfa
-    \ Five types: builtin, definition, constant, and variable ;
-    dup builtin?
-    swap dup builtin-name?
-    swap dup definition-name?
-    swap dup variable-name?
-    swap dup constant-name?
-    swap array-name?
-    or or or or or
-        ;
-
-: bp?   ( addr -- bool )            \ Identifies back pointer by adjacency to dictionary entries
-    cell+
-    dup @ token-range? if
-        drop FALSE
-    else
-        cell+
-        dup dup builtin? swap cell- _nfa? and
-        swap @ dup op:definition =
-        swap dup op:array =
-        swap dup op:variable =
-        swap op:constant =
-        or or or or
-    then ;
-
-: nfa?  ( addr -- bool )
-    cell- bp?
-    ;
-
-: immediate? ( addr -- bool )
-    @ IMMEDIATE_FLAG and
-    ;
-
-: compiled-value? ( addr -- bool )  \ Identifies non-nfa values, typically in immediate words
-    dup cell- bp? not                   \ These values appear inside a word, not after a back pointer
-    swap bp? not
-    and
-    ;
+: nfa? ( addr -- bool )             \ A name field follows a link field
+    cell- link? ;
 
 : offset-value? ( addr -- bool )          \ Identifies branch offsets
     cell- @ dup op:branch = swap op:branch0 = or    ;
@@ -236,8 +173,9 @@ variable word-counter
     dup here =            if ."             HERE "                 exit then
     dup here >            if ."       Free space "                 exit then
     dup @ 0 <               if ."            Value "                 exit then
+    dup link?               if ."       Link field " dup @ IMMEDIATE_FLAG and if ." (immediate)" then exit then
+    dup dup nfa?            if inverse ."             NFA: " 12 ltype t-reset exit else drop then
     dup dup builtin?        if ."         Builtin: "    dump-builtin exit else drop then
-    dup dup immediate?      if inverse ." *Immediate* NFA: " dump-immed t-reset exit else drop then
     \ Non-deterministic (heuristic) cases.
     \
     \ A range of integer values used by the system as tokens, that *might* be tokens
@@ -249,10 +187,7 @@ variable word-counter
     dup offset-value?       if ."    Branch offset "                 exit then
     dup dup def-call?       if ." Definition call: "       dump-word exit else drop then
     dup dup var-call?       if ."    Var/Const ref "       dump-word exit else drop then
-    dup bp?                 if ."     Back Pointer " cr              exit then
-    dup dup nfa?            if inverse ."             NFA: " @ 12 ltype t-reset exit else drop then
-    dup compiled-value?     if ."   Compiled value "                 exit then
-    @ dump-segment
+    drop ."   Compiled value "
     ;
 
 : dump-header

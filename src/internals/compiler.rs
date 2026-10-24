@@ -117,9 +117,10 @@ impl ForthRuntime {
                 break; // end of line
             }
             let compiling = self.get_compile_mode();
-            match self.find_word(self.kernel.string_slice(addr, len)) {
-                Some(cfa) => {
-                    let flags = self.kernel.get(cfa - CELL) as usize;
+            match self.find_header(self.kernel.string_slice(addr, len)) {
+                Some(link) => {
+                    let flags = self.kernel.get(link) as usize;
+                    let cfa = self.cfa_of(link);
                     if compiling && flags & IMMEDIATE_FLAG == 0 {
                         // builtins are compiled as their flagged index, other words as their cfa
                         let code = self.kernel.get(cfa);
@@ -195,18 +196,49 @@ impl ForthRuntime {
         self.kernel.push(len as i64);
     }
 
-    /// find_word searches the dictionary, newest first, and returns the cfa of the word with this name
+    // A header is [link | flags][count, name..., padded to a cell][code field][parameters].
+    // The link field holds the previous word's link address (0 ends the chain), with the
+    // IMMEDIATE and COMPILE_ONLY flags in its top bits. CONTEXT and LAST hold name field addresses.
+
+    /// find_header searches the dictionary, newest first, and returns the link field address
+    ///     of the word with this name
     ///
-    pub fn find_word(&self, name: &[u8]) -> Option<usize> {
+    pub fn find_header(&self, name: &[u8]) -> Option<usize> {
         let mut link = (self.kernel.get(self.context_ptr) as usize).wrapping_sub(CELL);
         while link > 0 {
-            // the name field is immediately after the link
-            let nfa = self.kernel.get(link + CELL) as usize & ADDRESS_MASK;
-            if self.kernel.counted_bytes(nfa).eq_ignore_ascii_case(name) {
-                // names are case-insensitive, so standard (upper-case) programs work
-                return Some(link + 2 * CELL);
+            // names are case-insensitive, so standard (upper-case) programs work
+            if self.kernel.counted_bytes(link + CELL).eq_ignore_ascii_case(name) {
+                return Some(link);
             }
-            link = self.kernel.get(link) as usize;
+            link = self.kernel.get(link) as usize & ADDRESS_MASK;
+        }
+        None
+    }
+
+    /// find_word returns the cfa of the word with this name
+    ///
+    pub fn find_word(&self, name: &[u8]) -> Option<usize> {
+        self.find_header(name).map(|link| self.cfa_of(link))
+    }
+
+    /// cfa_of returns the code field address of the word whose link field is at `link`
+    ///
+    pub fn cfa_of(&self, link: usize) -> usize {
+        let nfa = link + CELL;
+        nfa + (1 + self.kernel.byte_get(nfa) as usize).next_multiple_of(CELL)
+    }
+
+    /// name_of returns the name field address of the word with this cfa, if there is one.
+    ///     Names vary in length, so this searches from the newest header (LAST or CONTEXT).
+    ///
+    pub fn name_of(&self, cfa: usize) -> Option<usize> {
+        let newest = self.kernel.get(self.last_ptr).max(self.kernel.get(self.context_ptr));
+        let mut link = (newest as usize).saturating_sub(CELL);
+        while link > 0 {
+            if self.cfa_of(link) == cfa {
+                return Some(link + CELL);
+            }
+            link = self.kernel.get(link) as usize & ADDRESS_MASK;
         }
         None
     }
@@ -218,10 +250,10 @@ impl ForthRuntime {
     pub fn f_find(&mut self) {
         self.kernel.stack_check(1, "find");
         let addr = self.kernel.pop() as usize;
-        match self.find_word(self.kernel.counted_bytes(addr)) {
-            Some(cfa) => {
-                let immediate = self.kernel.get(cfa - CELL) as usize & IMMEDIATE_FLAG != 0;
-                self.kernel.push(cfa as i64);
+        match self.find_header(self.kernel.counted_bytes(addr)) {
+            Some(link) => {
+                let immediate = self.kernel.get(link) as usize & IMMEDIATE_FLAG != 0;
+                self.kernel.push(self.cfa_of(link) as i64);
                 self.kernel.push(if immediate { 1 } else { -1 });
             }
             None => {
@@ -338,13 +370,11 @@ impl ForthRuntime {
             last: self.kernel.get(self.last_ptr),
             context: self.kernel.get(self.context_ptr),
         });
-        // name, then [link][name field][code field ...]: the link holds the previous word's link
-        let nfa = self.name_new(name);
+        // [link][name][code field ...]: the link holds the previous word's link
         let previous = self.kernel.get(self.context_ptr) - CELL as i64;
         self.emit_cell(previous);
-        let here = self.kernel.get(self.here_ptr);
-        self.kernel.set(self.last_ptr, here); // LAST: this word's name field
-        self.emit_cell(nfa as i64); // the name field
+        let nfa = self.name_new(name);
+        self.kernel.set(self.last_ptr, nfa as i64); // LAST: this word's name field
     }
 }
 

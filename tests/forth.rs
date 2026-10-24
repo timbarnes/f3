@@ -390,6 +390,15 @@ fn new_primitives() {
     assert_eq!(stack("' if immed? ' dup immed?"), "-1 0");
 }
 
+#[test]
+fn header_words() {
+    // [link | flags][name][code field]: name> and >name are inverses, >link is just before the name
+    assert_eq!(stack(": abcdefghij ; ' abcdefghij dup >name name> ="), "-1");
+    assert_eq!(stack("' dup >name c@ ' dup >link cell+ ' dup >name ="), "3 -1");
+    assert_eq!(stack("' if >flags IMMEDIATE_FLAG and 0<> ' dup >flags"), "-1 0");
+    assert_eq!(stack(": hh ; immediate ' hh immed? forget hh ' dup immed?"), "-1 0");
+}
+
 // ------------------------------------------------------------- Phase 4
 
 #[test]

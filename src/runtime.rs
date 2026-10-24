@@ -293,40 +293,38 @@ impl ForthRuntime {
     ///     This is used for making headers for words, variables, and constants.
     fn make_word(&mut self, name: &str, args: &[i64]) -> usize {
         // [link][name][code field + args]: the link field holds the previous word's link address
-        let name = self.name_new(name.as_bytes()) as i64;
-        let link = self.here();
+        // [link][name][code field + args]: the link field holds the previous word's link address
         let previous = self.kernel.get(self.context_ptr) as usize - CELL;
         self.emit_cell(previous as i64);
-        self.emit_cell(name);
+        let nfa = self.name_new(name.as_bytes());
+        let cfa = self.here();
         for val in args {
             self.emit_cell(*val);
         }
-        self.kernel.set(self.context_ptr, (link + CELL) as i64); // context is the name field of this word
-        link + 2 * CELL // the code field
+        self.kernel.set(self.context_ptr, nfa as i64); // context is the name field of this word
+        cfa
     }
 
     pub fn insert_variables(&mut self) {
         // install system variables in data area. Each word is [link][name][code field][value];
         // a link holds the previous word's link address, and 0 ends the chain.
-        // DP (HERE) and CONTEXT are hand-crafted, because make_word needs them; their names
-        // are counted strings in cells 9 and 10. Other words' names come just before the header.
+        // DP (HERE) and CONTEXT are hand-crafted, because make_word needs them. Both names fit
+        // in one cell ("context" is a count byte and 7 characters).
         // (cell k is at address k * CELL; values that are addresses are scaled the same way)
         let c = |k: usize| k * CELL;
         self.kernel.set(c(0), 0); // unused: no link field is at address 0
 
-        self.kernel.string_set(c(9), "dp"); // the dictionary pointer; HERE is `dp @`
         self.kernel.set(c(1), 0); // dp's link: the end of the chain
-        self.kernel.set(c(2), c(9) as i64); // name
+        self.kernel.string_set(c(2), "dp"); // the dictionary pointer; HERE is `dp @`
         self.kernel.set(c(3), VARIABLE);
         self.here_ptr = c(4); // the address of the HERE variable
 
-        self.kernel.string_set(c(10), "context");
         self.kernel.set(c(5), c(1) as i64); // link to dp
-        self.kernel.set(c(6), c(10) as i64);
+        self.kernel.string_set(c(6), "context");
         self.kernel.set(c(7), VARIABLE);
         self.kernel.set(c(8), c(6) as i64); // CONTEXT: the name field of the newest word (itself)
         self.context_ptr = c(8);
-        self.kernel.set(self.here_ptr, c(11) as i64); // HERE: the first free cell
+        self.kernel.set(self.here_ptr, c(9) as i64); // HERE: the first free cell
 
         self.pad_ptr = self.make_variable("'pad"); // PAD is `'pad @`
         self.kernel.set(self.pad_ptr, PAD_START as i64);
@@ -515,9 +513,9 @@ impl ForthRuntime {
             self.add_builtin(name, *code, doc);
         }
         // ; ends definitions, so it must run while compiling, and only then
-        let semicolon = self.find_word(b";").expect("; is a builtin");
-        let nfa = self.kernel.get(semicolon - CELL) as usize | IMMEDIATE_FLAG | COMPILE_ONLY_FLAG;
-        self.kernel.set(semicolon - CELL, nfa as i64);
+        let semicolon = self.find_header(b";").expect("; is a builtin");
+        let link = self.kernel.get(semicolon) as usize | IMMEDIATE_FLAG | COMPILE_ONLY_FLAG;
+        self.kernel.set(semicolon, link as i64);
     }
 
     /// should_exit determines whether or not the user has executed BYE
@@ -591,7 +589,7 @@ mod tests {
         runtime.cold_start();
 
         let code_ptr = runtime.make_word("test", &[1, 2, 3]);
-        let name = runtime.kernel.get(code_ptr - CELL) as usize;
+        let name = runtime.name_of(code_ptr).unwrap();
         assert_eq!(runtime.kernel.counted_bytes(name), b"test");
         assert_eq!(runtime.find_word(b"test"), Some(code_ptr));
         assert_eq!(runtime.kernel.get(code_ptr), 1);

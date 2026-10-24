@@ -11,7 +11,7 @@ variable see-ind-depth
     see-indent @ spaces ;
 
 : see-val ( addr -- )
-    dup cfa>nfa @ type
+    dup >name ctype
     ." , value = "
     dup cfa>val @ . cr
     ;
