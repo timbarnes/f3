@@ -589,8 +589,6 @@ mod tests {
         runtime.cold_start();
 
         let code_ptr = runtime.make_word("test", &[1, 2, 3]);
-        let name = runtime.name_of(code_ptr).unwrap();
-        assert_eq!(runtime.kernel.counted_bytes(name), b"test");
         assert_eq!(runtime.find_word(b"test"), Some(code_ptr));
         assert_eq!(runtime.kernel.get(code_ptr), 1);
         assert_eq!(runtime.kernel.get(code_ptr + CELL), 2);

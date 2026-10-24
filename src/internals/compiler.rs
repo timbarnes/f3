@@ -4,11 +4,11 @@
 // Rust values. The Forth words of the same names (parse-to, find, number?, create, ...) are thin
 // wrappers that move values between the Forth stack and these functions.
 
-use crate::kernel::{throw, throw_code, CELL, COMPILE_ONLY, NAME_EXPECTED, UNDEFINED_WORD};
+use crate::kernel::{throw_code, CELL, COMPILE_ONLY, NAME_EXPECTED, UNDEFINED_WORD};
 use crate::runtime::PendingDef;
 use crate::runtime::{
-    ForthRuntime, ADDRESS_MASK, ARRAY, BUILTIN_FLAG, COMPILE_ONLY_FLAG, CONSTANT, CREATED, DEFINITION, EXIT,
-    FALSE, IMMEDIATE_FLAG, LITERAL, TRUE, VARIABLE,
+    ForthRuntime, ADDRESS_MASK, BUILTIN_FLAG, COMPILE_ONLY_FLAG, DEFINITION, EXIT,
+    FALSE, IMMEDIATE_FLAG, LITERAL, TRUE,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -84,25 +84,10 @@ impl ForthRuntime {
         self.kernel.stack_check(1, "execute");
         let xt = self.kernel.pop() as usize;
         if xt & BUILTIN_FLAG != 0 {
-            return self.builtin(xt & ADDRESS_MASK);
+            return self.builtin(xt & ADDRESS_MASK); // a builtin's flagged index
         }
-        let code = self.kernel.get(xt);
-        match code {
-            DEFINITION => self.i_definition(xt + CELL),
-            VARIABLE | ARRAY => self.kernel.push((xt + CELL) as i64),
-            CONSTANT => {
-                let val = self.kernel.get(xt + CELL);
-                self.kernel.push(val);
-            }
-            CREATED => {
-                self.kernel.push((xt + 2 * CELL) as i64); // the data field
-                let does = self.kernel.get(xt + CELL) as usize;
-                if does != 0 {
-                    self.i_definition(does);
-                }
-            }
-            _ if code as usize & BUILTIN_FLAG != 0 => self.builtin(code as usize & ADDRESS_MASK),
-            _ => throw(format!("execute: {} is not an execution token", xt as i64)),
+        if let Some(body) = self.enter(xt) {
+            self.i_definition(body);
         }
     }
 
@@ -226,21 +211,6 @@ impl ForthRuntime {
     pub fn cfa_of(&self, link: usize) -> usize {
         let nfa = link + CELL;
         nfa + (1 + self.kernel.byte_get(nfa) as usize).next_multiple_of(CELL)
-    }
-
-    /// name_of returns the name field address of the word with this cfa, if there is one.
-    ///     Names vary in length, so this searches from the newest header (LAST or CONTEXT).
-    ///
-    pub fn name_of(&self, cfa: usize) -> Option<usize> {
-        let newest = self.kernel.get(self.last_ptr).max(self.kernel.get(self.context_ptr));
-        let mut link = (newest as usize).saturating_sub(CELL);
-        while link > 0 {
-            if self.cfa_of(link) == cfa {
-                return Some(link + CELL);
-            }
-            link = self.kernel.get(link) as usize & ADDRESS_MASK;
-        }
-        None
     }
 
     /// FIND ( s -- xt 1 | xt -1 | s 0 ) Search the dictionary for the counted string at s.

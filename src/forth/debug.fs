@@ -239,3 +239,21 @@ variable word-counter
 
 : d.s debug?    ( -- )
     if .s then ;
+
+\ The stepper. The inner interpreter calls (step) before each cell while STEPPER is non-zero
+\ (-1 single step, 1 trace), for calls up to STEPPER-DEPTH deep. It shows the stack and the
+\ cell, and in step mode reads a command. It returns the new STEPPER mode.
+: .step-help ( -- ) ." Stepper: 's' for show, 't' for trace, 'c' for continue, 'i' step in, 'o' step out." cr ;
+: (step) ( pc depth mode -- mode' )
+    >r dup stepper-depth @ > if 2drop r> exit then
+    over 5 .r ." : " 1- spaces >r .s r>              \ the stack as the word sees it
+    see-cell 2drop cr
+    r@ -1 = if ." Step> " flush begin key dup '\n' = while drop repeat else [char] s then
+    r> swap case
+        [char] t of drop 1 endof
+        [char] c of drop 0 endof
+        [char] i of 1 stepper-depth +! endof
+        [char] o of -1 stepper-depth +! endof
+        [char] h of .step-help endof
+        [char] ? of .step-help endof
+    endcase ;

@@ -413,7 +413,7 @@ fn header_words() {
 fn tracer_follows_stepper_variable() {
     // the inner interpreter caches `stepper`; storing to it with ! must switch tracing on and off
     let r = run(": t 1 2 + ;\n1 stepper ! 5 stepper-depth !\nt\n0 stepper !\nt\n.s");
-    assert_eq!(r.out.matches(" EXIT ").count(), 1, "{}", r.out); // only the first t is traced
+    assert_eq!(r.out.matches("] ; ").count(), 1, "{}", r.out); // only the first t is traced (; is its EXIT)
     assert!(r.out.contains("[ 3 3 ]"), "{}", r.out);
 }
 

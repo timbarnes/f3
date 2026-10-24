@@ -14,12 +14,52 @@ fn target(pc: usize, offset: i64) -> usize {
     (pc as i64).wrapping_add(offset) as usize // a bad offset gives a bad address, which get() rejects
 }
 
+#[cold]
+#[inline(never)]
+fn not_an_xt(xt: usize) -> ! {
+    throw(format!("{} is not an execution token", xt as i64))
+}
+
 impl ForthRuntime {
     /// Executes the builtin with the given index
     ///
     pub fn builtin(&mut self, code: usize) {
         let func = &self.kernel.get_builtin(code);
         (func.code)(self); // call the function pointer directly
+    }
+
+    /// enter runs the word whose code field is at xt, as far as Rust can: a builtin or a data
+    ///     word is finished on return (None); a colon definition, or a created word with DOES> code,
+    ///     returns the address of the code to run next. EXECUTE and the inner interpreter share it.
+    ///
+    #[inline(always)]
+    pub fn enter(&mut self, xt: usize) -> Option<usize> {
+        let code = self.kernel.get(xt);
+        match code {
+            DEFINITION => Some(xt + CELL),
+            VARIABLE | ARRAY => {
+                self.kernel.push((xt + CELL) as i64);
+                None
+            }
+            CONSTANT => {
+                let val = self.kernel.get(xt + CELL);
+                self.kernel.push(val);
+                None
+            }
+            CREATED => {
+                self.kernel.push((xt + 2 * CELL) as i64); // the data field
+                match self.kernel.get(xt + CELL) as usize {
+                    0 => None,
+                    does => Some(does),
+                }
+            }
+            _ if code as usize & BUILTIN_FLAG != 0 => {
+                // the cfa of a builtin word (e.g. compiled by ['] ... ,)
+                self.builtin(code as usize & ADDRESS_MASK);
+                None
+            }
+            _ => not_an_xt(xt),
+        }
     }
 
     /// set_does makes `code` the DOES> code of the latest word, which must have been made by CREATE
@@ -74,7 +114,6 @@ impl ForthRuntime {
                 continue;
             }
             match code {
-                DEFINITION => pc += CELL, // entering a called colon definition
                 LITERAL => {
                     pc += CELL;
                     let val = self.kernel.get(pc);
@@ -153,16 +192,9 @@ impl ForthRuntime {
                     self.kernel.pop_r(); // limit
                     pc = self.kernel.pop_r() as usize; // exit address
                 }
-                VARIABLE | ARRAY | CONSTANT | EXIT | BREAK | DOES => {
-                    // VARIABLE etc. are reached by calling a data word: push its value, then return
-                    match code {
-                        VARIABLE | ARRAY => self.kernel.push((pc + CELL) as i64),
-                        CONSTANT => {
-                            let val = self.kernel.get(pc + CELL);
-                            self.kernel.push(val);
-                        }
-                        DOES => self.set_does(pc + CELL), // the code after DOES> belongs to the new word
-                        _ => {}
+                EXIT | BREAK | DOES => {
+                    if code == DOES {
+                        self.set_does(pc + CELL); // the code after DOES> belongs to the new word
                     }
                     if self.kernel.get_return_ptr() == entry_rp {
                         return; // the word we were called for is finished
@@ -175,49 +207,17 @@ impl ForthRuntime {
                     self.f_execute();
                     pc += CELL;
                 }
+                // code fields say what kind a word is; they are never compiled as cells
+                DEFINITION | VARIABLE | CONSTANT | ARRAY | CREATED => not_an_xt(code as usize),
                 _ => {
-                    // a word's cfa: dispatch on its code field, without an extra trip round the loop
-                    let xt = code as usize;
-                    let target = self.kernel.get(xt);
-                    match target {
-                        DEFINITION => {
-                            // call: save the return address and continue in the word's body
+                    // a word's cfa: run it, entering its body if it has one
+                    match self.enter(code as usize) {
+                        Some(body) => {
                             call_depth += 1;
                             self.kernel.push_r((pc + CELL) as i64);
-                            pc = xt + CELL;
+                            pc = body;
                         }
-                        VARIABLE | ARRAY => {
-                            self.kernel.push((xt + CELL) as i64);
-                            pc += CELL;
-                        }
-                        CONSTANT => {
-                            let val = self.kernel.get(xt + CELL);
-                            self.kernel.push(val);
-                            pc += CELL;
-                        }
-                        CREATED => {
-                            // push the data field, then run the word's DOES> code, if any
-                            self.kernel.push((xt + 2 * CELL) as i64);
-                            let does = self.kernel.get(xt + CELL) as usize;
-                            if does == 0 {
-                                pc += CELL;
-                            } else {
-                                call_depth += 1;
-                                self.kernel.push_r((pc + CELL) as i64);
-                                pc = does;
-                            }
-                        }
-                        _ if target as usize & BUILTIN_FLAG != 0 => {
-                            // the cfa of a builtin word (e.g. compiled by ['] ... ,)
-                            self.builtin(target as usize & ADDRESS_MASK);
-                            pc += CELL;
-                        }
-                        _ => {
-                            // anything else: run it as code, as a call
-                            call_depth += 1;
-                            self.kernel.push_r((pc + CELL) as i64);
-                            pc = xt;
-                        }
+                        None => pc += CELL,
                     }
                 }
             }

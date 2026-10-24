@@ -183,22 +183,6 @@ impl Kernel {
         Self::check_aligned(addr);
         self.write(addr, val);
     }
-    /// incr and decr are used to increment or decrement a cell on the heap
-    pub fn incr(&mut self, addr: usize) {
-        self.delta(addr, 1);
-    }
-
-    #[inline(always)]
-    pub fn decr(&mut self, addr: usize) {
-        self.delta(addr, -1);
-    }
-
-    /// delta adds a delta value to a cell on the heap
-    pub fn delta(&mut self, addr: usize, delta: i64) {
-        let val = self.get(addr).wrapping_add(delta);
-        self.set(addr, val);
-    }
-
     /// Safe stack accessors
     #[inline(always)]
     pub fn push(&mut self, val: i64) {
