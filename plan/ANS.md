@@ -42,12 +42,12 @@ Effort key: **S** = under a day, **M** = 1–3 days, **L** = a week or more. "Br
 
 | # | f3 | ANS | Fix | Effort |
 |---|---|---|---|---|
-| B1 | Two spaces: a cell heap (`@ ! , allot`, cell-addressed) and a byte string space (`c@ c! cmove`). `cells` is a no-op, and there's no `c,`. | One byte-addressed data space. Cells are aligned (`cells`, `cell+`, `align`, `aligned`), and `c@` and `@` work on the same addresses. | **Option 1 (recommended first):** keep two spaces, but give every dictionary word a byte area. That isn't enough on its own, because code like `create buf 80 chars allot  buf c!` still writes to a different memory. **Option 2:** unify into one byte array with `i64` cells at 8-byte-aligned addresses. Compiled code, the dictionary, strings, and the stacks all live there, so `cells` = 8, and `c,`, `move`, `fill`, and `here c!` all work. This is the only fix that runs standard address arithmetic. See step 4. | Option 2: L |
+| B1 | Two spaces: a cell heap (`@ ! , allot`, cell-addressed) and a byte string space (`c@ c! cmove`). `cells` is a no-op, and there's no `c,`. | One byte-addressed data space. Cells are aligned (`cells`, `cell+`, `align`, `aligned`), and `c@` and `@` work on the same addresses. | **Option 1 (recommended first):** keep two spaces, but give every dictionary word a byte area. That isn't enough on its own, because code like `create buf 80 chars allot  buf c!` still writes to a different memory. **Option 2:** unify into one byte array with `i64` cells at 8-byte-aligned addresses. Compiled code, the dictionary, strings, and the stacks all live there, so `cells` = 8, and `c,`, `move`, `fill`, and `here c!` all work. This is the only fix that runs standard address arithmetic. See step 4. **Done in step 4 (Option 2).** | Option 2: L |
 | B2 | `here` is a variable: `here @`. | `HERE ( -- addr )` is a word. | Rename the variable to `dp` (used by the engine and `corelib`), and define `: here dp @ ;`. Every `here @` in the `.fs` files becomes `here`, about 60 places. | S |
 | B3 | `pad` is a variable holding an address (`pad @`). | `PAD ( -- c-addr )`. | The same as B2: `: pad 'pad @ ;`. | S |
 | B4 | `create foo` makes a header only. `foo` is invisible until `(close)` runs, and `create foo 5 ,` leaves `foo` undefined. | `CREATE name` defines a word that returns its data-field address immediately, so `, allot c,` then fill its data. | `create` builds a complete data word (a header, a `CREATED` code field, a `does>` slot, and the back pointer) and closes it. Since F30, `,` and `allot` after a finished word extend its data correctly. Keep the old header-only behaviour as an internal `(create)` for `constant`, `variable`, `string`, and `sequences.fs`. | M |
 | B5 | No `does>`. | `CREATE … DOES>` is how standard defining words are built. | The `CREATED` code field has a slot for a `does>` code address, 0 meaning none. `does>` stores the address of the code that follows it into the latest word's slot. When executed, a `CREATED` word pushes its data address, then calls that code if the slot isn't 0. A new opcode and about 30 lines of Rust. | M |
-| B6 | `allot` counts cells. | `ALLOT` counts address units (bytes, in practice). | Follows from B1, Option 2. Until then, `cells` is a no-op, so `n cells allot` is correct in f3. | — |
+| B6 | `allot` counts cells. | `ALLOT` counts address units (bytes, in practice). | Follows from B1, Option 2. **Done in step 4:** `allot` counts bytes. | — |
 
 ### C. Strings
 
@@ -71,7 +71,7 @@ Effort key: **S** = under a day, **M** = 1–3 days, **L** = a week or more. "Br
 | D3 | No double-cell words: `s>d m* um* um/mod */ */mod d+ d- d. dnegate dabs 2@ 2!`. | Core has `S>D M* UM* UM/MOD FM/MOD SM/REM */ */MOD`; the Double set has the rest. | Use `i128` in Rust for `m* um* um/mod fm/mod sm/rem`; `*/` and `*/mod` are then Forth one-liners. The `d…` words are Forth. | S–M |
 | D4 | `u.` is signed, and prints no space (F33). | `U. ( u -- )` prints unsigned, then a space. | Rewrite `u.`, `u.r`, and `.` on pictured numeric output (D5), or now with `um/mod`. | S |
 | D5 | No pictured numeric output: `<# # #s #> hold sign`. | Core. | Forth definitions on `um/mod`, using `hld` (the variable exists already) and a buffer below PAD. Then `.`, `u.`, and `.r` become the standard four-line definitions. | S |
-| D6 | No `2* 2/ u> within cell+ char+ chars align aligned`. | Core and Core Ext. | Forth one-liners. `chars`, `align`, and `aligned` are no-ops until B1 Option 2. | S |
+| D6 | No `2* 2/ u> within cell+ char+ chars align aligned`. | Core and Core Ext. | Forth one-liners. `align` and `aligned` round to a cell since step 4 (`chars` is a no-op, correctly: a character is one byte). | S |
 
 ### E. Compiler and interpreter
 
@@ -180,7 +180,7 @@ To reproduce: put `tester.fr` and `core.fr` in `target/ans/`, then run `include 
 
 Tests: 333 f3 core tests, 50 black-box tests, and 31 unit tests. All pass, and the benchmarks are unchanged.
 
-### Step 4: one byte-addressed memory (L, about 2 weeks): planned
+### Step 4: one byte-addressed memory (L, about 2 weeks): done
 
 **Decided (2026-10-23): do it.** The aim is a memory model that matches the Forth books, so the code can be studied against them, and the reference `core.fr` passes in full.
 
@@ -192,6 +192,8 @@ The detailed plan is in [STEP4.md](STEP4.md): eleven design decisions, then five
 2. Merge string space into it.
 3. Adopt the classic link/name/code/parameter header layout.
 4. Document it for study.
+
+**Done (2026-10-23).** B1 and B6 are fixed: one 1 MB byte-addressed memory, aligned 8-byte cells, `c,`, real `align`/`aligned`, and classic headers with inline names. The reference `core.fr` passes all 638 of its tests. It is now vendored in `tests/ans/` (its notice allows free redistribution) and runs in `cargo test`. Performance is unchanged or slightly better. `doc.md` has annotated memory dumps of each kind of word, compared with fig-Forth and F83.
 
 ### What stays a documented difference
 

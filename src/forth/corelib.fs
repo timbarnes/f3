@@ -12,7 +12,7 @@
 \ cell (from the engine) is the number of address units per cell; cells cell+ cell- use it.
 \ here is the next free byte. Each word starts with a link field holding the previous word's link
 \ address, then its name (a count byte and the characters, padded to a cell), code field and
-\ parameters, as in fig-Forth, so , and allot append. context and last hold name field addresses.
+\ parameters, as in F83, so , and allot append. context and last hold name field addresses.
 \ immediate and compile-only set a flag in the link field of the most recently defined word.
 \ The engine defines the opcodes (VARIABLE, LITERAL, BRANCH, ...), the flags (IMMEDIATE_FLAG, ...),
 \ ADDRESS_MASK, and the empty-stack addresses sp0 and rp0 as constants (runtime.rs insert_constants).

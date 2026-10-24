@@ -126,6 +126,14 @@ fn ans_core_tests() {
 }
 
 #[test]
+fn reference_core_fr() {
+    // the Hayes/Jackson core.fr itself (tests/ans), not f3's port: every test must pass
+    let r = run("include tests/ans/tester.fr\ninclude tests/ans/core.fr\n.\" errors: \" #errors ?");
+    assert!(r.ok && r.out.contains("End of Core word set tests"), "{}", r.out);
+    assert!(r.out.contains("errors: 0 "), "{}", r.out);
+}
+
+#[test]
 fn regression_suite() {
     let r = run("include src/forth/regression.fs");
     assert!(r.ok, "f3 did not exit cleanly:\n{}", r.out);

@@ -5,7 +5,7 @@ Plan date: 2026-10-23, against commit `d0ec76a`. This is step 4 of the roadmap i
 **Goal:** make f3's memory work the way the Forth books describe it.
 * There is one byte-addressed space holding the dictionary, the buffers, and both stacks.
 * A cell is 8 bytes there, and a character is 1 byte.
-* A dictionary entry is laid out as link field, name field, code field, then parameter field, as in fig-Forth and eForth. Only the cell size differs: 8 bytes, not 2.
+* A dictionary entry is laid out as link field, name field, code field, then parameter field, in the order F83 uses (fig-Forth puts the name before the link). Only the cell size differs: 8 bytes, not 2.
 
 At the end, `dump`, `see`, and the source should read like the diagrams in *Starting Forth*, *Threaded Interpretive Languages*, or the eForth notes. The reference `core.fr` should pass in full (638 of 638, against 597 today).
 
@@ -157,7 +157,7 @@ As built:
 * **Headers** are `[link | flags][count name… pad][code field][parameters]`. `context` and `last` still hold the name field address, so `cell-` from them is the link, and `forget` and `forget-last` reset HERE to the link field again.
 * **The flags** (`IMMEDIATE_FLAG`, `COMPILE_ONLY_FLAG`) live in the link field's top bits; every link walk masks with `ADDRESS_MASK`. `immediate` and `compile-only` set them there.
 * **Rust:** `find_header` returns the link field, `cfa_of(link)` steps over the name, and `find_word` (cfa) is built on them. `name_of(cfa)` searches the chain for the stepper's trace output.
-* **Forth:** `name> ( nfa -- xt )`, `>name ( xt -- nfa | 0 )`, `>link ( xt -- lfa )`, `>flags ( xt -- flags )`. `>name` has to search the dictionary, because a name can't be found by stepping back from the code field (fig-Forth used a high bit on the last character for that; a search is simpler, and only `see`, `forget` and the debug tools need it).
+* **Forth:** `name> ( nfa -- xt )`, `>name ( xt -- nfa | 0 )`, `>link ( xt -- lfa )`, `>flags ( xt -- flags )`. `>name` has to search the dictionary, because a name can't be found by stepping back from the code field (fig-Forth's `TRAVERSE` scans for a high bit set on a name's first and last bytes; a search is simpler, and only `see`, `forget` and the debug tools need it).
 * **`postpone`** gets immediacy from ANS `find` instead of reading flags from behind the cfa.
 * **`debug.fs`:** `words` walks links; `dump` labels link fields (and the immediate flag) and inline names by walking the chain, replacing the old back-pointer heuristics. `cfa>nfa`, `nfa>cfa`, `bp>nfa` and `bp>cfa` are gone.
 
@@ -171,6 +171,15 @@ Tests: 30 unit, 52 black-box (new: `header_words`), 333 core tests, and `core.fr
 * **`README.md`:** describe the memory model, and drop the "two address spaces" caveat.
 * **`ANS.md`:** remove deviation B1 (and its knock-ons), and record the `core.fr` result.
 * **Reference suite in CI:** decide whether `core.fr` can be vendored and added to `cargo test`. The Hayes tester is public domain; check the forth2012-test-suite licence first. If it can't, keep the reproduction instructions.
+
+**Status: done (2026-10-23).**
+* **`doc.md`** has a memory map with real addresses, and a new "Memory, word by word" section: a header comparison table (fig-Forth, F83, f3), then annotated `dump`s of a colon definition (`square`), a variable, a `create … does>` pair (`konst`/`five`), and a string literal, each explained against fig-Forth's `DOCOL`/`DOVAR`/`<BUILDS DOES>`/`(.")`.
+* **A correction:** earlier text said f3's header order was fig-Forth's. It isn't: fig-Forth puts the name before the link (NFA, LFA, CFA, PFA), with the flags in the count byte. f3's order, link first, is F83's. Fixed in `doc.md`, `corelib.fs`, and this file.
+* **`README.md`** describes the single memory and the classic headers; the "separate byte space" text is gone.
+* **`ANS.md`:** B1 and B6 are marked done, and step 4 records the result.
+* **The reference suite is in CI.** `tester.fr` and `core.fr` say "may be distributed freely as long as this copyright notice remains", so they are vendored unmodified in `tests/ans/` (with a README naming the source), and `reference_core_fr` in `tests/forth.rs` requires 0 errors. It takes about 0.2 s.
+* **Found while writing the dumps:** `dump` hit a stack underflow on any cell that fell through every heuristic (a stage 3 slip). It also raised a misaligned-address error when a plain value such as 5 was tried as an address. Both are fixed: `addr?` guards the call heuristics.
+* **The buffer region** had room for four 256-byte buffers but only three are used; it is now three.
 
 ---
 

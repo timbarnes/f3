@@ -152,15 +152,19 @@ variable word-counter
 : const-value? ( addr -- bool )        \ Identifies a constant's storage cell
     cell- @ op:constant =    ;
 
-: def-call?  ( addr -- )           \ Identifies a compiled call to a Forth definition
-    @ @ op:definition =
+: addr? ( v -- bool )               \ Could v be the address of a cell in the dictionary?
+    dup here u< swap dup aligned = and ;
+
+: def-call?  ( addr -- bool )       \ Identifies a compiled call to a Forth definition
+    @ dup addr? if @ op:definition = else drop FALSE then
     ;
 
-: var-call?  ( addr -- )            \ Identifies a compiled reference to a variable
-    @ @
-    dup op:variable =
-    swap op:constant =
-    or
+: var-call?  ( addr -- bool )       \ Identifies a compiled reference to a variable
+    @ dup addr? if
+        @ dup op:variable =
+        swap op:constant =
+        or
+    else drop FALSE then
     ;
 
 \ The master controller that dispatches to a display function
@@ -187,7 +191,7 @@ variable word-counter
     dup offset-value?       if ."    Branch offset "                 exit then
     dup dup def-call?       if ." Definition call: "       dump-word exit else drop then
     dup dup var-call?       if ."    Var/Const ref "       dump-word exit else drop then
-    drop ."   Compiled value "
+    ."   Compiled value "               \ like every case above, leaves addr for dump-cell
     ;
 
 : dump-header

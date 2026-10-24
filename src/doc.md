@@ -15,7 +15,7 @@ Three string buffers, 256 bytes each, sit between the dictionary and the stacks:
 - PAD - a working area used by `parse-to` (and words built on it, like `text` and `char`). The interpreter itself reads tokens in place in the TIB.
 - TMP - a second working area where strings are staged. `s"` (interpreted), `read-line`, and `builtin-name` use it.
 
-The dictionary is a linked list, implemented directly in memory, using link fields to string words together like this, as in fig-Forth (each box is a cell, except the name, which takes as many cells as it needs):
+The dictionary is a linked list, implemented directly in memory, using link fields to string words together like this (each box is a cell, except the name, which takes as many cells as it needs). The order is F83's (Laxen and Perry); fig-Forth puts the name first (see [Memory, word by word](#memory-word-by-word)):
 
 | lfa                | nfa                                   | cfa                 | pfa                          |
 | ------------------ | ------------------------------------- | ------------------- | ---------------------------- |
@@ -48,11 +48,118 @@ The heap is 1 MB, **byte-addressed**, with 8-byte cells (`1 cells` is 8) at alig
 [ system variables | dictionary ] [ TIB PAD TMP ] [ 1024 cells        ] [ 1024 cells           ]
 ```
 
+With real addresses (decimal; `here` is just after booting, and moves as corelib changes):
+
+| Address   | What                                   | Forth name / Rust constant |
+| --------- | -------------------------------------- | -------------------------- |
+| 0         | unused: a link of 0 ends the chain     |                            |
+| 8         | `dp` (HERE lives in its value, at 32)  | `dp`, `here_ptr`           |
+| 40        | `context` (its value is at 64)         | `context`, `context_ptr`   |
+| 72        | the rest of the dictionary: `'pad`, `base`, ..., the builtins, then corelib.fs | |
+| 45,824    | HERE after booting: the first free byte | `here`                    |
+| 1,031,416 | TIB, the input line (256 bytes)        | `'tib @`, `DICT_LIMIT`, `TIB_START` |
+| 1,031,672 | PAD (256 bytes)                        | `pad`, `PAD_START`         |
+| 1,031,928 | TMP (256 bytes)                        | `tmp @`, `TMP_START`       |
+| 1,032,184 | the data stack's limit (1024 cells below sp0) |                     |
+| 1,040,376 | the empty data stack; it grows down    | `sp0`, `STACK_START`       |
+| 1,048,568 | the empty return stack; it grows down  | `rp0`, `RET_START`         |
+| 1,048,576 | the end of memory                      | `DATA_SIZE`                |
+
 - **The dictionary** grows up from address 0. `,` and `allot` stop at `DICT_LIMIT` with "dictionary full". `allot` counts bytes, `,` aligns HERE to a cell first, and `align`/`aligned` round up to a cell.
-- **Each word** starts with a link field, as in fig-Forth: `[link][name][code field][parameters]`. The link holds the previous word's link address, and 0 ends the chain. `,` and `allot` simply append to the newest word.
+- **Each word** starts with a link field: `[link][name][code field][parameters]`. The link holds the previous word's link address, and 0 ends the chain. `,` and `allot` simply append to the newest word.
 - **The data stack and the return stack** each have 1024 cells, and grow down. Overflow and underflow are errors.
 - **The stacks are addressable** from Forth: `sp@` is the address of the top item (the item `n` deep is at `sp@ + n cells`), and `sp0` is `sp@` when the stack is empty. `rp@` and `rp0` work the same for the return stack. `depth`, `pick`, `roll`, `clear`, `.s`, and `.rs` are written in Forth on top of these.
 - **Strings are bytes in the same memory.** `c@`, `c!`, `c,` and `cmove` address bytes, `@` and `!` cells. A buffer is `create buf 100 allot` (or the f3 helper `100 s-allot`). Counted strings hold at most 255 characters.
+
+## Memory, word by word
+
+This section shows real dumps, made with `' name >link n dump` (from `debug.fs`), so the layouts can be checked against the diagrams in the Forth books. The addresses come from one build; yours will differ.
+
+### Headers, compared with the classic Forths
+
+| | fig-Forth (1978) | F83 (1983) | f3 |
+|---|---|---|---|
+| Order | name, link, code, parameters | (view), link, name, code, parameters | link, name, code, parameters |
+| Link points to | the previous word's name field | the previous word's link field | the previous word's link field |
+| Flags | in the count byte: `$40` immediate, `$20` smudge, `$80` delimiter | in the count byte | in the link field's top bits (`IMMEDIATE_FLAG`, `COMPILE_ONLY_FLAG`) |
+| Longest name | 31 | 31 | 255 |
+| Hiding a word until `;` | the smudge bit | the smudge bit | `context` isn't updated until `;` (`last` is the newest header) |
+| Cell | 2 bytes | 2 bytes | 8 bytes |
+| Code field holds | the address of machine code (`DOCOL`, `DOVAR`, ...) | the same | an opcode (`op:definition`, `op:variable`, ...), or a builtin's index |
+
+Moving from code field to name is the awkward direction in every layout, because names vary in length. fig-Forth's `NFA` uses `TRAVERSE`, which scans back for the delimiter bit set on a name's first and last bytes. f3's `>name` searches the dictionary instead, which is slower but needs no marker bits. Only `see`, `forget` and the debug tools use it.
+
+Names are stored little-endian in the cell, so the dump's hex column reads right to left: `65726175717306` is the bytes `06 73 71 75 61 72 65`, that is, a count of 6 and then `s q u a r e`.
+
+### A colon definition: `: square dup * ;`
+
+```
+  45824              B2D8               45784       Link field
+  45832     65726175717306   28554735555539718             NFA: square
+  45840    800000000000005  576460752303423493           Token: DEFINITION
+  45848   2000000000000015 2305843009213693973         Builtin: 21: dup
+  45856   2000000000000002 2305843009213693954         Builtin:  2: *
+  45864    800000000000009  576460752303423497           Token: EXIT
+```
+
+* **45824, the link field (lfa):** 45784 is the previous word's link field. `' square >link` gives 45824.
+* **45832, the name field (nfa):** 6 `square`, padded to one cell. `context` holds this address once `;` has run. `' square >name` gives 45832.
+* **45840, the code field (cfa):** `op:definition`, the equivalent of fig-Forth's `DOCOL`. `' square` gives 45840, and that is what a definition that calls `square` compiles.
+* **45848 onwards, the parameter field (pfa):** the body. `dup` and `*` are builtins, so they are compiled as their index in the Rust table (21 and 2), flagged with `BUILTIN_FLAG`. A call to a Forth word would be its cfa. `op:exit` returns (fig-Forth's `;S`).
+
+`see square` prints `: square dup * ;` back by walking the same cells.
+
+Execution: when the inner interpreter (`i_definition` in `inner.rs`) meets 45840 in some definition, it pushes its return address on the return stack, reads the code field at 45840, sees `op:definition`, and continues at 45848. Each builtin cell calls a Rust function directly. `op:exit` pops the return address. This is indirect threading, as in fig-Forth, except that the code field holds an opcode rather than the address of machine code.
+
+### A variable: `variable v  7 v !`
+
+```
+  45872               B300               45824       Link field
+  45880               7601               30209             NFA: v
+  45888    800000000000001  576460752303423489           Token: VARIABLE
+  45896                  7                   7            Value
+```
+
+The code field is `op:variable` (fig-Forth's `DOVAR`): running `v` pushes the address of the next cell, 45896, where `!` stored 7. A constant is the same with `op:constant` (`DOCON`), which pushes the cell's contents instead.
+
+### A defining word: `: konst create , does> @ ;  5 konst five`
+
+```
+  45904              B330               45872       Link field
+  45912       74736E6F6B05     128039122856709             NFA: konst
+  45920    800000000000005  576460752303423493           Token: DEFINITION
+  45928              1270                4720 Definition call: create
+  45936  200000000000002C 2305843009213693996         Builtin: 44: ,
+  45944    800000000000015  576460752303423509           Token: DOES>
+  45952  2000000000000027 2305843009213693991         Builtin: 39: @
+  45960    800000000000009  576460752303423497           Token: EXIT
+
+  45968              B350               45904       Link field
+  45976         6576696604        435778315780             NFA: five
+  45984    800000000000014  576460752303423508           Token: CREATED
+  45992               B380               45952   Compiled value
+  46000                  5                   5   Compiled value
+```
+
+* **`konst`** is an ordinary colon definition. `does>` compiled `op:does` (45944), and the code after it, `@ ;`, starts at 45952.
+* **Running `5 konst five`**: `create` builds the header of `five`, with code field `op:created` and an empty `does>` slot. `,` stores 5 at 46000. Then `op:does` stores 45952, the address of the code after it, in `five`'s `does>` slot (45992), and returns from `konst`.
+* **Running `five`**: `op:created` pushes the data field address, 46000 (`' five >body`), then runs the code at 45952: `@` fetches 5, and `op:exit` returns.
+
+This is fig-Forth's `<BUILDS ... DOES>` (ANS spells it `CREATE ... DOES>`). There, the code field points at `DODOES` and the first parameter cell holds the address of the `DOES>` code; f3 keeps that address in the cell after `op:created` instead. `see five` prints `Created: five data at 46000 does> code at 45952`.
+
+### A string literal: `: hi ." hi" ;`
+
+```
+  46008               B390               45968       Link field
+  46016             696802             6907906             NFA: hi
+  46024    800000000000005  576460752303423493           Token: DEFINITION
+  46032    800000000000004  576460752303423492           Token: STRLIT
+  46040             696802             6907906  String Literal: hi
+  46048              3930               14640 Definition call: ctype
+  46056    800000000000009  576460752303423497           Token: EXIT
+```
+
+`."` compiles `op:strlit` followed by the counted string itself, padded to a cell, then a call to `ctype`. At run time `op:strlit` pushes the string's address (46040) and skips past the padding. This is fig-Forth's `(.")`, which also keeps the string inline. `s"` compiles the same literal followed by `count` instead of `ctype`, and `c"` leaves the counted string's address.
 
 ## Errors
 
@@ -122,13 +229,14 @@ What is still different, deliberately:
 - **`/` and `mod` truncate toward zero** (symmetric division, which the standard allows). `fm/mod` is the floored version.
 - **Missing:** most of the Double word set (`d.`, `dnegate`, ...), and `2constant`/`2variable`.
 - **Numbers** accept `#` (decimal), `$` (hex), and `%` (binary) prefixes, and honour `base`.
-- **f3 extensions:** `."` also works outside definitions, and there are `for … next`, `compile-only`, and `forget`. f3's own defining words (`constant`, `variable`, `string`, and the `sequences.fs` arrays) are built on the header-only `(create)` and `(close)`.
+- **f3 extensions:** `."` also works outside definitions, and there are `for … next`, `compile-only`, and `forget`. f3's own defining words (`constant`, `variable`, and the `sequences.fs` arrays) are built on the header-only `(create)` and `(close)`.
 
 ## Testing
 
 - `cargo test` runs the Rust unit tests and `tests/forth.rs`, which drives the real `f3` binary. That covers:
   - the regression suite (`src/forth/regression.fs`);
   - Hayes-style core tests (`src/forth/tester.fs` with `src/forth/core-tests.fs`, about 330 `T{ ... -> ... }T` tests of the ANS-compatible words);
+  - the reference ANS core tests, John Hayes' `core.fr` as maintained by Gerry Jackson (`tests/ans/`, all 638 pass);
   - a 10,000-line fuzz test;
   - one test for each bug fixed in the review (`plan/ANALYSIS.md`).
 - `cargo clippy --all-targets -- -D warnings` must be clean.
