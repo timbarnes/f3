@@ -1,6 +1,6 @@
 /// Input-output words
 use crate::internals::files::{FType, FileHandle, FileMode};
-use crate::kernel::{throw, throw_code, BUF_SIZE, FILE_ERROR, NO_SUCH_FILE};
+use crate::kernel::{throw, throw_code, BUF_SIZE, FILE_ERROR, NO_SUCH_FILE, TIB_START};
 use crate::runtime::{ForthRuntime, FALSE, TRUE};
 use std::io::{self, Write};
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
@@ -57,19 +57,11 @@ impl ForthRuntime {
         }
     }
 
-    /// key ( -- c | 0 ) get a character and push on the stack, or zero if none available
+    /// key ( -- c | 0 ) get a character from the console and push on the stack, or zero if none available.
+    ///     Like ACCEPT, it reads the user's input (reader 0), even while a file is being included.
     pub fn f_key(&mut self) {
-        if let Some(reader) = self.reader.last_mut() {
-            let c = reader.read_char();
-            match c {
-                Some(c) => {
-                    self.kernel.push(c as u8 as i64);
-                }
-                None => {
-                    self.kernel.push(0);
-                }
-            }
-        }
+        let c = self.reader[0].read_char();
+        self.kernel.push(c.map_or(0, |c| c as u8 as i64));
     }
 
     /// key? ( -- b ) Checks to see if a character is ready to be read.
@@ -84,8 +76,9 @@ impl ForthRuntime {
         }
     }
 
-    /// accept ( c-addr u -- u2 ) Read a line, storing up to u characters at c-addr; return the count.
-    ///     If the read fails, we assume EOF, and pop the reader. Returned length will be 0.
+    /// accept ( c-addr u -- u2 ) Read a line from the console, storing up to u characters at c-addr;
+    ///     return the count. It reads the user's input (reader 0) even inside an included file (ANS).
+    ///     At the end of stdin the length is 0, and the interpreter exits.
     ///
     ///     Return the start of the string, and the number of characters read.
     ///     Longer lines are truncated to u characters (at most 255, the counted-string limit).
@@ -94,7 +87,11 @@ impl ForthRuntime {
         if self.kernel.stack_check(2, "accept") {
             let max_len = self.kernel.pop().max(0) as usize;
             let dest = self.kernel.pop() as usize;
-            let line = self.read_line().unwrap_or_default();
+            let line = self.reader[0].get_line();
+            if line.is_none() {
+                self.exit_flag = true; // the end of stdin
+            }
+            let line = line.unwrap_or_default();
             let length = line.len().min(max_len);
             self.kernel.bytes_write(&line[..length], dest);
             self.kernel.push(length as i64);
@@ -136,10 +133,12 @@ impl ForthRuntime {
         self.kernel.set(self.tib_ptr, addr);
         self.kernel.set(self.tib_size_ptr, len);
         self.kernel.set(self.tib_in_ptr, 0);
+        let evaluating = std::mem::replace(&mut self.evaluating, true); // REFILL is false in a string
         let result = catch_unwind(AssertUnwindSafe(|| self.f_eval()));
         self.kernel.set(self.tib_ptr, saved.0);
         self.kernel.set(self.tib_size_ptr, saved.1);
         self.kernel.set(self.tib_in_ptr, saved.2);
+        self.evaluating = evaluating;
         if let Err(payload) = result {
             resume_unwind(payload);
         }
@@ -150,11 +149,18 @@ impl ForthRuntime {
     ///     An error propagates (to CATCH, or to QUIT) after the input line has been restored.
     ///
     fn interpret_source(&mut self, source: FileHandle) {
-        // save the current input line, to restore afterwards
-        let tib = self.kernel.get(self.tib_ptr) as usize;
-        let size = self.kernel.get(self.tib_size_ptr);
-        let line = self.kernel.string_slice(tib, size as usize).to_vec();
-        let offset = self.kernel.get(self.tib_in_ptr);
+        self.nest_in();
+        // Save the current input source, to restore afterwards. The file's lines are read into
+        // the TIB, so its contents are saved too: the current line may be there, or (inside
+        // EVALUATE) a line the EVALUATE string came from. The string itself is never written.
+        let saved = (
+            self.kernel.get(self.tib_ptr),
+            self.kernel.get(self.tib_size_ptr),
+            self.kernel.get(self.tib_in_ptr),
+        );
+        let tib = self.kernel.string_slice(TIB_START, BUF_SIZE).to_vec();
+        let evaluating = std::mem::replace(&mut self.evaluating, false);
+        self.kernel.set(self.tib_ptr, TIB_START as i64);
         let depth = self.reader.len();
         self.reader.push(source);
         let result = catch_unwind(AssertUnwindSafe(|| {
@@ -164,9 +170,12 @@ impl ForthRuntime {
             }
         }));
         self.reader.truncate(depth);
-        self.kernel.bytes_write(&line, tib);
-        self.kernel.set(self.tib_size_ptr, size);
-        self.kernel.set(self.tib_in_ptr, offset);
+        self.kernel.bytes_write(&tib, TIB_START);
+        self.kernel.set(self.tib_ptr, saved.0);
+        self.kernel.set(self.tib_size_ptr, saved.1);
+        self.kernel.set(self.tib_in_ptr, saved.2);
+        self.evaluating = evaluating;
+        self.nest -= 1;
         if let Err(payload) = result {
             resume_unwind(payload);
         }
@@ -187,6 +196,9 @@ impl ForthRuntime {
     }
 
     fn fill_tib(&mut self) -> bool {
+        if self.evaluating {
+            return false; // an EVALUATE string has no next line (ANS)
+        }
         let tib = self.kernel.get(self.tib_ptr) as usize;
         let line = self.read_line();
         let ok = line.is_some();
@@ -300,8 +312,8 @@ impl ForthRuntime {
     }
 
     /// open-file ( c-addr u fam -- file-id ior ) Open the file named by the characters at c-addr,
-    ///     with file access mode fam (R/O, W/O, R/W). W/O and R/W create the file if necessary;
-    ///     W/O truncates it. ior is 0 on success, -1 on failure.
+    ///     with file access mode fam (R/O, W/O, R/W). W/O creates or truncates the file;
+    ///     R/O and R/W need it to exist (CREATE-FILE makes a new one). ior is 0 on success, -1 on failure.
     pub fn f_open_file(&mut self) {
         self.kernel.stack_check(3, "open-file");
         let mode = match self.kernel.pop() {

@@ -303,6 +303,7 @@ impl ForthRuntime {
     /// r@ ( -- n ) Gets the top value from the return stack, pushing the value to the calculation stack
     ///
     pub fn f_r_get(&mut self) {
+        self.kernel.stack_check_r(1, "r@");
         let val = self.kernel.get(self.kernel.get_return_ptr());
         self.kernel.push(val);
     }

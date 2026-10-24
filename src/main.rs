@@ -73,6 +73,14 @@ fn main() {
     let mut config = Config::new();
     config.process_args();
 
-    let mut interpreter = boot_forth(&config);
-    run_forth(&mut interpreter);
+    // EXECUTE, CATCH, EVALUATE and INCLUDED nest Rust calls up to MAX_NEST deep: a debug build
+    // needs more than the 8 MB main thread for that, so the interpreter gets its own stack.
+    let interpreter = std::thread::Builder::new()
+        .stack_size(64 << 20)
+        .spawn(move || {
+            let mut interpreter = boot_forth(&config);
+            run_forth(&mut interpreter);
+        })
+        .expect("start the interpreter thread");
+    let _ = interpreter.join();
 }

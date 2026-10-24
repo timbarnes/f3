@@ -17,8 +17,8 @@ use crate::internals::terminal;
 /// Everything else is defined in Forth, in corelib.fs.
 ///
 use crate::kernel::{
-    throw_code, CELL, ForthError, ABORT_CODE, ABORT_QUOTE, DICTIONARY_FULL, Kernel, DICT_LIMIT, PAD_START, RET_START, STACK_START,
-    TIB_START, TMP_START, WORD_START,
+    throw_code, CELL, ForthError, ABORT_CODE, ABORT_QUOTE, DICTIONARY_FULL, Kernel, DICT_LIMIT, PAD_START, RET_SIZE, RET_START,
+    RSTACK_OVERFLOW, STACK_START, TIB_START, TMP_START, WORD_START,
 };
 use std::any::Any;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
@@ -55,7 +55,12 @@ pub const FALSE: i64 = 0;
 pub const IMMEDIATE_FLAG: usize = 0x4000000000000000; // the immediate flag bit
 pub const BUILTIN_FLAG: usize = 0x2000000000000000; // the builtin flag bit
 pub const COMPILE_ONLY_FLAG: usize = 0x1000000000000000; // the word is an error outside a definition
-pub const ADDRESS_MASK: usize = 0x00FFFFFFFFFFFFFF; // to get rid of flags
+pub use crate::kernel::ADDRESS_MASK;
+
+// EXECUTE, CATCH, EVALUATE and INCLUDED each nest a Rust call, which uses the native stack.
+// The nesting is limited like the return stack, so runaway recursion through them is a
+// return stack overflow (-5) instead of a native stack overflow, which would abort the process.
+pub const MAX_NEST: usize = RET_SIZE;
 
 type Builtin = fn(&mut ForthRuntime);
 
@@ -82,6 +87,8 @@ pub struct ForthRuntime {
     pub timer: Instant,          // for timing things
     pub pending_def: Option<PendingDef>, // dictionary state before the latest CREATE
     pub caught: Option<ForthError>,      // the error most recently caught by CATCH, for THROW to re-raise
+    pub nest: usize,                     // Rust-level nesting depth (see MAX_NEST)
+    pub evaluating: bool,                // the input source is a string (EVALUATE): REFILL is false
 }
 
 /// Dictionary pointers saved by CREATE, so an error before the word is closed can roll it back.
@@ -116,6 +123,8 @@ impl ForthRuntime {
             timer: Instant::now(),
             pending_def: None,
             caught: None,
+            nest: 0,
+            evaluating: false,
         };
         runtime.reader.push(FileHandle::stdin()); // stdin is always the bottom reader
         runtime
@@ -184,6 +193,16 @@ impl ForthRuntime {
         self.tracing = mode != 0;
     }
 
+    /// nest_in counts one more level of Rust nesting, and throws -5 past MAX_NEST.
+    ///     The caller decrements nest when it returns normally; CATCH and recover reset it after an error.
+    ///
+    pub fn nest_in(&mut self) {
+        self.nest += 1;
+        if self.nest > MAX_NEST {
+            throw_code(RSTACK_OVERFLOW, "return stack overflow (nesting too deep)");
+        }
+    }
+
     /// abort empties the stack, resets any pending operations, and returns to the prompt
     ///     There is a version called abort" implemented in Forth, which prints an error message
     ///
@@ -198,7 +217,7 @@ impl ForthRuntime {
     pub fn f_catch(&mut self) {
         self.kernel.stack_check(1, "catch");
         let xt = self.kernel.pop();
-        let (sp, rp) = (self.kernel.get_stack_ptr(), self.kernel.get_return_ptr());
+        let (sp, rp, nest) = (self.kernel.get_stack_ptr(), self.kernel.get_return_ptr(), self.nest);
         let result = catch_unwind(AssertUnwindSafe(|| {
             self.kernel.push(xt);
             self.f_execute();
@@ -209,6 +228,7 @@ impl ForthRuntime {
                 Ok(error) => {
                     self.kernel.set_stack_ptr(sp);
                     self.kernel.set_return_ptr(rp);
+                    self.nest = nest;
                     self.kernel.push(error.code);
                     self.caught = Some(*error);
                 }
@@ -264,6 +284,7 @@ impl ForthRuntime {
         }
 
         self.kernel.reset();
+        self.nest = 0;
         self.set_compile_mode(false);
         if let Some(def) = self.pending_def.take() {
             // CREATE ran but the word was never closed (CONTEXT unchanged): remove it
@@ -273,6 +294,8 @@ impl ForthRuntime {
             }
         }
         self.reader.truncate(1); // abandon any files being included
+        self.kernel.set(self.tib_ptr, TIB_START as i64); // input from the TIB, not an EVALUATE string
+        self.evaluating = false;
         if terminal::get_raw_mode().unwrap_or(false) {
             let _ = terminal::disable_raw();
         }
@@ -292,7 +315,6 @@ impl ForthRuntime {
     ///     return pointer to first parameter field - the code field pointer or cfa
     ///     This is used for making headers for words, variables, and constants.
     fn make_word(&mut self, name: &str, args: &[i64]) -> usize {
-        // [link][name][code field + args]: the link field holds the previous word's link address
         // [link][name][code field + args]: the link field holds the previous word's link address
         let previous = self.kernel.get(self.context_ptr) as usize - CELL;
         self.emit_cell(previous as i64);

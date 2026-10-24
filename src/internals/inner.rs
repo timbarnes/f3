@@ -99,6 +99,7 @@ impl ForthRuntime {
     ///    xt  means the execution token: a cfa, or a builtin index overlaid with BUILTIN_FLAG
     ///
     pub fn i_definition(&mut self, start: usize) {
+        self.nest_in();
         let entry_rp = self.kernel.get_return_ptr();
         let mut pc = start;
         let mut call_depth: usize = 1;
@@ -197,6 +198,7 @@ impl ForthRuntime {
                         self.set_does(pc + CELL); // the code after DOES> belongs to the new word
                     }
                     if self.kernel.get_return_ptr() == entry_rp {
+                        self.nest -= 1;
                         return; // the word we were called for is finished
                     }
                     pc = self.kernel.pop_r() as usize;

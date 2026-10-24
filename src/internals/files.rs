@@ -6,7 +6,7 @@ use crossterm::event::{poll, read, Event, KeyCode, KeyEvent};
 ///      source code is read from a file or stdin one line at a time,
 ///      and the file words (open-file etc.) read and write lines.
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -70,7 +70,7 @@ impl FileHandle {
     }
 
     /// open opens a file: read-only files are buffered for line reading;
-    ///     write-only files are created or truncated; read-write files are created if necessary.
+    ///     write-only files are created or truncated; read-write files must exist (ANS).
     pub fn open(path: &Path, mode: FileMode) -> io::Result<FileHandle> {
         let source = match mode {
             FileMode::RO => FType::BReader(BufReader::new(File::open(path)?)),
@@ -85,8 +85,6 @@ impl FileHandle {
                 OpenOptions::new()
                     .read(true)
                     .write(true)
-                    .create(true)
-                    .truncate(false)
                     .open(path)?,
             ),
         };
@@ -136,7 +134,15 @@ impl FileHandle {
     pub fn read_line(&mut self, max: usize) -> io::Result<Option<Vec<u8>>> {
         let result = match &mut self.source {
             FType::BReader(br) => read_line_max(br, max)?,
-            FType::File(f) => read_line_max(f, max)?,
+            FType::File(f) => {
+                // read through a buffer, then seek back over what it read ahead, so the
+                // position is right for the next read or write
+                let mut br = BufReader::new(&*f);
+                let result = read_line_max(&mut br, max)?;
+                let ahead = br.buffer().len() as i64;
+                f.seek(SeekFrom::Current(-ahead))?;
+                result
+            }
             FType::Stdin => read_line_max(&mut io::stdin().lock(), max)?,
         };
         Ok(result.map(|(line, consumed)| {
@@ -258,6 +264,22 @@ mod tests {
             lines.push(String::from_utf8(line).unwrap());
         }
         assert_eq!(lines, ["abcd", "ef", "xy", "", "z"]);
+    }
+
+    #[test]
+    fn test_read_write_file() {
+        // R/W needs an existing file; reading through it leaves the position after the line read
+        let path = std::env::temp_dir().join("f3_files_rw.txt");
+        let _ = std::fs::remove_file(&path);
+        assert!(FileHandle::open(&path, FileMode::RW).is_err());
+        std::fs::write(&path, "one\ntwo\nthree\n").unwrap();
+        let mut f = FileHandle::open(&path, FileMode::RW).unwrap();
+        assert_eq!(f.read_line(100).unwrap().unwrap(), b"one");
+        f.write_line(b"TWO").unwrap();
+        assert_eq!(f.read_line(100).unwrap().unwrap(), b"three");
+        assert!(f.read_line(100).unwrap().is_none());
+        drop(f);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "one\nTWO\nthree\n");
     }
 
     #[test]

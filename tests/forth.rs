@@ -128,7 +128,8 @@ fn ans_core_tests() {
 #[test]
 fn reference_core_fr() {
     // the Hayes/Jackson core.fr itself (tests/ans), not f3's port: every test must pass
-    let r = run("include tests/ans/tester.fr\ninclude tests/ans/core.fr\n.\" errors: \" #errors ?");
+    // core.fr's ACCEPT test reads a line from the console, which is the line after the include
+    let r = run("include tests/ans/tester.fr\ninclude tests/ans/core.fr\na line for accept\n.\" errors: \" #errors ?");
     assert!(r.ok && r.out.contains("End of Core word set tests"), "{}", r.out);
     assert!(r.out.contains("errors: 0 "), "{}", r.out);
 }
@@ -584,4 +585,56 @@ fn fuzz_random_input_never_crashes() {
         let end = r.out.ceil_char_boundary((i + 100).min(r.out.len()));
         panic!("engine panic:\n{}", &r.out[start..end]);
     }
+}
+
+// ------------------------------------------- review fixes
+
+#[test]
+fn nested_execute_catch_evaluate_include_are_bounded() {
+    // recursion through Rust-level nesting is a -5 error, not a native stack overflow
+    assert_survives("variable v : x v @ execute ; ' x v ! x");
+    assert_survives("variable v : y v @ catch ; ' y v ! y");
+    assert_survives(": z s\" z\" evaluate ; z");
+    let file = std::env::temp_dir().join("f3_self_include.fs");
+    std::fs::write(&file, format!("s\" {}\" included\n", file.to_str().unwrap())).unwrap();
+    assert_survives(&format!("s\" {}\" included", file.to_str().unwrap()));
+    // the counter is restored after a caught error, so the limit doesn't creep down
+    let script = "variable v : x v @ execute ; ' x v ! ' x catch\n\
+         variable w : d dup if 1- w @ execute else drop then ; ' d w ! 1000 d 1";
+    assert_eq!(stack(script), "-5 1");
+}
+
+#[test]
+fn include_inside_evaluate_leaves_the_string_alone() {
+    // the file's lines go to the TIB, not over the EVALUATE string and the code after it
+    let file = std::env::temp_dir().join("f3_long_line.fs");
+    std::fs::write(&file, format!("( {} )\n", "x".repeat(240))).unwrap();
+    let script = format!(
+        ": go s\" include {}\" evaluate 1 2 + ;\n: after 4 5 + ;\ngo go after",
+        file.to_str().unwrap()
+    );
+    assert_eq!(stack(&script), "3 3 9");
+    // and the rest of the console line still runs after evaluate
+    let script = format!("s\" include {}\" evaluate 7", file.to_str().unwrap());
+    assert_eq!(stack(&script), "7");
+}
+
+#[test]
+fn refill_is_false_inside_evaluate() {
+    assert_eq!(stack("s\" refill\" evaluate\n99"), "0 99");
+}
+
+#[test]
+fn accept_reads_the_console_inside_an_included_file() {
+    let file = std::env::temp_dir().join("f3_accept.fs");
+    std::fs::write(&file, "64 s-allot constant ab ab 64 accept ab swap type\nfrom the file\n").unwrap();
+    let r = run_raw(&format!("hide-stack\ns\" {}\" included\nfrom the console\nbye\n", file.to_str().unwrap()));
+    assert!(r.out.contains("from the console"), "{}", r.out);
+    assert!(r.out.contains("from ?"), "the file's own line should still be interpreted:\n{}", r.out);
+}
+
+#[test]
+fn r_fetch_checks_the_return_stack() {
+    let r = run("r@\n12345 .");
+    assert!(r.out.contains("return stack underflow") && r.out.contains("12345"), "{}", r.out);
 }

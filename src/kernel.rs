@@ -74,9 +74,8 @@ pub fn throw_code(code: i64, msg: impl Into<String>) -> ! {
 
 /// The primary data structure for the Forth engine
 ///
-///     Forth's main data structure is a fixed array of integers (overloaded with characters and unsigned values).
-///     This holds all the program data - words, variables, constants, stack etc. used by Forth
-///     Strings are kept in a separate array, which is simpler than packing ASCII characters into 64 bit words
+///     Forth's main data structure is one byte-addressed array, with 8-byte cells at aligned addresses.
+///     This holds all the program data - words, variables, constants, strings, buffers and both stacks
 ///     The Rust side of the engine keeps track of some variables with names following a *_ptr pattern.
 ///     This allows these values to be easily used by both Rust and Forth.
 ///     A small reader module manages input from files and stdin. Unfortunatly there is no easy way to provide
